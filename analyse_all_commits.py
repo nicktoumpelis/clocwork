@@ -18,13 +18,21 @@ REPO_DIR = sys.argv[1] if len(sys.argv) > 1 else os.path.join(SCRIPT_DIR, "..", 
 REPO_DIR = os.path.abspath(REPO_DIR)
 OUTPUT_FILE = os.path.join(SCRIPT_DIR, "full_commit_data.json")
 
-# AI agent patterns (case-insensitive), checked in order (most specific first)
+# AI agent patterns (case-insensitive), checked in order (most specific first).
+# Within a model family the "(1M context)" variant MUST precede the bare one,
+# otherwise the bare pattern would also swallow the 1M commits.
 AGENT_PATTERNS = [
+    (r"Claude Fable 5", "Claude Fable 5"),
+    (r"Claude Opus 4\.8 \(1M context\)", "Claude Opus 4.8 (1M)"),
+    (r"Claude Opus 4\.8", "Claude Opus 4.8"),
+    (r"Claude Opus 4\.7 \(1M context\)", "Claude Opus 4.7 (1M)"),
+    (r"Claude Opus 4\.7", "Claude Opus 4.7"),
     (r"Claude Opus 4\.6 \(1M context\)", "Claude Opus 4.6 (1M)"),
     (r"Claude Opus 4\.6", "Claude Opus 4.6"),
     (r"Claude Opus 4\.5", "Claude Opus 4.5"),
     (r"Claude Sonnet 4\.6", "Claude Sonnet 4.6"),
     (r"Claude Sonnet 4\.5", "Claude Sonnet 4.5"),
+    (r"Claude Haiku 4\.5", "Claude Haiku 4.5"),
     (r"Claude", "Claude (unknown version)"),
 ]
 
