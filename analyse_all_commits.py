@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Analyse every commit in OldApp's history: cumulative Swift LOC, AI agent detection, biggest jumps.
+"""Analyse every commit in one repository's history: cumulative Swift LOC, AI agent detection, biggest jumps.
 
 Usage:
     python3 analyse_all_commits.py [path-to-repo]
 
-If no path is given, defaults to the sibling 'OldApp' directory.
+If no path is given, defaults to the sibling 'MyApp' directory. The repository
+was renamed once (from 'OldApp'); commits from before the
+rename are still in this history, so the analysed range spans both names.
 """
 
 import json
@@ -14,7 +16,7 @@ import subprocess
 import sys
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-REPO_DIR = sys.argv[1] if len(sys.argv) > 1 else os.path.join(SCRIPT_DIR, "..", "OldApp")
+REPO_DIR = sys.argv[1] if len(sys.argv) > 1 else os.path.join(SCRIPT_DIR, "..", "MyApp")
 REPO_DIR = os.path.abspath(REPO_DIR)
 OUTPUT_FILE = os.path.join(SCRIPT_DIR, "full_commit_data.json")
 
