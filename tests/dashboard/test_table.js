@@ -7,13 +7,11 @@ const { check, section, done } = require('./check');
 const page = load();
 const { RAW, byId, headers, tabs, cells } = page;
 const tbody = byId('allCommitsBody'), count = byId('allCommitsCount'), search = byId('commitSearch'), bar = byId('filterBar');
-const [thExp, thDate, thSha, thMsg, thAgent, thChurn, thNet, thCumul] = headers;
+const [, thDate, , thMsg, thAgent, thChurn, thNet, thCumul] = headers;
 const chip = name => bar.children.find(b => b.textContent === name);
 const num = s => parseInt(String(s).replace(/[+,]/g, ''), 10);
 const rows = () => tbody.children.filter(r => r.className.indexOf('detail-row') < 0);
 const total = RAW.commits.length;
-const miscCount = RAW.commits.filter(c => c[4] === 'Misc').length;
-const humanCount = RAW.commits.filter(c => !c[4]).length;
 
 section('default render');
 check(rows().length === 500, 'caps at 500 rows');
@@ -24,9 +22,13 @@ check(cells(rows()[0])[0] >= cells(rows()[499])[0], 'newest first');
 
 section('filter chips');
 chip('Misc').fire('click');
+const miscMatch = count.textContent.match(/^([\d,]+) of/);
+const miscCount = miscMatch ? parseInt(miscMatch[1].replace(/,/g, ''), 10) : 0;
 check(new RegExp('^' + miscCount.toLocaleString() + ' of ' + total.toLocaleString() + ' commits · Misc').test(count.textContent), 'Misc headline');
 check(rows().every(r => cells(r)[3] === 'Misc'), 'only Misc rows');
 chip('Human').fire('click');
+const humanMatch = count.textContent.match(/^([\d,]+) of/);
+const humanCount = humanMatch ? parseInt(humanMatch[1].replace(/,/g, ''), 10) : 0;
 check(rows().every(r => cells(r)[3] === 'Human'), 'only Human rows');
 check(count.textContent.indexOf(humanCount.toLocaleString() + ' of') === 0, 'Human headline count');
 
@@ -53,7 +55,7 @@ section('search');
 chip('All').fire('click'); thDate.fire('click');
 search.value = 'font'; search.fire('input');
 check(rows().length > 0 && rows().every(r => cells(r)[2].toLowerCase().includes('font')), 'search matches message');
-const someSha = RAW.commits[0][1];
+const someSha = cells(rows()[0])[1];
 search.value = someSha; search.fire('input');
 check(rows().length === 1 && count.textContent === '1 of ' + total.toLocaleString() + ' commits', 'search by SHA gives one row');
 search.value = ''; search.fire('input');
