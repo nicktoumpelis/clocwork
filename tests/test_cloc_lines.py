@@ -49,5 +49,75 @@ class TestExtensionTable(unittest.TestCase):
         self.assertEqual(cl.language_for(".gitignore", self.table), cl.OTHER)
 
 
+DIFF_JSON = {
+    "header": {"cloc_version": "2.10"},
+    "added": {
+        "App/Main.swift": {"blank": 1, "comment": 2, "code": 3, "nFiles": 0},
+        "Tests/AppTests.swift": {"blank": 0, "comment": 1, "code": 2, "nFiles": 0},
+        "README.md": {"blank": 1, "comment": 0, "code": 2, "nFiles": 0},
+        "project.pbxproj": {"blank": 0, "comment": 0, "code": 0, "nFiles": 0},
+    },
+    "removed": {
+        "App/Main.swift": {"blank": 0, "comment": 0, "code": 1, "nFiles": 0},
+        "Tests/AppTests.swift": {"blank": 0, "comment": 0, "code": 0, "nFiles": 0},
+        "README.md": {"blank": 0, "comment": 0, "code": 0, "nFiles": 0},
+    },
+    "modified": {"App/Main.swift": {"blank": 0, "comment": 4, "code": 0, "nFiles": 0}},
+    "same": {},
+    "SUM": {"added": {"code": 7}},
+}
+
+SNAPSHOT_LANG_JSON = {
+    "header": {},
+    "Swift": {"nFiles": 2, "blank": 1, "comment": 3, "code": 5},
+    "Markdown": {"nFiles": 1, "blank": 1, "comment": 0, "code": 2},
+    "SUM": {"blank": 2, "comment": 3, "code": 7, "nFiles": 3},
+}
+
+SNAPSHOT_FILE_JSON = {
+    "header": {},
+    "App/Main.swift": {"blank": 1, "comment": 2, "code": 3, "language": "Swift"},
+    "Tests/AppTests.swift": {"blank": 0, "comment": 1, "code": 2, "language": "Swift"},
+    "README.md": {"blank": 1, "comment": 0, "code": 2, "language": "Markdown"},
+    "SUM": {"blank": 2, "comment": 3, "code": 7, "nFiles": 3},
+}
+
+
+class TestParseDiff(unittest.TestCase):
+    def setUp(self):
+        self.table = cl.parse_extension_table(EXT_TEXT)
+
+    def test_sums_added_and_removed_per_language(self):
+        lines, tests = cl.parse_diff_json(DIFF_JSON, self.table)
+        self.assertEqual(lines["Swift"], [5, 1, 3, 0, 1, 0])
+        self.assertEqual(lines["Markdown"], [2, 0, 0, 0, 1, 0])
+
+    def test_test_files_are_summed_separately(self):
+        _, tests = cl.parse_diff_json(DIFF_JSON, self.table)
+        self.assertEqual(tests, {"Swift": [2, 0, 1, 0, 0, 0]})
+
+    def test_zero_rows_and_modified_are_ignored(self):
+        lines, _ = cl.parse_diff_json(DIFF_JSON, self.table)
+        self.assertNotIn(cl.OTHER, lines)          # pbxproj had all zeros
+        self.assertEqual(lines["Swift"][2], 3)     # modified comment lines not added
+
+    def test_empty_output(self):
+        self.assertEqual(cl.parse_diff_json({}, self.table), ({}, {}))
+
+
+class TestParseSnapshots(unittest.TestCase):
+    def test_by_language(self):
+        snap = cl.parse_snapshot_by_language(SNAPSHOT_LANG_JSON)
+        self.assertEqual(snap, {"Swift": {"code": 5, "comment": 3, "blank": 1},
+                                "Markdown": {"code": 2, "comment": 0, "blank": 1}})
+
+    def test_by_file_splits_tests(self):
+        table = cl.parse_extension_table(EXT_TEXT)
+        all_files, tests = cl.parse_snapshot_by_file(SNAPSHOT_FILE_JSON, table)
+        self.assertEqual(all_files["Swift"], {"code": 5, "comment": 3, "blank": 1})
+        self.assertEqual(all_files["Markdown"], {"code": 2, "comment": 0, "blank": 1})
+        self.assertEqual(tests, {"Swift": {"code": 2, "comment": 1, "blank": 0}})
+
+
 if __name__ == "__main__":
     unittest.main()
