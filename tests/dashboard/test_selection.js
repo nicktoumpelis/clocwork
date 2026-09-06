@@ -23,6 +23,8 @@ page = load({ hash: '#lang=' + encodeURIComponent(LANGS[0]) + '&type=comment&tes
 check(page.run('return SEL.get().lang') === LANGS[0] && page.run('return SEL.get().type') === 'comment' && page.run('return SEL.get().tests') === true, 'selection restored from hash');
 page = load({ hash: '#lang=Nope&type=bogus' });
 check(page.run('return SEL.get().lang') === 'All' && page.run('return SEL.get().type') === 'code', 'invalid hash values ignored');
+page = load({ hash: '#type=constructor' });
+check(page.run('return SEL.get().type') === 'code', "Object.prototype key 'constructor' in hash is ignored");
 
 section('aggregation');
 page = load(); RAW = page.RAW;
@@ -42,6 +44,17 @@ check(st.drops.length === 15 && st.drops.every((idx, i) => i === 0 || st.net[st.
 check(st.peak.value === Math.max.apply(null, st.cumulative) && st.cumulative[st.peak.index] === st.peak.value, 'peak is the max cumulative');
 const headAll = Object.keys(RAW.summary.head_snapshot.all).reduce((s, l) => s + RAW.summary.head_snapshot.all[l].code, 0);
 check(page.run('return SEL.headTotal(false)') === headAll, 'headTotal sums the snapshot for the selection');
+
+section('python/js identity: cumulative[last] === headTotal + drift');
+['All'].concat(LANGS).forEach(function (lang) {
+  ['code', 'comment', 'blank', 'total'].forEach(function (type) {
+    page.run('SEL.set({ lang: ' + JSON.stringify(lang) + ', type: ' + JSON.stringify(type) + ' })');
+    const last = page.run('return SEL.stats().cumulative[' + (n - 1) + ']');
+    const identity = last === page.run('return SEL.headTotal(false)') + page.run('return SEL.drift()');
+    check(identity, 'cumulative[last] === headTotal(false) + drift() for ' + lang + '/' + type);
+  });
+});
+page.run('SEL.set({ lang: "All", type: "code", tests: false })');
 
 section('changing the selection');
 let fired = 0;

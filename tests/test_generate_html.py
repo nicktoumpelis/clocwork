@@ -24,3 +24,30 @@ class TestBuildEmbedded(unittest.TestCase):
         self.assertEqual(e["summary"], {"total_commits": 2})
         self.assertNotIn("daily", e)
         self.assertNotIn("agentStats", e)
+
+
+class TestReplaceDataLine(unittest.TestCase):
+    def test_replaces_whole_line_even_with_embedded_marker(self):
+        # The old blob contains a literal '};' inside a JSON string value, which
+        # broke the previous marker_start/marker_end/index-based replacement.
+        html = (
+            "before line 1\n"
+            "before line 2\n"
+            'var RAW = {"languages":[],"commits":[[0,"abc","2025-01-01","subject with }; inside",""]]};\n'
+            "after line 1\n"
+            "after line 2\n"
+        )
+        new_blob = '{"languages":["Swift"],"commits":[]}'
+        result = gh.replace_data_line(html, new_blob)
+        self.assertEqual(
+            result,
+            "before line 1\n"
+            "before line 2\n"
+            f"var RAW = {new_blob};\n"
+            "after line 1\n"
+            "after line 2\n",
+        )
+
+    def test_missing_line_raises_system_exit(self):
+        with self.assertRaises(SystemExit):
+            gh.replace_data_line("no data line here at all\n", "{}")

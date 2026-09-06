@@ -150,6 +150,13 @@ class TestCache(unittest.TestCase):
                 json.dump({"version": 0, "commits": {"x": {"lines": {}, "test_lines": {}}}}, f)
             self.assertIsNone(cl.Cache(p).get("x"))
 
+    def test_corrupt_cache_file_starts_empty(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "cache.json")
+            with open(p, "w") as f:
+                f.write("{not valid json at all")
+            self.assertIsNone(cl.Cache(p).get("x"))
+
 
 class TestMeasureCommits(unittest.TestCase):
     COMMITS = [

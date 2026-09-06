@@ -303,7 +303,11 @@ def main():
         print(f"Error: {repo} is not a git repository")
         sys.exit(1)
     max_commits = os.environ.get("CLOC_MAX_COMMITS")
-    analyse(repo, OUTPUT_FILE, CACHE_FILE, int(max_commits) if max_commits else None)
+    try:
+        analyse(repo, OUTPUT_FILE, CACHE_FILE, int(max_commits) if max_commits else None)
+    except cl.ClocMissing as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

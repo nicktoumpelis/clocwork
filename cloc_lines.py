@@ -218,8 +218,11 @@ class Cache:
         self.entries = {}
         self.dirty = 0
         if os.path.exists(path):
-            with open(path) as f:
-                data = json.load(f)
+            try:
+                with open(path) as f:
+                    data = json.load(f)
+            except (json.JSONDecodeError, OSError):
+                return
             if data.get("version") == self.VERSION:
                 self.entries = data.get("commits", {})
 

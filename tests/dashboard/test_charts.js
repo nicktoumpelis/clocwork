@@ -34,6 +34,8 @@ check(main.data.datasets[0].data[RAW.commits.length - 1].y === st.cumulative[RAW
 check(main.options.scales.y.title.text === LANGS[0] + ' Comment LOC', 'y axis relabelled');
 check(byId('dailyChartTitle').textContent === 'Daily ' + LANGS[0] + ' Comment LOC Change', 'daily title');
 check(daily.data.datasets[0].data.every((d, i) => d.y === st.daily[i].net), 'daily bars recomputed');
+check(daily.options.scales.y.title.text === LANGS[0] + ' Comment LOC Change', 'daily y axis title follows the selection');
+check(pie.updates === 0, 'pie chart does not re-render on selection change');
 const cumLabels = agentCum.data.datasets.map(d => d.label);
 check(cumLabels.every(a => st.agents[a].net !== 0) && cumLabels.every((a, i) => i === 0 || st.agents[cumLabels[i - 1]].net >= st.agents[a].net), 'agent cumulative datasets: non-zero, net desc');
 check(agentNet.data.datasets[0].data.every((v, i) => v === st.agents[agentNet.data.labels[i]].added), 'agent net added bars recomputed');

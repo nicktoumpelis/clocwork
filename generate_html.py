@@ -35,6 +35,19 @@ def build_embedded(data):
     return {"languages": data["languages"], "commits": commits, "summary": data["summary"]}
 
 
+def replace_data_line(html, json_blob):
+    """Replace the whole "var RAW = ...;" line with one embedding json_blob.
+
+    Line-anchored so the first "};" in the blob (which a commit subject can
+    contain) does not terminate the match early, and a lambda replacement so
+    backslashes in the JSON are not interpreted as regex backreferences.
+    """
+    html, n = re.subn(r"^var RAW = .*;$", lambda _m: f"var RAW = {json_blob};", html, count=1, flags=re.M)
+    if n != 1:
+        raise SystemExit("index.html: could not find the 'var RAW = ...;' line to replace")
+    return html
+
+
 def main():
     with open(DATA_FILE) as f:
         data = json.load(f)
@@ -46,13 +59,7 @@ def main():
     json_blob = json.dumps(build_embedded(data), separators=(",", ":"))
 
     # 2. Replace the data blob (line starting with "var RAW = ")
-    # Use string find/replace instead of re.sub to avoid backslash issues in JSON
-    marker_start = "var RAW = "
-    marker_end = "};"
-    start_idx = html.index(marker_start)
-    # Find the matching end - the blob is a single JSON object on one line
-    end_idx = html.index(marker_end, start_idx) + len(marker_end)
-    html = html[:start_idx] + f"var RAW = {json_blob};" + html[end_idx:]
+    html = replace_data_line(html, json_blob)
 
     # 3. Update annotation lines from first_appearances
     appearances = data.get("first_appearances", {})
