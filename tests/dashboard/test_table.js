@@ -107,4 +107,18 @@ check(expectedBody ? detail.children[1].textContent === expectedBody : detail.ch
 first.fire('click');
 check(!first.className.includes('expanded'), 'second click collapses');
 
+section('selection drives the table');
+page.run('SEL.set({ lang: "' + RAW.languages[0] + '", type: "total" })');
+const stSel = page.run('return SEL.stats()');
+tabs[0].fire('click'); search.value = ''; search.fire('input'); chip('All').fire('click');
+const newest = rows()[0];
+const newestIdx = RAW.commits.length - 1;
+check(cells(newest)[1] === RAW.commits[newestIdx][1], 'newest row is the last commit');
+check(num(cells(newest)[5]) === stSel.net[newestIdx] && num(cells(newest)[6]) === stSel.cumulative[newestIdx], 'net and cumulative follow the selection');
+check(cells(newest)[4] === '+' + stSel.added[newestIdx].toLocaleString() + ' / -' + stSel.removed[newestIdx].toLocaleString(), '+/- follows the selection');
+tabs[1].fire('click');
+check(rows().map(r => cells(r)[1]).join() === stSel.gains.map(i => RAW.commits[i][1]).join(), 'gains tab lists SEL.stats().gains in order');
+check(tabs[1].textContent === 'Biggest ' + RAW.languages[0] + ' LOC Gains' && tabs[2].textContent === 'Biggest ' + RAW.languages[0] + ' LOC Drops', 'tab labels follow the selection');
+tabs[0].fire('click');
+
 done();
