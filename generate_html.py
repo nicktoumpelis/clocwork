@@ -20,6 +20,21 @@ HTML_FILE = os.path.join(SCRIPT_DIR, "index.html")
 BODIES_FILE = os.path.join(SCRIPT_DIR, "commit_bodies.js")
 
 
+def build_embedded(data):
+    """Compact form of the analysis for the page: matrices become sparse
+    [languageIndex, row] pairs so a typical commit carries one or two entries."""
+    lang_index = {name: i for i, name in enumerate(data["languages"])}
+
+    def sparse(matrix):
+        pairs = [[lang_index[lang], row] for lang, row in matrix.items() if any(row)]
+        return sorted(pairs, key=lambda p: p[0])
+
+    commits = [[c["index"], c["hash"], c["date"], c["message"], c["agent"] or "",
+                1 if c["is_merge"] else 0, sparse(c["lines"]), sparse(c["test_lines"])]
+               for c in data["commits"]]
+    return {"languages": data["languages"], "commits": commits, "summary": data["summary"]}
+
+
 def main():
     with open(DATA_FILE) as f:
         data = json.load(f)
@@ -28,35 +43,7 @@ def main():
         html = f.read()
 
     # 1. Build compact data blob
-    commits_compact = []
-    for c in data["commits"]:
-        commits_compact.append([
-            c["index"], c["hash"], c["date"], c["message"],
-            c["agent"] or "", c["swift_delta"], c["swift_cumulative"],
-            c["swift_added"], c["swift_deleted"],
-            1 if c["is_merge"] else 0, c["swift_files_changed"]
-        ])
-
-    daily_compact = []
-    for d in data["daily"]:
-        daily_compact.append([
-            d["date"], d["swift_cumulative"], d["total_cumulative"],
-            d["commits"], d["swift_delta"], d["agents"]
-        ])
-
-    biggest_gains_idx = [g["index"] for g in data["biggest_gains"]]
-    biggest_drops_idx = [d["index"] for d in data["biggest_drops"]]
-
-    embedded = {
-        "commits": commits_compact,
-        "daily": daily_compact,
-        "agentStats": data["agent_stats"],
-        "biggestGains": biggest_gains_idx,
-        "biggestDrops": biggest_drops_idx,
-        "summary": data["summary"],
-    }
-
-    json_blob = json.dumps(embedded, separators=(",", ":"))
+    json_blob = json.dumps(build_embedded(data), separators=(",", ":"))
 
     # 2. Replace the data blob (line starting with "var RAW = ")
     # Use string find/replace instead of re.sub to avoid backslash issues in JSON
@@ -108,7 +95,7 @@ def main():
     today = datetime.now().strftime("%Y-%m-%d")
     total = data["summary"]["total_commits"]
     html = re.sub(
-        r"Generated on \d{4}-\d{2}-\d{2} .* Full analysis of [\d,]+ commits",
+        r"Generated on \d{4}-\d{2}-\d{2} &middot; Full analysis of [\d,]+ commits",
         f"Generated on {today} &middot; Full analysis of {total:,} commits",
         html,
     )
