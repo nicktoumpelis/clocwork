@@ -13,6 +13,21 @@ const num = s => parseInt(String(s).replace(/[+,]/g, ''), 10);
 const rows = () => tbody.children.filter(r => r.className.indexOf('detail-row') < 0);
 const total = RAW.commits.length;
 
+// Read agent counts from summary cards (independent rendered source)
+const findSummaryCard = (label) => {
+  const statsGrid = byId('statsGrid');
+  for (const card of statsGrid.children) {
+    const labelChild = Array.from(card.children).find(c => c.className === 'label');
+    const valueChild = Array.from(card.children).find(c => c.className === 'value');
+    if (labelChild && labelChild.textContent === label && valueChild) {
+      return parseInt(valueChild.textContent.replace(/,/g, ''), 10);
+    }
+  }
+  return 0;
+};
+const miscCount = findSummaryCard('Misc (merges)');
+const humanCount = findSummaryCard('Human Only');
+
 section('default render');
 check(rows().length === 500, 'caps at 500 rows');
 check(count.textContent === total.toLocaleString() + ' commits · showing first 500', 'headline for full list');
@@ -22,15 +37,11 @@ check(cells(rows()[0])[0] >= cells(rows()[499])[0], 'newest first');
 
 section('filter chips');
 chip('Misc').fire('click');
-const miscMatch = count.textContent.match(/^([\d,]+) of/);
-const miscCount = miscMatch ? parseInt(miscMatch[1].replace(/,/g, ''), 10) : 0;
 check(new RegExp('^' + miscCount.toLocaleString() + ' of ' + total.toLocaleString() + ' commits · Misc').test(count.textContent), 'Misc headline');
 check(rows().every(r => cells(r)[3] === 'Misc'), 'only Misc rows');
 chip('Human').fire('click');
-const humanMatch = count.textContent.match(/^([\d,]+) of/);
-const humanCount = humanMatch ? parseInt(humanMatch[1].replace(/,/g, ''), 10) : 0;
+check(new RegExp('^' + humanCount.toLocaleString() + ' of ' + total.toLocaleString() + ' commits · Human').test(count.textContent), 'Human headline');
 check(rows().every(r => cells(r)[3] === 'Human'), 'only Human rows');
-check(count.textContent.indexOf(humanCount.toLocaleString() + ' of') === 0, 'Human headline count');
 
 section('sorting');
 thDate.fire('click');
