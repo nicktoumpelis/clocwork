@@ -16,9 +16,9 @@ import subprocess
 import sys
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-REPO_DIR = sys.argv[1] if len(sys.argv) > 1 else os.path.join(SCRIPT_DIR, "..", "MyApp")
-REPO_DIR = os.path.abspath(REPO_DIR)
+DEFAULT_REPO = os.path.join(SCRIPT_DIR, "..", "MyApp")
 OUTPUT_FILE = os.path.join(SCRIPT_DIR, "full_commit_data.json")
+CACHE_FILE = os.path.join(SCRIPT_DIR, "cloc_cache.json")
 
 # AI agent detection.
 #
@@ -80,17 +80,14 @@ def parse_claude_model(text):
     return None
 
 
-def git(*args):
-    result = subprocess.run(
-        ["git"] + list(args),
-        capture_output=True, text=True, cwd=REPO_DIR
-    )
+def git(repo, *args):
+    result = subprocess.run(["git"] + list(args), capture_output=True, text=True, cwd=repo)
     return result.stdout
 
 
-def github_url():
+def github_url(repo):
     """Return the https URL of the origin remote if it is on GitHub, else None."""
-    remote = git("remote", "get-url", "origin").strip()
+    remote = git(repo, "remote", "get-url", "origin").strip()
     m = re.match(r"(?:git@github\.com:|https://github\.com/)([^/]+/[^/]+?)(?:\.git)?/?$", remote)
     return f"https://github.com/{m.group(1)}" if m else None
 
@@ -110,77 +107,69 @@ def detect_agent(body):
     return None
 
 
-def main():
-    if not os.path.isdir(os.path.join(REPO_DIR, ".git")):
-        print(f"Error: {REPO_DIR} is not a git repository")
-        sys.exit(1)
-
-    branch = git("rev-parse", "--abbrev-ref", "HEAD").strip()
-    print(f"Analysing repo: {REPO_DIR} (branch: {branch})")
-    print("Step 1: Extracting full commit history with numstat...")
-
-    raw = git(
-        "log", branch, "--reverse",
-        "--format=COMMIT_START%n%H%n%aI%n%s%n%b%nCOMMIT_BODY_END",
-        "--numstat"
-    )
-
+def parse_log(repo, branch):
+    """Return every commit reachable from branch, oldest first, with parents, body, numstat and agent."""
+    raw = git(repo, "log", branch, "--reverse",
+              "--format=COMMIT_START%n%H%n%P%n%aI%n%s%n%b%nCOMMIT_BODY_END", "--numstat")
     commits = []
     current = None
     in_body = False
     body_lines = []
+    field_idx = 0
+
+    def finish(c):
+        c["body"] = "\n".join(body_lines)
+        c["agent"] = detect_agent(c["body"])
+        commits.append(c)
 
     for line in raw.splitlines():
         if line == "COMMIT_START":
             if current is not None:
-                current["body"] = "\n".join(body_lines)
-                current["agent"] = detect_agent(current["body"])
-                commits.append(current)
+                finish(current)
             current = {"numstat": []}
             body_lines = []
             in_body = True
             field_idx = 0
             continue
-
         if current is None:
             continue
-
-        if in_body and field_idx < 3:
+        if in_body and field_idx < 4:
+            value = line.strip()
             if field_idx == 0:
-                current["hash"] = line.strip()
+                current["hash"] = value
             elif field_idx == 1:
-                current["date"] = line.strip()
+                current["parents"] = value.split() if value else []
             elif field_idx == 2:
-                current["message"] = line.strip()
+                current["date"] = value
+            elif field_idx == 3:
+                current["message"] = value
             field_idx += 1
             continue
-
         if line == "COMMIT_BODY_END":
             in_body = False
             continue
-
         if in_body:
             body_lines.append(line)
             continue
-
         parts = line.split("\t")
-        if len(parts) == 3:
-            add_str, del_str, filename = parts
-            if add_str != "-" and del_str != "-":
-                current["numstat"].append({
-                    "additions": int(add_str),
-                    "deletions": int(del_str),
-                    "file": filename,
-                })
+        if len(parts) == 3 and parts[0] != "-" and parts[1] != "-":
+            current["numstat"].append({"additions": int(parts[0]), "deletions": int(parts[1]), "file": parts[2]})
 
     if current is not None:
-        current["body"] = "\n".join(body_lines)
-        current["agent"] = detect_agent(current["body"])
-        commits.append(current)
+        finish(current)
+    return commits
 
-    print(f"  Parsed {len(commits)} commits")
 
-    print("Step 2: Computing cumulative Swift LOC for every commit...")
+def analyse(repo_dir, output_path, cache_path=None, max_commits=None, log=print):
+    branch = git(repo_dir, "rev-parse", "--abbrev-ref", "HEAD").strip()
+    log(f"Analysing repo: {repo_dir} (branch: {branch})")
+    log("Step 1: Extracting full commit history with numstat...")
+
+    commits = parse_log(repo_dir, branch)
+
+    log(f"  Parsed {len(commits)} commits")
+
+    log("Step 2: Computing cumulative Swift LOC for every commit...")
     cumulative_swift = 0
     cumulative_total = 0
     results = []
@@ -231,14 +220,14 @@ def main():
         })
 
         if (i + 1) % 200 == 0:
-            print(f"  Processed {i + 1}/{len(commits)} commits...")
+            log(f"  Processed {i + 1}/{len(commits)} commits...")
 
-    print("Step 3: Identifying biggest jumps...")
+    log("Step 3: Identifying biggest jumps...")
     non_merge = [r for r in results if not r["is_merge"]]
     biggest_gains = sorted(non_merge, key=lambda x: x["swift_delta"], reverse=True)[:25]
     biggest_drops = sorted(non_merge, key=lambda x: x["swift_delta"])[:15]
 
-    print("Step 4: Computing agent statistics...")
+    log("Step 4: Computing agent statistics...")
     agent_stats = {}
     for r in results:
         agent = r["agent"] or "Human"
@@ -254,7 +243,7 @@ def main():
         stats["swift_net"] += r["swift_delta"]
         stats["last_date"] = r["date"]
 
-    print("Step 5: Computing daily aggregates...")
+    log("Step 5: Computing daily aggregates...")
     daily = {}
     for r in results:
         d = r["date"]
@@ -272,7 +261,7 @@ def main():
 
     daily_list = sorted(daily.values(), key=lambda x: x["date"])
 
-    print("Step 6: Finding first agent appearances...")
+    log("Step 6: Finding first agent appearances...")
     first_appearances = {}
     for r in results:
         if r["agent"] and r["agent"] != MISC and r["agent"] not in first_appearances:
@@ -303,26 +292,37 @@ def main():
             "peak_swift_loc": max(r["swift_cumulative"] for r in results),
             "peak_swift_date": max(results, key=lambda r: r["swift_cumulative"])["date"],
             "peak_swift_hash": max(results, key=lambda r: r["swift_cumulative"])["hash"],
-            "repo_url": github_url(),
+            "repo_url": github_url(repo_dir),
         }
     }
 
-    with open(OUTPUT_FILE, "w") as f:
+    with open(output_path, "w") as f:
         json.dump(output, f, indent=2)
 
-    print(f"\nDone! Saved to {OUTPUT_FILE}")
-    print(f"  Total commits: {len(results)}")
-    print(f"  AI-assisted: {output['summary']['ai_assisted_commits']}")
-    print(f"  Human-only: {output['summary']['human_only_commits']}")
-    print(f"  Misc (merges): {output['summary']['misc_commits']}")
-    print(f"  Final Swift LOC: {cumulative_swift:,}")
-    print(f"  Peak Swift LOC: {output['summary']['peak_swift_loc']:,} ({output['summary']['peak_swift_date']})")
-    print(f"\n  Agent breakdown:")
+    log(f"\nDone! Saved to {output_path}")
+    log(f"  Total commits: {len(results)}")
+    log(f"  AI-assisted: {output['summary']['ai_assisted_commits']}")
+    log(f"  Human-only: {output['summary']['human_only_commits']}")
+    log(f"  Misc (merges): {output['summary']['misc_commits']}")
+    log(f"  Final Swift LOC: {cumulative_swift:,}")
+    log(f"  Peak Swift LOC: {output['summary']['peak_swift_loc']:,} ({output['summary']['peak_swift_date']})")
+    log(f"\n  Agent breakdown:")
     for agent, stats in sorted(agent_stats.items(), key=lambda x: -x[1]["commits"]):
-        print(f"    {agent}: {stats['commits']} commits, net {stats['swift_net']:+,} Swift LOC")
-    print(f"\n  First appearances:")
+        log(f"    {agent}: {stats['commits']} commits, net {stats['swift_net']:+,} Swift LOC")
+    log(f"\n  First appearances:")
     for agent, info in sorted(first_appearances.items(), key=lambda x: x[1]["index"]):
-        print(f"    {agent}: {info['date']} ({info['hash']})")
+        log(f"    {agent}: {info['date']} ({info['hash']})")
+
+    return output
+
+
+def main():
+    repo = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else DEFAULT_REPO)
+    if not os.path.isdir(os.path.join(repo, ".git")):
+        print(f"Error: {repo} is not a git repository")
+        sys.exit(1)
+    max_commits = os.environ.get("CLOC_MAX_COMMITS")
+    analyse(repo, OUTPUT_FILE, CACHE_FILE, int(max_commits) if max_commits else None)
 
 
 if __name__ == "__main__":
