@@ -201,7 +201,7 @@ MeasureResult = namedtuple("MeasureResult", "measured failed pending")
 
 
 def measure_commits(repo, commits, cache, table, max_commits=None, flush_every=50,
-                    differ=diff_commit, log=print, clock=time.monotonic):
+                    differ=None, log=print, clock=time.monotonic):
     """Measure every non-merge commit not already in the cache.
 
     commits: [{"hash", "parent", "is_merge"}] in history order.
@@ -209,6 +209,7 @@ def measure_commits(repo, commits, cache, table, max_commits=None, flush_every=5
     Failures are logged and not cached so a later run retries them. When
     max_commits is set, uncached commits beyond the cap are left pending.
     """
+    differ = differ or diff_commit
     measured, failed, pending = {}, [], []
     todo = [c for c in commits if not c["is_merge"] and cache.get(c["hash"]) is None]
     if max_commits is not None:

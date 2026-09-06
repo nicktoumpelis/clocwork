@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Analyse every commit in one repository's history: cumulative Swift LOC, AI agent detection, biggest jumps.
+"""Analyse every commit in one repository's history: lines per language and type via cloc, AI agent detection.
 
 Usage:
     python3 analyse_all_commits.py [path-to-repo]
@@ -14,6 +14,8 @@ import os
 import re
 import subprocess
 import sys
+
+import cloc_lines as cl
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_REPO = os.path.join(SCRIPT_DIR, "..", "MyApp")
@@ -161,158 +163,128 @@ def parse_log(repo, branch):
 
 
 def analyse(repo_dir, output_path, cache_path=None, max_commits=None, log=print):
+    cl.require_cloc()
+    if not os.path.isdir(os.path.join(repo_dir, ".git")):
+        raise SystemExit(f"Error: {repo_dir} is not a git repository")
+    cache_path = cache_path or os.path.join(os.path.dirname(output_path), "cloc_cache.json")
+
     branch = git(repo_dir, "rev-parse", "--abbrev-ref", "HEAD").strip()
     log(f"Analysing repo: {repo_dir} (branch: {branch})")
-    log("Step 1: Extracting full commit history with numstat...")
-
+    log("Step 1: Extracting full commit history...")
     commits = parse_log(repo_dir, branch)
-
     log(f"  Parsed {len(commits)} commits")
 
-    log("Step 2: Computing cumulative Swift LOC for every commit...")
-    cumulative_swift = 0
-    cumulative_total = 0
+    log("Step 2: Measuring lines per commit with cloc (cached in cloc_cache.json)...")
+    table = cl.load_extension_table()
+    cache = cl.Cache(cache_path)
+    measure_input = [{"hash": c["hash"], "parent": c["parents"][0] if c["parents"] else None,
+                      "is_merge": c["message"].startswith("Merge pull request")} for c in commits]
+    log(f"  {sum(1 for m in measure_input if not m['is_merge'] and cache.get(m['hash']) is None)} commits not yet cached")
+    measured = cl.measure_commits(repo_dir, measure_input, cache, table, max_commits=max_commits, log=log)
+
+    log("Step 3: Snapshot of HEAD for reconciliation...")
+    by_lang, by_file_all, by_file_tests = cl.snapshot(repo_dir, "HEAD", table)
+
+    log("Step 4: Building per-commit records and running totals...")
+    running_all, running_tests = {}, {}
+
+    def accumulate(target, matrix):
+        for lang, row in matrix.items():
+            t = target.setdefault(lang, {k: 0 for k in cl.TYPES})
+            for i, name in enumerate(cl.TYPES):
+                t[name] += row[2 * i] - row[2 * i + 1]
+
     results = []
-
     for i, c in enumerate(commits):
-        swift_add = 0
-        swift_del = 0
-        total_add = 0
-        total_del = 0
-        swift_files_changed = 0
-
-        for ns in c["numstat"]:
-            total_add += ns["additions"]
-            total_del += ns["deletions"]
-            if ns["file"].endswith(".swift"):
-                swift_add += ns["additions"]
-                swift_del += ns["deletions"]
-                swift_files_changed += 1
-
-        swift_delta = swift_add - swift_del
-        total_delta = total_add - total_del
-        cumulative_swift += swift_delta
-        cumulative_total += total_delta
-
-        date_str = c["date"][:10] if c["date"] else ""
         is_merge = c["message"].startswith("Merge pull request")
-        agent = MISC if is_merge else c["agent"]
-
+        if is_merge:
+            status, lines, test_lines = "merge", {}, {}
+        elif c["hash"] in measured.measured:
+            status = "ok"
+            lines, test_lines = measured.measured[c["hash"]]
+        elif c["hash"] in measured.failed:
+            status, lines, test_lines = "failed", {}, {}
+        else:
+            status, lines, test_lines = "pending", {}, {}
+        accumulate(running_all, lines)
+        accumulate(running_tests, test_lines)
         results.append({
             "index": i,
             "hash": c["hash"][:7],
             "full_hash": c["hash"],
-            "date": date_str,
+            "date": c["date"][:10] if c["date"] else "",
             "datetime": c["date"],
             "message": c["message"],
             "body": c["body"].strip(),
-            "agent": agent,
-            "swift_added": swift_add,
-            "swift_deleted": swift_del,
-            "swift_delta": swift_delta,
-            "swift_cumulative": cumulative_swift,
-            "total_added": total_add,
-            "total_deleted": total_del,
-            "total_delta": total_delta,
-            "total_cumulative": cumulative_total,
-            "swift_files_changed": swift_files_changed,
+            "agent": MISC if is_merge else c["agent"],
             "is_merge": is_merge,
+            "status": status,
+            "lines": lines,
+            "test_lines": test_lines,
         })
 
-        if (i + 1) % 200 == 0:
-            log(f"  Processed {i + 1}/{len(commits)} commits...")
-
-    log("Step 3: Identifying biggest jumps...")
-    non_merge = [r for r in results if not r["is_merge"]]
-    biggest_gains = sorted(non_merge, key=lambda x: x["swift_delta"], reverse=True)[:25]
-    biggest_drops = sorted(non_merge, key=lambda x: x["swift_delta"])[:15]
-
-    log("Step 4: Computing agent statistics...")
-    agent_stats = {}
+    seen = set()
     for r in results:
-        agent = r["agent"] or "Human"
-        if agent not in agent_stats:
-            agent_stats[agent] = {
-                "commits": 0, "swift_added": 0, "swift_deleted": 0,
-                "swift_net": 0, "first_date": r["date"], "last_date": r["date"],
-            }
-        stats = agent_stats[agent]
-        stats["commits"] += 1
-        stats["swift_added"] += r["swift_added"]
-        stats["swift_deleted"] += r["swift_deleted"]
-        stats["swift_net"] += r["swift_delta"]
-        stats["last_date"] = r["date"]
+        seen.update(r["lines"])
+        seen.update(r["test_lines"])
+    languages = sorted(by_lang, key=lambda l: (-by_lang[l]["code"], l))
+    languages += sorted(seen - set(languages))
 
-    log("Step 5: Computing daily aggregates...")
-    daily = {}
-    for r in results:
-        d = r["date"]
-        if d not in daily:
-            daily[d] = {
-                "date": d, "swift_cumulative": 0, "total_cumulative": 0,
-                "commits": 0, "swift_delta": 0, "agents": {},
-            }
-        daily[d]["swift_cumulative"] = r["swift_cumulative"]
-        daily[d]["total_cumulative"] = r["total_cumulative"]
-        daily[d]["commits"] += 1
-        daily[d]["swift_delta"] += r["swift_delta"]
-        a = r["agent"] or "Human"
-        daily[d]["agents"][a] = daily[d]["agents"].get(a, 0) + 1
+    def diff(a, b):
+        return {lang: {t: a.get(lang, {}).get(t, 0) - b.get(lang, {}).get(t, 0) for t in cl.TYPES}
+                for lang in languages}
 
-    daily_list = sorted(daily.values(), key=lambda x: x["date"])
+    reconciliation = diff(running_all, by_lang)
+    mapping_check = diff(by_file_all, by_lang)
 
-    log("Step 6: Finding first agent appearances...")
+    log("Step 5: Finding first agent appearances...")
     first_appearances = {}
     for r in results:
         if r["agent"] and r["agent"] != MISC and r["agent"] not in first_appearances:
-            first_appearances[r["agent"]] = {
-                "date": r["date"],
-                "hash": r["hash"],
-                "index": r["index"],
-                "swift_cumulative": r["swift_cumulative"],
-                "message": r["message"],
-            }
+            first_appearances[r["agent"]] = {"date": r["date"], "hash": r["hash"], "index": r["index"], "message": r["message"]}
 
     output = {
+        "languages": languages,
         "commits": results,
-        "daily": daily_list,
-        "biggest_gains": biggest_gains,
-        "biggest_drops": biggest_drops,
-        "agent_stats": agent_stats,
         "first_appearances": first_appearances,
         "summary": {
             "total_commits": len(results),
             "ai_assisted_commits": sum(1 for r in results if r["agent"] and r["agent"] != MISC),
             "human_only_commits": sum(1 for r in results if not r["agent"]),
             "misc_commits": sum(1 for r in results if r["agent"] == MISC),
-            "final_swift_loc": cumulative_swift,
-            "final_total_loc": cumulative_total,
             "first_date": results[0]["date"],
             "last_date": results[-1]["date"],
-            "peak_swift_loc": max(r["swift_cumulative"] for r in results),
-            "peak_swift_date": max(results, key=lambda r: r["swift_cumulative"])["date"],
-            "peak_swift_hash": max(results, key=lambda r: r["swift_cumulative"])["hash"],
             "repo_url": github_url(repo_dir),
-        }
+            "head_snapshot": {"all": by_file_all, "tests": by_file_tests},
+            "running_totals": {"all": running_all, "tests": running_tests},
+            "reconciliation": reconciliation,
+            "mapping_check": mapping_check,
+            "unmeasured_commits": len(measured.failed),
+            "pending_commits": len(measured.pending),
+        },
     }
 
     with open(output_path, "w") as f:
         json.dump(output, f, indent=2)
 
+    s = output["summary"]
     log(f"\nDone! Saved to {output_path}")
-    log(f"  Total commits: {len(results)}")
-    log(f"  AI-assisted: {output['summary']['ai_assisted_commits']}")
-    log(f"  Human-only: {output['summary']['human_only_commits']}")
-    log(f"  Misc (merges): {output['summary']['misc_commits']}")
-    log(f"  Final Swift LOC: {cumulative_swift:,}")
-    log(f"  Peak Swift LOC: {output['summary']['peak_swift_loc']:,} ({output['summary']['peak_swift_date']})")
-    log(f"\n  Agent breakdown:")
-    for agent, stats in sorted(agent_stats.items(), key=lambda x: -x[1]["commits"]):
-        log(f"    {agent}: {stats['commits']} commits, net {stats['swift_net']:+,} Swift LOC")
-    log(f"\n  First appearances:")
+    log(f"  Total commits: {s['total_commits']}  (AI-assisted {s['ai_assisted_commits']}, human-only {s['human_only_commits']}, misc {s['misc_commits']})")
+    if s["unmeasured_commits"]:
+        log(f"  WARNING: {s['unmeasured_commits']} commits could not be measured by cloc")
+    if s["pending_commits"]:
+        log(f"  NOTE: {s['pending_commits']} commits not yet measured (CLOC_MAX_COMMITS cap); rerun to continue")
+    log("  Lines at HEAD (cloc snapshot) and drift of running totals:")
+    for lang in languages:
+        snap = by_lang.get(lang, {t: 0 for t in cl.TYPES})
+        drift = reconciliation[lang]
+        mapping = mapping_check[lang]
+        log(f"    {lang:<16} code {snap['code']:>8,} comment {snap['comment']:>8,} blank {snap['blank']:>8,}"
+            f"   drift {drift['code']:+} / {drift['comment']:+} / {drift['blank']:+}"
+            + (f"   MAPPING MISMATCH {mapping}" if any(mapping.values()) else ""))
+    log("  First appearances:")
     for agent, info in sorted(first_appearances.items(), key=lambda x: x[1]["index"]):
         log(f"    {agent}: {info['date']} ({info['hash']})")
-
     return output
 
 
