@@ -2,7 +2,7 @@
 'use strict';
 const { execFileSync } = require('child_process');
 const path = require('path');
-const files = ['test_selection.js', 'test_table.js'];
+const files = ['test_selection.js', 'test_charts.js', 'test_table.js'];
 let failed = false;
 for (const f of files) {
   console.log('=== ' + f);
