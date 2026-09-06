@@ -107,6 +107,23 @@ class TestAnalyse(unittest.TestCase):
             self.assertEqual(data["summary"]["pending_commits"], 2)
 
 
+@unittest.skipUnless(HAVE_CLOC, "cloc not installed")
+class TestNonPrMerge(unittest.TestCase):
+    def test_multi_parent_commit_is_a_merge(self):
+        with tempfile.TemporaryDirectory() as d:
+            fx.make_repo(d)
+            extra, merge = fx.add_branch_merge(d)
+            data = an.analyse(d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), log=lambda *a: None)
+            by_hash = {c["full_hash"]: c for c in data["commits"]}
+            self.assertEqual(by_hash[extra]["lines"], {"Markdown": [1, 0, 0, 0, 0, 0]})
+            self.assertEqual(by_hash[merge]["status"], "merge")
+            self.assertEqual(by_hash[merge]["agent"], "Misc")
+            self.assertEqual(by_hash[merge]["lines"], {})
+            zero = {"code": 0, "comment": 0, "blank": 0}
+            self.assertEqual(data["summary"]["reconciliation"]["Markdown"], zero)   # no double counting
+            self.assertEqual(data["summary"]["misc_commits"], 2)
+
+
 class TestMissingCloc(unittest.TestCase):
     def test_raises_before_touching_git(self):
         real = shutil.which

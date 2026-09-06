@@ -12,6 +12,8 @@ Matrix row layout, used everywhere downstream:
     [codeAdded, codeRemoved, commentAdded, commentRemoved, blankAdded, blankRemoved]
 """
 
+import csv
+import io
 import json
 import os
 import re
@@ -157,6 +159,44 @@ def load_extension_table():
     return parse_extension_table(result.stdout)
 
 
+def parse_by_file_csv(text):
+    """Learn {extension: language} from a `cloc --by-file --csv` report (non-diff).
+
+    The report starts with a header row beginning "language,filename,"; rows
+    after it are one file each; the SUM row is skipped. Only files with an
+    extension contribute.
+    """
+    learned = {}
+    lines = text.splitlines()
+    start = next((i for i, l in enumerate(lines) if l.startswith("language,filename,")), None)
+    if start is None:
+        return learned
+    for row in csv.reader(io.StringIO("\n".join(lines[start + 1:]))):
+        if len(row) < 2 or row[0] == "SUM" or not row[1]:
+            continue
+        name = row[1].rsplit("/", 1)[-1]
+        if "." in name and not (name.startswith(".") and name.count(".") == 1):
+            learned[name.rsplit(".", 1)[-1].lower()] = row[0]
+    return learned
+
+
+def merge_language_tables(base, overlay):
+    merged = dict(base)
+    merged.update(overlay)
+    return merged
+
+
+def learn_extensions(repo, rev):
+    result = subprocess.run(["cloc", "--quiet", "--git", "--by-file", "--csv", rev],
+                            capture_output=True, text=True, cwd=repo)
+    return parse_by_file_csv(result.stdout)
+
+
+def build_language_table(repo, rev):
+    """cloc's extension table, corrected by how cloc actually classified the files at rev."""
+    return merge_language_tables(load_extension_table(), learn_extensions(repo, rev))
+
+
 def diff_commit(repo, parent, commit, table):
     return parse_diff_json(run_cloc(["--git", "--diff", "--by-file", parent or EMPTY_TREE, commit], repo), table)
 
@@ -170,7 +210,8 @@ def snapshot(repo, rev, table):
 class Cache:
     """Per-commit results keyed by full hash, written atomically."""
 
-    VERSION = 1
+    # 2: rows depend on the language table, which now learns from HEAD (Task 14a).
+    VERSION = 2
 
     def __init__(self, path):
         self.path = path

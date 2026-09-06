@@ -64,3 +64,19 @@ def make_repo(root):
          date="2025-01-04T10:00:00+00:00")
 
     return _git(root, "log", "--reverse", "--format=%H", "main").splitlines()
+
+
+EXTRA = "extra\n"
+
+
+def add_branch_merge(root):
+    """Add a fifth and sixth commit: Extra.md on branch feature2, merged with a non-PR subject.
+    Returns [feature2_commit, merge_commit] full hashes."""
+    _git(root, "checkout", "-q", "-b", "feature2")
+    _write(root, "Extra.md", EXTRA)
+    _git(root, "add", ".")
+    _git(root, "commit", "-q", "-m", "Extra", date="2025-01-05T10:00:00+00:00")
+    _git(root, "checkout", "-q", "main")
+    _git(root, "merge", "-q", "--no-ff", "feature2", "-m", "Merge branch 'feature2' into main",
+         date="2025-01-06T10:00:00+00:00")
+    return _git(root, "log", "--reverse", "--format=%H", "main").splitlines()[-2:]

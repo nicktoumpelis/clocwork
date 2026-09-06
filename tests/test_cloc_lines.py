@@ -229,5 +229,39 @@ class TestRealCloc(unittest.TestCase):
         cl.require_cloc()
 
 
+BY_FILE_CSV = '''language,filename,blank,comment,code,"github.com/AlDanial/cloc v 2.10  T=0.5 s"
+Swift,App/Main.swift,1,2,3
+XML,MyApp/MyApp.xcprivacy,0,0,12
+XML,MyApp.xcodeproj/xcshareddata/xcschemes/MyApp.xcscheme,0,0,80
+Markdown,README.md,1,0,2
+SUM,,2,2,97
+'''
+
+
+class TestLearnedExtensions(unittest.TestCase):
+    def test_parse_by_file_csv_maps_extension_to_language(self):
+        learned = cl.parse_by_file_csv(BY_FILE_CSV)
+        self.assertEqual(learned, {"swift": "Swift", "xcprivacy": "XML", "xcscheme": "XML", "md": "Markdown"})
+
+    def test_overlay_wins_over_show_ext(self):
+        base = cl.parse_extension_table("swift  Swift\nm  MATLAB/Mathematica/Objective-C/MUMPS/Mercury\n")
+        merged = cl.merge_language_tables(base, {"m": "Objective-C", "xcprivacy": "XML"})
+        self.assertEqual(merged["m"], "Objective-C")
+        self.assertEqual(merged["xcprivacy"], "XML")
+        self.assertEqual(merged["swift"], "Swift")
+        self.assertEqual(base["m"], "MATLAB/Mathematica/Objective-C/MUMPS/Mercury")   # input not mutated
+
+
+@unittest.skipUnless(HAVE_CLOC, "cloc not installed")
+class TestBuildLanguageTable(unittest.TestCase):
+    def test_learns_from_head(self):
+        with tempfile.TemporaryDirectory() as d:
+            fx.make_repo(d)
+            table = cl.build_language_table(d, "HEAD")
+            self.assertEqual(table["swift"], "Swift")
+            self.assertEqual(table["md"], "Markdown")
+            self.assertIn("py", table)   # base show-ext entries are still present
+
+
 if __name__ == "__main__":
     unittest.main()

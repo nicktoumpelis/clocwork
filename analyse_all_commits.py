@@ -56,10 +56,14 @@ COAUTHOR_TRAILER = re.compile(r"^\s*Co-Authored-By:\s*(.+)$", re.IGNORECASE | re
 
 UNKNOWN_CLAUDE = "Claude (unknown version)"
 
-# Merge commits (GitHub "Merge pull request ..." commits) carry no code of
-# their own, so they are filed under a catch-all category rather than being
-# attributed to a human or an AI agent.
+# Merge commits carry no code of their own, so they are filed under a
+# catch-all category rather than being attributed to a human or an AI agent.
 MISC = "Misc"
+
+
+def is_merge_commit(commit):
+    """Merges carry no code of their own: any multi-parent commit, plus GitHub PR merges by subject."""
+    return len(commit.get("parents", [])) > 1 or commit["message"].startswith("Merge pull request")
 
 
 def normalise_model(family, version, context):
@@ -175,10 +179,15 @@ def analyse(repo_dir, output_path, cache_path=None, max_commits=None, log=print)
     log(f"  Parsed {len(commits)} commits")
 
     log("Step 2: Measuring lines per commit with cloc (cached in cloc_cache.json)...")
-    table = cl.load_extension_table()
+    show_ext_table = cl.load_extension_table()
+    learned = cl.learn_extensions(repo_dir, "HEAD")
+    table = cl.merge_language_tables(show_ext_table, learned)
+    new_extensions = sorted(ext for ext in learned if ext not in show_ext_table)
+    if new_extensions:
+        log(f"  learned {len(new_extensions)} extensions from HEAD: {', '.join(new_extensions)}")
     cache = cl.Cache(cache_path)
     measure_input = [{"hash": c["hash"], "parent": c["parents"][0] if c["parents"] else None,
-                      "is_merge": c["message"].startswith("Merge pull request")} for c in commits]
+                      "is_merge": is_merge_commit(c)} for c in commits]
     log(f"  {sum(1 for m in measure_input if not m['is_merge'] and cache.get(m['hash']) is None)} commits not yet cached")
     measured = cl.measure_commits(repo_dir, measure_input, cache, table, max_commits=max_commits, log=log)
 
@@ -196,7 +205,7 @@ def analyse(repo_dir, output_path, cache_path=None, max_commits=None, log=print)
 
     results = []
     for i, c in enumerate(commits):
-        is_merge = c["message"].startswith("Merge pull request")
+        is_merge = is_merge_commit(c)
         if is_merge:
             status, lines, test_lines = "merge", {}, {}
         elif c["hash"] in measured.measured:
