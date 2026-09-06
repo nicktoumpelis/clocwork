@@ -130,3 +130,118 @@ def parse_snapshot_by_file(obj, table):
         if is_test_path(path):
             _accumulate(test_files, lang, tc)
     return all_files, test_files
+
+
+def require_cloc():
+    if shutil.which("cloc") is None:
+        raise ClocMissing("cloc is not installed or not on PATH. Install it with: brew install cloc")
+
+
+def run_cloc(args, cwd):
+    """Run cloc with JSON output and return the parsed object ({} when cloc prints nothing)."""
+    result = subprocess.run(["cloc", "--quiet", "--json"] + list(args),
+                            capture_output=True, text=True, cwd=cwd)
+    if result.returncode != 0:
+        raise ClocError(result.stderr.strip() or f"cloc exited with {result.returncode}")
+    out = result.stdout.strip()
+    if not out:
+        return {}
+    try:
+        return json.loads(out)
+    except json.JSONDecodeError as e:
+        raise ClocError(f"cloc produced invalid JSON: {e}")
+
+
+def load_extension_table():
+    result = subprocess.run(["cloc", "--show-ext"], capture_output=True, text=True)
+    return parse_extension_table(result.stdout)
+
+
+def diff_commit(repo, parent, commit, table):
+    return parse_diff_json(run_cloc(["--git", "--diff", "--by-file", parent or EMPTY_TREE, commit], repo), table)
+
+
+def snapshot(repo, rev, table):
+    by_lang = parse_snapshot_by_language(run_cloc(["--git", rev], repo))
+    all_files, tests = parse_snapshot_by_file(run_cloc(["--git", "--by-file", rev], repo), table)
+    return by_lang, all_files, tests
+
+
+class Cache:
+    """Per-commit results keyed by full hash, written atomically."""
+
+    VERSION = 1
+
+    def __init__(self, path):
+        self.path = path
+        self.entries = {}
+        self.dirty = 0
+        if os.path.exists(path):
+            with open(path) as f:
+                data = json.load(f)
+            if data.get("version") == self.VERSION:
+                self.entries = data.get("commits", {})
+
+    def get(self, commit_hash):
+        return self.entries.get(commit_hash)
+
+    def put(self, commit_hash, lines, test_lines):
+        self.entries[commit_hash] = {"lines": lines, "test_lines": test_lines}
+        self.dirty += 1
+
+    def save(self):
+        tmp = self.path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump({"version": self.VERSION, "commits": self.entries}, f, separators=(",", ":"), sort_keys=True)
+        os.replace(tmp, self.path)
+        self.dirty = 0
+
+
+MeasureResult = namedtuple("MeasureResult", "measured failed pending")
+
+
+def measure_commits(repo, commits, cache, table, max_commits=None, flush_every=50,
+                    differ=diff_commit, log=print, clock=time.monotonic):
+    """Measure every non-merge commit not already in the cache.
+
+    commits: [{"hash", "parent", "is_merge"}] in history order.
+    Returns MeasureResult(measured={hash: (lines, test_lines)}, failed=[hash], pending=[hash]).
+    Failures are logged and not cached so a later run retries them. When
+    max_commits is set, uncached commits beyond the cap are left pending.
+    """
+    measured, failed, pending = {}, [], []
+    todo = [c for c in commits if not c["is_merge"] and cache.get(c["hash"]) is None]
+    if max_commits is not None:
+        todo = todo[:max_commits]
+    todo_hashes = {c["hash"] for c in todo}
+    started = clock()
+    done = 0
+
+    for c in commits:
+        if c["is_merge"]:
+            continue
+        cached = cache.get(c["hash"])
+        if cached is not None:
+            measured[c["hash"]] = (cached["lines"], cached["test_lines"])
+            continue
+        if c["hash"] not in todo_hashes:
+            pending.append(c["hash"])
+            continue
+        try:
+            lines, test_lines = differ(repo, c["parent"] or EMPTY_TREE, c["hash"], table)
+        except ClocError as e:
+            failed.append(c["hash"])
+            log(f"  cloc failed on {c['hash'][:7]}: {e}")
+            continue
+        cache.put(c["hash"], lines, test_lines)
+        measured[c["hash"]] = (lines, test_lines)
+        done += 1
+        if done % flush_every == 0:
+            cache.save()
+            elapsed = clock() - started
+            remaining = (len(todo) - done) * (elapsed / done)
+            log(f"  measured {done}/{len(todo)} new commits, {elapsed:.0f}s elapsed, ~{remaining:.0f}s remaining")
+
+    if cache.dirty:
+        cache.save()
+    return MeasureResult(measured, failed, pending)
