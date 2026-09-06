@@ -78,6 +78,9 @@ def main():
         "lineOpus47_1m": "Claude Opus 4.7 (1M)",
         "lineOpus48_1m": "Claude Opus 4.8 (1M)",
         "lineFable5": "Claude Fable 5",
+        "lineSonnet5": "Claude Sonnet 5",
+        "lineOpus5_1m": "Claude Opus 5 (1M)",
+        "lineFable51": "Claude Fable 5.1",
     }
 
     for anno_id, agent_name in annotation_map.items():
