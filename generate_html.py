@@ -17,6 +17,7 @@ from datetime import datetime
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_FILE = os.path.join(SCRIPT_DIR, "full_commit_data.json")
 HTML_FILE = os.path.join(SCRIPT_DIR, "index.html")
+BODIES_FILE = os.path.join(SCRIPT_DIR, "commit_bodies.js")
 
 
 def main():
@@ -123,11 +124,18 @@ def main():
         html,
     )
 
+    # Full commit bodies are large (over a megabyte across the history), so they
+    # live in a sidecar script the page loads only when a row is first expanded.
+    bodies = {c["hash"]: c["body"] for c in data["commits"] if c.get("body")}
+    with open(BODIES_FILE, "w") as f:
+        f.write("var COMMIT_BODIES = " + json.dumps(bodies, separators=(",", ":")) + ";\n")
+
     with open(HTML_FILE, "w") as f:
         f.write(html)
 
     size_kb = os.path.getsize(HTML_FILE) / 1024
     print(f"Updated {HTML_FILE}")
+    print(f"Wrote {BODIES_FILE} ({os.path.getsize(BODIES_FILE) / 1024:.0f} KB, {len(bodies):,} bodies)")
     print(f"  File size: {size_kb:.0f} KB")
     print(f"  Commits: {total:,}")
     print(f"  Date range: {first} to {last}")

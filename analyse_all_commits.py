@@ -54,6 +54,11 @@ COAUTHOR_TRAILER = re.compile(r"^\s*Co-Authored-By:\s*(.+)$", re.IGNORECASE | re
 
 UNKNOWN_CLAUDE = "Claude (unknown version)"
 
+# Merge commits (GitHub "Merge pull request ..." commits) carry no code of
+# their own, so they are filed under a catch-all category rather than being
+# attributed to a human or an AI agent.
+MISC = "Misc"
+
 
 def normalise_model(family, version, context):
     name = f"Claude {family.capitalize()} {version}"
@@ -81,6 +86,13 @@ def git(*args):
         capture_output=True, text=True, cwd=REPO_DIR
     )
     return result.stdout
+
+
+def github_url():
+    """Return the https URL of the origin remote if it is on GitHub, else None."""
+    remote = git("remote", "get-url", "origin").strip()
+    m = re.match(r"(?:git@github\.com:|https://github\.com/)([^/]+/[^/]+?)(?:\.git)?/?$", remote)
+    return f"https://github.com/{m.group(1)}" if m else None
 
 
 def detect_agent(body):
@@ -194,6 +206,8 @@ def main():
         cumulative_total += total_delta
 
         date_str = c["date"][:10] if c["date"] else ""
+        is_merge = c["message"].startswith("Merge pull request")
+        agent = MISC if is_merge else c["agent"]
 
         results.append({
             "index": i,
@@ -201,8 +215,9 @@ def main():
             "full_hash": c["hash"],
             "date": date_str,
             "datetime": c["date"],
-            "message": c["message"][:120],
-            "agent": c["agent"],
+            "message": c["message"],
+            "body": c["body"].strip(),
+            "agent": agent,
             "swift_added": swift_add,
             "swift_deleted": swift_del,
             "swift_delta": swift_delta,
@@ -212,7 +227,7 @@ def main():
             "total_delta": total_delta,
             "total_cumulative": cumulative_total,
             "swift_files_changed": swift_files_changed,
-            "is_merge": c["message"].startswith("Merge pull request"),
+            "is_merge": is_merge,
         })
 
         if (i + 1) % 200 == 0:
@@ -260,7 +275,7 @@ def main():
     print("Step 6: Finding first agent appearances...")
     first_appearances = {}
     for r in results:
-        if r["agent"] and r["agent"] not in first_appearances:
+        if r["agent"] and r["agent"] != MISC and r["agent"] not in first_appearances:
             first_appearances[r["agent"]] = {
                 "date": r["date"],
                 "hash": r["hash"],
@@ -278,8 +293,9 @@ def main():
         "first_appearances": first_appearances,
         "summary": {
             "total_commits": len(results),
-            "ai_assisted_commits": sum(1 for r in results if r["agent"]),
+            "ai_assisted_commits": sum(1 for r in results if r["agent"] and r["agent"] != MISC),
             "human_only_commits": sum(1 for r in results if not r["agent"]),
+            "misc_commits": sum(1 for r in results if r["agent"] == MISC),
             "final_swift_loc": cumulative_swift,
             "final_total_loc": cumulative_total,
             "first_date": results[0]["date"],
@@ -287,6 +303,7 @@ def main():
             "peak_swift_loc": max(r["swift_cumulative"] for r in results),
             "peak_swift_date": max(results, key=lambda r: r["swift_cumulative"])["date"],
             "peak_swift_hash": max(results, key=lambda r: r["swift_cumulative"])["hash"],
+            "repo_url": github_url(),
         }
     }
 
@@ -297,6 +314,7 @@ def main():
     print(f"  Total commits: {len(results)}")
     print(f"  AI-assisted: {output['summary']['ai_assisted_commits']}")
     print(f"  Human-only: {output['summary']['human_only_commits']}")
+    print(f"  Misc (merges): {output['summary']['misc_commits']}")
     print(f"  Final Swift LOC: {cumulative_swift:,}")
     print(f"  Peak Swift LOC: {output['summary']['peak_swift_loc']:,} ({output['summary']['peak_swift_date']})")
     print(f"\n  Agent breakdown:")
