@@ -20,23 +20,59 @@ REPO_DIR = sys.argv[1] if len(sys.argv) > 1 else os.path.join(SCRIPT_DIR, "..", 
 REPO_DIR = os.path.abspath(REPO_DIR)
 OUTPUT_FILE = os.path.join(SCRIPT_DIR, "full_commit_data.json")
 
-# AI agent patterns (case-insensitive), checked in order (most specific first).
-# Within a model family the "(1M context)" variant MUST precede the bare one,
-# otherwise the bare pattern would also swallow the 1M commits.
-AGENT_PATTERNS = [
-    (r"Claude Fable 5", "Claude Fable 5"),
-    (r"Claude Opus 4\.8 \(1M context\)", "Claude Opus 4.8 (1M)"),
-    (r"Claude Opus 4\.8", "Claude Opus 4.8"),
-    (r"Claude Opus 4\.7 \(1M context\)", "Claude Opus 4.7 (1M)"),
-    (r"Claude Opus 4\.7", "Claude Opus 4.7"),
-    (r"Claude Opus 4\.6 \(1M context\)", "Claude Opus 4.6 (1M)"),
-    (r"Claude Opus 4\.6", "Claude Opus 4.6"),
-    (r"Claude Opus 4\.5", "Claude Opus 4.5"),
-    (r"Claude Sonnet 4\.6", "Claude Sonnet 4.6"),
-    (r"Claude Sonnet 4\.5", "Claude Sonnet 4.5"),
-    (r"Claude Haiku 4\.5", "Claude Haiku 4.5"),
-    (r"Claude", "Claude (unknown version)"),
-]
+# AI agent detection.
+#
+# Attribution is read from "Co-Authored-By:" trailer lines only, so a human
+# commit that merely mentions CLAUDE.md or a claude-* branch name is not
+# counted as AI-assisted.
+#
+# Model names are parsed generically rather than listed one by one, so any
+# Claude model - past, present, or future - is recognised without a code
+# change. Two naming schemes are handled:
+#
+#   family-first (Claude 4+):  "Claude Opus 4.6", "Claude Fable 5.1",
+#                              "Claude Opus 5 (1M context)"
+#   version-first (Claude 3.x): "Claude 3.5 Sonnet", "Claude 3 Opus"
+#
+# Both normalise to "Claude <Family> <version>", with " (1M)" appended for the
+# 1M-context variants, so the dashboard sees one consistent naming scheme.
+# The version is captured greedily, which is what keeps "Fable 5.1" from being
+# read as "Fable 5".
+CLAUDE_FAMILIES = r"(?:Fable|Opus|Sonnet|Haiku|Mythos)"
+CLAUDE_VERSION = r"\d+(?:\.\d+)?"
+CLAUDE_CONTEXT = r"(?:\s*\((\d+[KM]) context\))?"
+
+MODEL_FAMILY_FIRST = re.compile(
+    rf"Claude\s+({CLAUDE_FAMILIES})\s+({CLAUDE_VERSION}){CLAUDE_CONTEXT}",
+    re.IGNORECASE,
+)
+MODEL_VERSION_FIRST = re.compile(
+    rf"Claude\s+({CLAUDE_VERSION})\s+({CLAUDE_FAMILIES}){CLAUDE_CONTEXT}",
+    re.IGNORECASE,
+)
+COAUTHOR_TRAILER = re.compile(r"^\s*Co-Authored-By:\s*(.+)$", re.IGNORECASE | re.MULTILINE)
+
+UNKNOWN_CLAUDE = "Claude (unknown version)"
+
+
+def normalise_model(family, version, context):
+    name = f"Claude {family.capitalize()} {version}"
+    if context:
+        name += f" ({context.upper()})"
+    return name
+
+
+def parse_claude_model(text):
+    """Return the normalised Claude model name found in a co-author trailer, or None."""
+    m = MODEL_FAMILY_FIRST.search(text)
+    if m:
+        return normalise_model(m.group(1), m.group(2), m.group(3))
+    m = MODEL_VERSION_FIRST.search(text)
+    if m:
+        return normalise_model(m.group(2), m.group(1), m.group(3))
+    if re.search(r"\bClaude\b", text, re.IGNORECASE):
+        return UNKNOWN_CLAUDE
+    return None
 
 
 def git(*args):
@@ -48,11 +84,17 @@ def git(*args):
 
 
 def detect_agent(body):
+    """Detect the AI agent credited in a commit body via its Co-Authored-By trailers.
+
+    The first Claude trailer wins, matching the previous first-match behaviour
+    for commits that credit more than one model.
+    """
     if not body:
         return None
-    for pattern, name in AGENT_PATTERNS:
-        if re.search(pattern, body, re.IGNORECASE):
-            return name
+    for trailer in COAUTHOR_TRAILER.findall(body):
+        model = parse_claude_model(trailer)
+        if model:
+            return model
     return None
 
 
