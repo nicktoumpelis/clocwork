@@ -191,6 +191,51 @@ class TestTokenSummary(unittest.TestCase):
         self.assertEqual(t["lifetime_total"], 0)
         self.assertEqual(t["per_day"], [])
         self.assertIsNone(t["coverage_start"])
+        self.assertEqual(t["energy_kwh"], 0.0)
+        self.assertEqual(t["co2_kg"], 0.0)
+
+
+class TestEnergyEstimate(unittest.TestCase):
+    """Energy is the lifetime token ceiling split by the measured counter mix.
+
+    The split matters: a generated token costs far more energy than a cache
+    read, and this archive is 90% cache reads, so pricing them alike would
+    overstate the answer several times over.
+    """
+
+    def archive(self, output, cache_read, cache_write, input_=0):
+        return {"2026-08-06": {"turns": 1, "models": {"claude-opus-5": {
+            "input": input_, "output": output,
+            "cache_read": cache_read, "cache_write": cache_write}}}}
+
+    def results(self):
+        # 100 AI lines on the archived day, so ratio == measured_total / 100.
+        return [{"date": "2026-08-06", "agent": "Claude Opus 5",
+                 "lines": {"Swift": [100, 0, 0, 0, 0, 0]}}]
+
+    def test_each_counter_is_priced_at_its_own_rate(self):
+        # 1,000 of each: 1.0 + 0.1 + 0.02 Wh = 1.12 Wh = 0.00112 kWh.
+        t = an.token_summary(self.archive(1000, 1000, 1000), self.results())
+        self.assertAlmostEqual(t["energy_kwh"], 0.00112)
+
+    def test_cache_reads_are_far_cheaper_than_generated_tokens(self):
+        generated = an.token_summary(self.archive(1000, 0, 0), self.results())
+        cached = an.token_summary(self.archive(0, 1000, 0), self.results())
+        self.assertAlmostEqual(generated["energy_kwh"] / cached["energy_kwh"], 50.0)
+
+    def test_co2_applies_the_grid_intensity_to_the_energy(self):
+        t = an.token_summary(self.archive(1000, 1000, 1000), self.results())
+        self.assertAlmostEqual(t["co2_kg"], 0.00112 * an.GRID_G_CO2E_PER_KWH / 1000)
+
+    def test_energy_covers_the_lifetime_ceiling_not_only_measured_days(self):
+        # An unarchived AI day doubles the lifetime total, so it must double
+        # the energy: the estimate follows the ceiling the page displays.
+        results = self.results() + [{"date": "2026-01-24", "agent": "Claude Opus 5",
+                                     "lines": {"Swift": [100, 0, 0, 0, 0, 0]}}]
+        one_day = an.token_summary(self.archive(1000, 1000, 1000), self.results())
+        two_days = an.token_summary(self.archive(1000, 1000, 1000), results)
+        self.assertEqual(two_days["lifetime_total"], 2 * one_day["lifetime_total"])
+        self.assertAlmostEqual(two_days["energy_kwh"], 2 * one_day["energy_kwh"])
 
 
 class TestChurnByDate(unittest.TestCase):

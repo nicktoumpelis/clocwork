@@ -186,6 +186,52 @@ def churn_by_date(results):
     return totals
 
 
+# Energy per thousand tokens, by what the model actually had to do.
+#
+# These four constants are the least certain numbers in this project. Published
+# per-token energy figures vary by an order of magnitude between sources, and
+# none of them measure an agentic coding workload with million-token contexts,
+# which is what this archive contains. They are stated here, in one place, so
+# that anyone who disagrees can change them and see what moves.
+#
+# The relative ordering is on firmer ground than the absolute values: decoding a
+# token runs the whole model to produce one output, prefill processes many
+# tokens in parallel and so costs far less each, and a cache read skips
+# recomputation altogether and is mostly memory traffic.
+WH_PER_1K_OUTPUT = 1.0
+WH_PER_1K_CACHE_WRITE = 0.1
+WH_PER_1K_CACHE_READ = 0.02
+WH_PER_1K_INPUT = 0.1          # fresh input is prefill, same as a cache write
+
+# Location-based grid intensity, roughly a mixed US/EU grid. Deliberately not
+# the market-based figure cloud providers quote from renewable matching, which
+# would put this near zero and say nothing about the electricity actually drawn.
+GRID_G_CO2E_PER_KWH = 400
+
+WH_PER_1K = {
+    "output": WH_PER_1K_OUTPUT,
+    "cache_write": WH_PER_1K_CACHE_WRITE,
+    "cache_read": WH_PER_1K_CACHE_READ,
+    "input": WH_PER_1K_INPUT,
+}
+
+
+def energy_estimate(counters, measured_total, lifetime_total):
+    """Kilowatt-hours and kilograms of CO2e for the lifetime token ceiling.
+
+    Only the archived window records the split between generated, prefilled and
+    cached tokens, so that mix is assumed to hold across the estimated era too
+    and the lifetime ceiling is divided along it. The result inherits every
+    caveat the ceiling carries, and adds its own: see the constants above.
+    """
+    if not measured_total or not lifetime_total:
+        return 0.0, 0.0
+    wh = sum(WH_PER_1K[name] * (tokens / measured_total) * lifetime_total / 1000
+             for name, tokens in counters.items())
+    kwh = wh / 1000
+    return kwh, kwh * GRID_G_CO2E_PER_KWH / 1000
+
+
 def token_summary(archive_days, results):
     """Measured and estimated token usage per day.
 
@@ -219,12 +265,18 @@ def token_summary(archive_days, results):
     def counter(name):
         return sum(m[name] for d in archive_days.values() for m in d["models"].values())
 
+    lifetime_total = measured_total + estimated_total
+    counters = {name: counter(name) for name in WH_PER_1K}
+    energy_kwh, co2_kg = energy_estimate(counters, measured_total, lifetime_total)
+
     return {
         "measured_total": measured_total,
         "measured_days": len(archive_days),
         "estimated_total": estimated_total,
-        "lifetime_total": measured_total + estimated_total,
+        "lifetime_total": lifetime_total,
         "ratio": ratio,
+        "energy_kwh": energy_kwh,
+        "co2_kg": co2_kg,
         "cache_read_share": counter("cache_read") / measured_total if measured_total else 0.0,
         "output_per_line": round(counter("output") / covered_all) if covered_all else 0,
         "coverage_start": min(archive_days) if archive_days else None,
