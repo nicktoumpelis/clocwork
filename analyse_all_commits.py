@@ -16,11 +16,13 @@ import subprocess
 import sys
 
 import cloc_lines as cl
+import token_usage as tu
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_REPO = os.path.join(SCRIPT_DIR, "..", "MyApp")
 OUTPUT_FILE = os.path.join(SCRIPT_DIR, "full_commit_data.json")
 CACHE_FILE = os.path.join(SCRIPT_DIR, "cloc_cache.json")
+ARCHIVE_FILE = os.path.join(SCRIPT_DIR, "token_usage.json")
 
 # AI agent detection.
 #
@@ -166,11 +168,76 @@ def parse_log(repo, branch):
     return commits
 
 
-def analyse(repo_dir, output_path, cache_path=None, max_commits=None, log=print):
+def churn_by_date(results):
+    """Lines added plus removed per date, and the AI-attributed share of them.
+
+    Merge commits carry no line matrices, so they contribute nothing here, as
+    everywhere else in this project.
+    """
+    totals = {}
+    for r in results:
+        if not r["date"]:
+            continue
+        entry = totals.setdefault(r["date"], {"churn": 0, "ai_churn": 0})
+        churn = sum(sum(row) for row in r["lines"].values())
+        entry["churn"] += churn
+        if r["agent"] and r["agent"] != MISC:
+            entry["ai_churn"] += churn
+    return totals
+
+
+def token_summary(archive_days, results):
+    """Measured and estimated token usage per day.
+
+    A date with an archive record is measured. A date with AI-attributed churn
+    and no record is estimated at the archive's tokens-per-line ratio. A date
+    with neither is left out entirely, which is what keeps the pre-2026 human
+    era off the chart rather than pricing it.
+
+    Classifying per date rather than against a cut-off means a gap inside the
+    archived range - a machine change, a run skipped for six weeks - needs no
+    special case.
+    """
+    churn = churn_by_date(results)
+    measured_total = sum(tu.day_total(d) for d in archive_days.values())
+    covered_ai = sum(churn.get(date, {}).get("ai_churn", 0) for date in archive_days)
+    covered_all = sum(churn.get(date, {}).get("churn", 0) for date in archive_days)
+    ratio = measured_total / covered_ai if covered_ai else 0.0
+
+    per_day, estimated_total = [], 0
+    for date in sorted(set(churn) | set(archive_days)):
+        if date in archive_days:
+            per_day.append([date, tu.day_total(archive_days[date]), "m"])
+            continue
+        ai = churn.get(date, {}).get("ai_churn", 0)
+        if not ai or not ratio:
+            continue
+        tokens = round(ratio * ai)
+        estimated_total += tokens
+        per_day.append([date, tokens, "e"])
+
+    def counter(name):
+        return sum(m[name] for d in archive_days.values() for m in d["models"].values())
+
+    return {
+        "measured_total": measured_total,
+        "measured_days": len(archive_days),
+        "estimated_total": estimated_total,
+        "lifetime_total": measured_total + estimated_total,
+        "ratio": ratio,
+        "cache_read_share": counter("cache_read") / measured_total if measured_total else 0.0,
+        "output_per_line": round(counter("output") / covered_all) if covered_all else 0,
+        "coverage_start": min(archive_days) if archive_days else None,
+        "per_day": per_day,
+    }
+
+
+def analyse(repo_dir, output_path, cache_path=None, archive_path=None, max_commits=None, log=print):
     cl.require_cloc()
     if not os.path.isdir(os.path.join(repo_dir, ".git")):
         raise SystemExit(f"Error: {repo_dir} is not a git repository")
     cache_path = cache_path or os.path.join(os.path.dirname(output_path), "cloc_cache.json")
+    archive_path = archive_path or os.path.join(os.path.dirname(output_path), "token_usage.json")
 
     branch = git(repo_dir, "rev-parse", "--abbrev-ref", "HEAD").strip()
     log(f"Analysing repo: {repo_dir} (branch: {branch})")
@@ -270,6 +337,7 @@ def analyse(repo_dir, output_path, cache_path=None, max_commits=None, log=print)
             "mapping_check": mapping_check,
             "unmeasured_commits": len(measured.failed),
             "pending_commits": len(measured.pending),
+            "tokens": token_summary(tu.load(archive_path), results),
         },
     }
 
@@ -283,6 +351,13 @@ def analyse(repo_dir, output_path, cache_path=None, max_commits=None, log=print)
         log(f"  WARNING: {s['unmeasured_commits']} commits could not be measured by cloc")
     if s["pending_commits"]:
         log(f"  NOTE: {s['pending_commits']} commits not yet measured (CLOC_MAX_COMMITS cap); rerun to continue")
+    t = s["tokens"]
+    if t["measured_total"]:
+        log(f"  Tokens: {t['lifetime_total']:,} lifetime "
+            f"({t['measured_total']:,} measured over {t['measured_days']} days, "
+            f"{t['estimated_total']:,} estimated at {t['ratio']:,.0f} per AI line)")
+    else:
+        log("  Tokens: no archive yet; run token_usage.py first")
     log("  Lines at HEAD (cloc snapshot) and drift of running totals:")
     for lang in languages:
         snap = by_lang.get(lang, {t: 0 for t in cl.TYPES})
@@ -304,7 +379,8 @@ def main():
         sys.exit(1)
     max_commits = os.environ.get("CLOC_MAX_COMMITS")
     try:
-        analyse(repo, OUTPUT_FILE, CACHE_FILE, int(max_commits) if max_commits else None)
+        analyse(repo, OUTPUT_FILE, CACHE_FILE, ARCHIVE_FILE,
+                max_commits=int(max_commits) if max_commits else None)
     except cl.ClocMissing as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)

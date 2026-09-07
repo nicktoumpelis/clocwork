@@ -12,7 +12,7 @@ const card = label => { const c = byId('statsGrid').children.find(x => x.childre
 
 section('initial render');
 let st = page.run('return SEL.stats()');
-check(charts.length === 5, 'five charts created');
+check(charts.length === 6, 'six charts created');
 check(main.data.datasets[0].label === 'Code Lines' && main.data.datasets[0].data.length === RAW.commits.length, 'main dataset labelled and sized');
 check(main.data.datasets[1].label === 'Tests' && main.data.datasets[1].hidden === true, 'tests dataset present but hidden');
 check(main.data.datasets[0].data[RAW.commits.length - 1].y === st.cumulative[RAW.commits.length - 1], 'main series ends at final cumulative');

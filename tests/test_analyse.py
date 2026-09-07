@@ -106,6 +106,11 @@ class TestAnalyse(unittest.TestCase):
             self.assertEqual([c["status"] for c in data["commits"]], ["ok", "pending", "pending", "merge"])
             self.assertEqual(data["summary"]["pending_commits"], 2)
 
+    def test_summary_carries_a_tokens_block(self):
+        t = self.data["summary"]["tokens"]
+        self.assertEqual(t["measured_total"], 0)      # no transcripts for the fixture repo
+        self.assertEqual(t["per_day"], [])
+
 
 @unittest.skipUnless(HAVE_CLOC, "cloc not installed")
 class TestNonPrMerge(unittest.TestCase):
@@ -133,3 +138,67 @@ class TestMissingCloc(unittest.TestCase):
                 an.analyse("/definitely/not/a/repo", "/dev/null")
         finally:
             shutil.which = real
+
+
+class TestTokenSummary(unittest.TestCase):
+    """The estimator works on plain dicts, so it needs no git fixture."""
+
+    def results(self):
+        # Two AI days and one human day. Row layout is
+        # [codeAdded, codeRemoved, commentAdded, commentRemoved, blankAdded, blankRemoved].
+        return [
+            {"date": "2026-01-24", "agent": "Claude Opus 4.5", "lines": {"Swift": [80, 20, 0, 0, 0, 0]}},
+            {"date": "2026-08-06", "agent": "Claude Opus 5", "lines": {"Swift": [40, 10, 0, 0, 0, 0]}},
+            {"date": "2024-10-01", "agent": None, "lines": {"Swift": [500, 0, 0, 0, 0, 0]}},
+            {"date": "2026-08-06", "agent": an.MISC, "lines": {}},
+        ]
+
+    def archive(self):
+        return {"2026-08-06": {"turns": 3, "models": {"claude-opus-5": {
+            "input": 0, "output": 500, "cache_read": 4500, "cache_write": 0}}}}
+
+    def test_ratio_is_measured_tokens_over_covered_ai_churn(self):
+        t = an.token_summary(self.archive(), self.results())
+        # 5,000 tokens over 50 AI-attributed lines on 2026-08-06.
+        self.assertEqual(t["ratio"], 100.0)
+
+    def test_archived_days_are_measured(self):
+        t = an.token_summary(self.archive(), self.results())
+        self.assertIn(["2026-08-06", 5000, "m"], t["per_day"])
+        self.assertEqual(t["measured_total"], 5000)
+        self.assertEqual(t["measured_days"], 1)
+
+    def test_uncovered_ai_days_are_estimated_at_the_ratio(self):
+        t = an.token_summary(self.archive(), self.results())
+        # 100 lines of AI churn on 2026-01-24 at 100 tokens per line.
+        self.assertIn(["2026-01-24", 10000, "e"], t["per_day"])
+        self.assertEqual(t["estimated_total"], 10000)
+        self.assertEqual(t["lifetime_total"], 15000)
+
+    def test_human_only_days_are_absent_not_estimated(self):
+        t = an.token_summary(self.archive(), self.results())
+        self.assertEqual([r for r in t["per_day"] if r[0] == "2024-10-01"], [])
+
+    def test_derived_shares_and_coverage(self):
+        t = an.token_summary(self.archive(), self.results())
+        self.assertAlmostEqual(t["cache_read_share"], 0.9)
+        self.assertEqual(t["output_per_line"], 10)      # 500 output over 50 lines changed
+        self.assertEqual(t["coverage_start"], "2026-08-06")
+
+    def test_an_empty_archive_yields_zeroes_not_a_crash(self):
+        t = an.token_summary({}, self.results())
+        self.assertEqual(t["ratio"], 0.0)
+        self.assertEqual(t["lifetime_total"], 0)
+        self.assertEqual(t["per_day"], [])
+        self.assertIsNone(t["coverage_start"])
+
+
+class TestChurnByDate(unittest.TestCase):
+    def test_splits_ai_churn_from_total_churn(self):
+        results = [
+            {"date": "2026-05-01", "agent": "Claude Opus 4.8", "lines": {"Swift": [3, 1, 0, 0, 0, 0]}},
+            {"date": "2026-05-01", "agent": None, "lines": {"Swift": [10, 0, 0, 0, 0, 0]}},
+            {"date": "2026-05-01", "agent": an.MISC, "lines": {}},
+        ]
+        churn = an.churn_by_date(results)
+        self.assertEqual(churn["2026-05-01"], {"churn": 14, "ai_churn": 4})
