@@ -6,7 +6,8 @@ const { check, section, done } = require('./check');
 const page = load();
 const { RAW, byId, charts } = page;
 const LANGS = RAW.languages;
-const fmt = n => n.toLocaleString();
+const fmt = n => new Intl.NumberFormat('en-US').format(n);
+const enDate = iso => { const p = iso.split('-').map(Number); return new Intl.DateTimeFormat('en-US', { dateStyle: 'medium' }).format(new Date(p[0], p[1] - 1, p[2])); };
 const [main, daily, agentCum, pie, agentNet] = charts;
 const card = label => { const c = byId('statsGrid').children.find(x => x.children[0].textContent === label); return c && c.children[1].textContent; };
 
@@ -21,7 +22,7 @@ check(daily.data.datasets[0].data.length === st.daily.length, 'daily bars match 
 check(pie.data.datasets[0].data.reduce((a, b) => a + b, 0) === RAW.commits.length, 'pie sums to total commits');
 check(agentNet.data.labels.every((a, i) => i === 0 || st.agents[agentNet.data.labels[i - 1]].net >= st.agents[a].net), 'agent net bars sorted by net');
 check(card('Lines at HEAD') === fmt(page.run('return SEL.headTotal(false)')), 'Lines at HEAD card');
-check(card('Peak') === fmt(st.peak.value) && card('Peak Date') === st.peak.date, 'peak cards');
+check(card('Peak') === fmt(st.peak.value) && card('Peak Date') === enDate(st.peak.date), 'peak cards');
 check(byId('agentGrid').children.length === Object.keys(st.agents).length, 'one agent card per agent');
 check(byId('reconNote').hidden === (page.run('return SEL.drift()') === 0), 'reconciliation note only when drift');
 

@@ -16,7 +16,7 @@ DATA = {
 
 class TestBuildEmbedded(unittest.TestCase):
     def test_compact_rows(self):
-        e = gh.build_embedded(DATA)
+        e = gh.build_embedded(DATA, generated="2026-09-07", locale="en-SE")
         self.assertEqual(e["languages"], ["Swift", "Markdown"])
         self.assertEqual(e["commits"][0], [0, "abc1234", "2025-01-01", "Initial", "", 0,
                                            [[0, [3, 0, 2, 0, 1, 0]], [1, [2, 0, 0, 0, 1, 0]]], []])
@@ -25,29 +25,68 @@ class TestBuildEmbedded(unittest.TestCase):
         self.assertNotIn("daily", e)
         self.assertNotIn("agentStats", e)
 
+    def test_embeds_generation_date_for_the_page_to_format(self):
+        # The page formats this itself, so it must travel as ISO.
+        e = gh.build_embedded(DATA, generated="2026-09-07", locale="en-SE")
+        self.assertEqual(e["generated"], "2026-09-07")
 
-class TestReplaceDataLine(unittest.TestCase):
-    def test_replaces_whole_line_even_with_embedded_marker(self):
-        # The old blob contains a literal '};' inside a JSON string value, which
-        # broke the previous marker_start/marker_end/index-based replacement.
-        html = (
-            "before line 1\n"
-            "before line 2\n"
-            'var RAW = {"languages":[],"commits":[[0,"abc","2025-01-01","subject with }; inside",""]]};\n'
-            "after line 1\n"
-            "after line 2\n"
-        )
-        new_blob = '{"languages":["Swift"],"commits":[]}'
-        result = gh.replace_data_line(html, new_blob)
-        self.assertEqual(
-            result,
-            "before line 1\n"
-            "before line 2\n"
-            f"var RAW = {new_blob};\n"
-            "after line 1\n"
-            "after line 2\n",
-        )
+    def test_embeds_region_locale_for_the_page_to_format_with(self):
+        e = gh.build_embedded(DATA, generated="2026-09-07", locale="en-SE")
+        self.assertEqual(e["locale"], "en-SE")
 
-    def test_missing_line_raises_system_exit(self):
-        with self.assertRaises(SystemExit):
-            gh.replace_data_line("no data line here at all\n", "{}")
+    def test_omits_locale_when_none_detected(self):
+        e = gh.build_embedded(DATA, generated="2026-09-07", locale=None)
+        self.assertNotIn("locale", e)
+
+
+class TestRegionLocale(unittest.TestCase):
+    """Browsers expose only the language list, never the OS region, so the
+    generator records the machine's region locale for the page to format with."""
+
+    def test_bcp47_normalises_posix_and_apple_tags(self):
+        self.assertEqual(gh.bcp47("en_SE"), "en-SE")
+        self.assertEqual(gh.bcp47("de_DE.UTF-8"), "de-DE")
+        self.assertEqual(gh.bcp47(" sv-SE\n"), "sv-SE")
+
+    def test_bcp47_rejects_non_locales(self):
+        for tag in ("", None, "C", "POSIX", "C.UTF-8"):
+            self.assertIsNone(gh.bcp47(tag), tag)
+
+    def test_bcp47_carries_icu_keywords_as_unicode_extensions(self):
+        # macOS appends per-setting customisations as ICU keywords; Intl
+        # understands the same settings only in BCP 47 -u- form.
+        self.assertEqual(gh.bcp47("en_SE@calendar=japanese"), "en-SE-u-ca-japanese")
+        self.assertEqual(gh.bcp47("en_US@ms=metric;numbers=arab"), "en-US-u-ms-metric-nu-arab")
+        self.assertEqual(gh.bcp47("en_US@calendar=gregorian"), "en-US-u-ca-gregory")
+        self.assertEqual(gh.bcp47("en_SE@rg=gbzzzz"), "en-SE-u-rg-gbzzzz")
+        self.assertEqual(gh.bcp47("en_US@mystery=x"), "en-US")
+
+    @staticmethod
+    def apple(**settings):
+        return lambda key: settings.get(key, "")
+
+    def test_explicit_override_wins(self):
+        env = {"CLOC_LOCALE": "el_GR", "LANG": "en_US.UTF-8"}
+        self.assertEqual(gh.detect_locale(env, platform="darwin", apple=self.apple(AppleLocale="en_SE")), "el-GR")
+
+    def test_macos_region_setting_beats_the_shell_locale(self):
+        env = {"LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8"}
+        self.assertEqual(gh.detect_locale(env, platform="darwin", apple=self.apple(AppleLocale="en_SE")), "en-SE")
+
+    def test_macos_measurement_setting_becomes_a_ms_extension(self):
+        # System Settings > Language & Region > Measurement system, stored as a
+        # boolean; absent means the region's own default applies.
+        self.assertEqual(gh.detect_locale({}, "darwin", self.apple(AppleLocale="en_SE", AppleMetricUnits="0")), "en-SE-u-ms-ussystem")
+        self.assertEqual(gh.detect_locale({}, "darwin", self.apple(AppleLocale="en_US", AppleMetricUnits="1")), "en-US-u-ms-metric")
+        self.assertEqual(gh.detect_locale({}, "darwin", self.apple(AppleLocale="en_SE")), "en-SE")
+        # An explicit setting wins over a keyword already in the locale.
+        self.assertEqual(gh.detect_locale({}, "darwin", self.apple(AppleLocale="en_SE@ms=ussystem", AppleMetricUnits="1")), "en-SE-u-ms-metric")
+
+    def test_posix_variables_in_precedence_order_elsewhere(self):
+        env = {"LANG": "en_US.UTF-8", "LC_ALL": "de_DE.UTF-8"}
+        self.assertEqual(gh.detect_locale(env, platform="linux", apple=self.apple(AppleLocale="en_SE")), "de-DE")
+        self.assertEqual(gh.detect_locale({"LANG": "fr_FR.UTF-8"}, platform="linux", apple=self.apple()), "fr-FR")
+
+    def test_nothing_detected_gives_none(self):
+        self.assertIsNone(gh.detect_locale({"LANG": "C.UTF-8"}, platform="linux", apple=self.apple()))
+        self.assertIsNone(gh.detect_locale({}, platform="darwin", apple=self.apple()))

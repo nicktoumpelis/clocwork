@@ -6,23 +6,28 @@ const { check, section, done } = require('./check');
 const page = load();
 const { RAW, byId, charts } = page;
 const T = RAW.summary.tokens;
+const en = new Intl.NumberFormat('en-US');
+const enPct = new Intl.NumberFormat('en-US', { style: 'percent', minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const card = label => byId('tokenStats').children.find(x => x.children[0].textContent === label);
 const cardValue = label => { const c = card(label); return c && c.children[1].textContent; };
 const cardNote = label => { const c = card(label); return c && c.children[2] && c.children[2].textContent; };
 
 section('token cards');
 check(byId('tokenStats').children.length === 6, 'six token cards');
-check(/^~\d+ B$/.test(cardValue('Tokens (lifetime est. ceiling)')), 'lifetime card is coarse: ' + cardValue('Tokens (lifetime est. ceiling)'));
+check(/^~\d+B$/.test(cardValue('Tokens (lifetime est. ceiling)')), 'lifetime card is coarse, en-US compact: ' + cardValue('Tokens (lifetime est. ceiling)'));
 check(cardValue('Measured').indexOf('B') > 0 || cardValue('Measured').indexOf('M') > 0, 'measured card is abbreviated');
-check(cardValue('Cache Read') === (T.cache_read_share * 100).toFixed(1) + '%', 'cache read share');
-check(cardValue('Output per Line') === T.output_per_line.toLocaleString(), 'output per line');
+check(cardValue('Cache Read') === enPct.format(T.cache_read_share), 'cache read share');
+check(cardValue('Output per Line') === en.format(T.output_per_line), 'output per line');
 check(byId('tokenNote').textContent.indexOf('30 days') > 0, 'note explains the retention window');
 
 section('clarifications and footprint');
 check(/re-read|context/i.test(cardNote('Cache Read') || ''), 'cache read card explains itself: ' + cardNote('Cache Read'));
 check(/line/i.test(cardNote('Output per Line') || ''), 'output per line card explains itself: ' + cardNote('Output per Line'));
 check(/kWh|MWh/.test(cardValue('Electricity (est.)') || ''), 'electricity card carries a unit: ' + cardValue('Electricity (est.)'));
-check(/kg|t$/.test(cardValue('CO\u2082e (est.)') || ''), 'co2 card carries a unit: ' + cardValue('CO\u2082e (est.)'));
+// ECMA-402 exposes no measurement system, so the page derives it from the
+// region: en-US maximises to the US, which is on US customary units.
+const lb = new Intl.NumberFormat('en-US', { style: 'unit', unit: 'pound', maximumSignificantDigits: 2 });
+check(cardValue('CO\u2082e (est.)') === lb.formatRange(T.co2_kg * 2.20462262, T.co2_kg * 2.20462262), 'co2 card in pounds for a US-customary region: ' + cardValue('CO\u2082e (est.)'));
 check((cardNote('Electricity (est.)') || '').length > 0 && (cardNote('CO\u2082e (est.)') || '').length > 0,
       'both footprint cards state their assumption');
 // The footprint follows the token ceiling, so it must not be presented as measured.
