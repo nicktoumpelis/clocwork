@@ -62,16 +62,23 @@ function load(opts) {
   const tabs = ['all', 'gains', 'drops'].map(k => { const b = new El('button'); b.setAttribute('data-tab', k); if (k === 'all') b.className = 'tab active'; else b.className = 'tab'; return b; });
   const cols = headers.map(() => new El('col'));
   const head = new El('head');
+  // The page appends per-language <th>/<col> elements to these at load, so
+  // expose the live children arrays rather than the static lists above.
+  const headRow = new El('tr'); headers.forEach(x => headRow.appendChild(x));
+  const colgroup = new El('colgroup'); cols.forEach(x => colgroup.appendChild(x));
+
+  ids['allCommitsHeadRow'] = headRow;
+  ids['allCommitsColgroup'] = colgroup;
 
   global.window = global;
   global.document = {
     getElementById: byId,
     createElement: t => new El(t),
     querySelectorAll: sel => {
-      if (sel === '.all-commits th.sortable') return headers.filter(h => h.className.indexOf('sortable') >= 0);
+      if (sel === '.all-commits th.sortable') return headRow.children.filter(h => h.className.indexOf('sortable') >= 0);
       if (sel === '#commitTabs .tab') return tabs;
-      if (sel === '#allCommitsTable col') return cols;
-      if (sel === '#allCommitsTable thead th') return headers;
+      if (sel === '#allCommitsTable col') return colgroup.children;
+      if (sel === '#allCommitsTable thead th') return headRow.children;
       return [];
     },
     head,
@@ -87,7 +94,7 @@ function load(opts) {
   require('vm').runInThisContext(src);
 
   return {
-    RAW, byId, headers, tabs, cols, head, charts: Chart.instances, location: global.location,
+    RAW, byId, headers: headRow.children, tabs, cols: colgroup.children, head, charts: Chart.instances, location: global.location,
     cells: row => row.children.slice(1).map(td => td.children.length ? td.children[0].textContent : td.textContent),
     bodiesFile: path.join(root, 'commit_bodies.js'),
     run: js => new Function(js)(),
