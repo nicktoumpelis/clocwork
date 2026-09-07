@@ -17,6 +17,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 from collections import namedtuple
 
 COUNTERS = ("input", "output", "cache_read", "cache_write")
@@ -131,9 +132,17 @@ def load(path):
 
 
 def save(path, days):
-    with open(path, "w") as f:
-        json.dump({"version": VERSION, "days": dict(sorted(days.items()))}, f, indent=1)
-        f.write("\n")
+    directory = os.path.dirname(path) or "."
+    with tempfile.NamedTemporaryFile(mode="w", dir=directory, delete=False) as tmp:
+        try:
+            json.dump({"version": VERSION, "days": dict(sorted(days.items()))}, tmp, indent=1)
+            tmp.write("\n")
+            tmp_name = tmp.name
+        except Exception:
+            tmp.close()
+            os.unlink(tmp.name)
+            raise
+    os.replace(tmp_name, path)
 
 
 def archive(repo_path, archive_path, projects_dir=PROJECTS_DIR, log=print):

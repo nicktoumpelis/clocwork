@@ -172,6 +172,19 @@ class TestArchiveRoundTrip(unittest.TestCase):
             self.assertEqual(days, existing)
             self.assertEqual(tu.load(path), existing)
 
+    def test_a_failed_save_leaves_the_previous_archive_intact(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "token_usage.json")
+            original = {"2026-08-06": {"turns": 2, "models": {"claude-opus-5": {
+                "input": 1, "output": 2, "cache_read": 3, "cache_write": 4}}}}
+            tu.save(path, original)
+            # Attempt to save with an unserialisable value (will fail during json.dump)
+            bad_data = {"2026-08-06": {"turns": 1, "models": {"m": {"input": object()}}}}
+            with self.assertRaises(TypeError):
+                tu.save(path, bad_data)
+            # Verify the original file is still intact
+            self.assertEqual(tu.load(path), original)
+
 
 if __name__ == "__main__":
     unittest.main()
