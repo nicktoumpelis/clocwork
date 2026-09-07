@@ -127,6 +127,10 @@ def load(path):
     """The archived days, or {} when no archive exists yet."""
     if not os.path.exists(path):
         return {}
+    # Deliberately not try/except: a corrupt archive must raise here, not
+    # return {}. archive() calls load() then save()s the merged result, so a
+    # swallowed error here would make save() write only the current scan's
+    # ~30 days, permanently erasing every archived day older than that.
     with open(path) as f:
         return json.load(f).get("days", {})
 
