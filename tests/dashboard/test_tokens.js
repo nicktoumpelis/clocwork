@@ -13,7 +13,7 @@ const cardValue = label => { const c = card(label); return c && c.children[1].te
 const cardNote = label => { const c = card(label); return c && c.children[2] && c.children[2].textContent; };
 
 section('token cards');
-check(byId('tokenStats').children.length === 6, 'six token cards');
+check(byId('tokenStats').children.length === 7, 'seven token cards');
 check(/^~\d+B$/.test(cardValue('Tokens (lifetime est. ceiling)')), 'lifetime card is coarse, en-US compact: ' + cardValue('Tokens (lifetime est. ceiling)'));
 check(cardValue('Measured').indexOf('B') > 0 || cardValue('Measured').indexOf('M') > 0, 'measured card is abbreviated');
 check(cardValue('Cache Read') === enPct.format(T.cache_read_share), 'cache read share');
@@ -32,6 +32,14 @@ check((cardNote('Electricity (est.)') || '').length > 0 && (cardNote('CO\u2082e 
       'both footprint cards state their assumption');
 // The footprint follows the token ceiling, so it must not be presented as measured.
 check(/order[- ]of[- ]magnitude|rough/i.test(byId('tokenNote').textContent), 'note flags the footprint as order-of-magnitude');
+
+section('api cost');
+const usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumSignificantDigits: 2 });
+const usdExact = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+check(typeof T.lifetime_cost_usd === 'number' && T.lifetime_cost_usd > 0, 'blob carries a lifetime cost');
+check(cardValue('API Cost (est.)') === usd.formatRange(T.lifetime_cost_usd, T.lifetime_cost_usd), 'cost card: coarse dollars at list prices: ' + cardValue('API Cost (est.)'));
+check((cardNote('API Cost (est.)') || '').indexOf(usdExact.format(T.cost_usd)) === 0 && /measured/.test(cardNote('API Cost (est.)') || ''), 'cost note leads with the measured window figure: ' + cardNote('API Cost (est.)'));
+check(/list price/i.test(byId('tokenNote').textContent), 'note explains the cost basis');
 
 section('token chart');
 const token = charts[charts.length - 1];

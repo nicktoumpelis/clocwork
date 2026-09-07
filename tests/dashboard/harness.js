@@ -62,8 +62,8 @@ function load(opts) {
 
   const ids = {};
   const byId = id => ids[id] || (ids[id] = new El('div'));
-  const th = (cls, sort) => { const e = new El('th'); if (cls) e.className = cls; if (sort) e.setAttribute('data-sort', sort); return e; };
-  const headers = [th('expander-col'), th('sortable', 'date'), th(), th('sortable', 'message'), th('sortable', 'agent'), th('sortable', 'churn'), th('sortable', 'net'), th('sortable', 'cumulative')];
+  const th = (cls, sort, text) => { const e = new El('th'); if (cls) e.className = cls; if (sort) e.setAttribute('data-sort', sort); e.textContent = text || ''; return e; };
+  const headers = [th('expander-col'), th('sortable', 'date', 'Date'), th('', '', 'SHA'), th('sortable', 'message', 'Commit'), th('sortable', 'agent', 'Agent'), th('sortable', 'churn', '+/-'), th('sortable', 'net', 'Net'), th('sortable', 'cumulative', 'Cumulative'), th('sortable', 'tokens', 'Tokens')];
   const tabs = ['all', 'gains', 'drops'].map(k => { const b = new El('button'); b.setAttribute('data-tab', k); if (k === 'all') b.className = 'tab active'; else b.className = 'tab'; return b; });
   const cols = headers.map(() => new El('col'));
   const head = new El('head');

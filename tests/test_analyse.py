@@ -106,6 +106,10 @@ class TestAnalyse(unittest.TestCase):
             self.assertEqual([c["status"] for c in data["commits"]], ["ok", "pending", "pending", "merge"])
             self.assertEqual(data["summary"]["pending_commits"], 2)
 
+    def test_every_commit_carries_a_tokens_figure(self):
+        # Zero when nothing is attributed, so the page can rely on the key.
+        self.assertTrue(all(isinstance(c["tokens"], int) for c in self.data["commits"]))
+
     def test_summary_carries_a_tokens_block(self):
         t = self.data["summary"]["tokens"]
         self.assertEqual(t["measured_total"], 0)      # no transcripts for the fixture repo
@@ -185,6 +189,14 @@ class TestTokenSummary(unittest.TestCase):
         self.assertEqual(t["output_per_line"], 10)      # 500 output over 50 lines changed
         self.assertEqual(t["coverage_start"], "2026-08-06")
 
+    def test_cost_follows_the_token_ceiling(self):
+        t = an.token_summary(self.archive(), self.results())
+        # Opus 5: 500 output at $25/MTok plus 4,500 cache reads at $0.50/MTok.
+        self.assertAlmostEqual(t["cost_usd"], 0.0125 + 0.00225)
+        # 5,000 measured tokens against a 15,000 lifetime ceiling: three times the cost.
+        self.assertAlmostEqual(t["lifetime_cost_usd"], t["cost_usd"] * t["lifetime_total"] / t["measured_total"])
+        self.assertEqual(t["unpriced_tokens"], 0)
+
     def test_an_empty_archive_yields_zeroes_not_a_crash(self):
         t = an.token_summary({}, self.results())
         self.assertEqual(t["ratio"], 0.0)
@@ -236,6 +248,76 @@ class TestEnergyEstimate(unittest.TestCase):
         two_days = an.token_summary(self.archive(1000, 1000, 1000), results)
         self.assertEqual(two_days["lifetime_total"], 2 * one_day["lifetime_total"])
         self.assertAlmostEqual(two_days["energy_kwh"], 2 * one_day["energy_kwh"])
+
+
+class TestTokensByCommit(unittest.TestCase):
+    """A day's tokens, measured or estimated, are attributed to that day's
+    AI commits in proportion to the lines each one changed."""
+
+    PER_DAY = [["2026-01-24", 5000, "e"], ["2026-08-06", 4000, "m"], ["2026-08-08", 999, "m"]]
+
+    def results(self):
+        return [
+            {"index": 0, "date": "2026-08-06", "agent": "Claude Opus 5", "lines": {"Swift": [80, 20, 0, 0, 0, 0]}},
+            {"index": 1, "date": "2026-08-06", "agent": "Claude Opus 5", "lines": {"Swift": [200, 100, 0, 0, 0, 0]}},
+            {"index": 2, "date": "2026-08-06", "agent": None, "lines": {"Swift": [500, 0, 0, 0, 0, 0]}},
+            {"index": 3, "date": "2026-08-06", "agent": an.MISC, "lines": {}},
+            {"index": 4, "date": "2026-01-24", "agent": "Claude Opus 4.5", "lines": {"Swift": [50, 0, 0, 0, 0, 0]}},
+            {"index": 5, "date": "2026-08-07", "agent": "Claude Opus 5", "lines": {"Swift": [10, 0, 0, 0, 0, 0]}},
+            {"index": 6, "date": "2026-08-08", "agent": None, "lines": {"Swift": [10, 0, 0, 0, 0, 0]}},
+        ]
+
+    def test_a_measured_day_is_split_by_lines_changed(self):
+        t = an.tokens_by_commit(self.PER_DAY, self.results())
+        # 4,000 tokens over churn of 100 and 300 lines.
+        self.assertEqual((t[0], t[1]), (1000, 3000))
+
+    def test_human_and_merge_commits_get_nothing(self):
+        t = an.tokens_by_commit(self.PER_DAY, self.results())
+        self.assertNotIn(2, t)
+        self.assertNotIn(3, t)
+
+    def test_an_estimated_day_goes_to_its_ai_commits(self):
+        t = an.tokens_by_commit(self.PER_DAY, self.results())
+        self.assertEqual(t[4], 5000)
+
+    def test_a_day_without_tokens_attributes_nothing(self):
+        self.assertNotIn(5, an.tokens_by_commit(self.PER_DAY, self.results()))
+
+    def test_measured_tokens_on_a_day_without_ai_churn_stay_unattributed(self):
+        self.assertNotIn(6, an.tokens_by_commit(self.PER_DAY, self.results()))
+
+
+class TestCostEstimate(unittest.TestCase):
+    """Measured counters priced per model at API list prices."""
+
+    @staticmethod
+    def archive(model, **counters):
+        c = {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}
+        c.update(counters)
+        return {"2026-08-06": {"turns": 1, "models": {model: c}}}
+
+    def test_each_counter_at_its_own_rate(self):
+        # Opus 5: $5 input, $10 one-hour cache write, $0.50 cache read, $25 output per MTok.
+        a = self.archive("claude-opus-5", input=1_000_000, cache_write=1_000_000, cache_read=1_000_000, output=1_000_000)
+        self.assertAlmostEqual(an.cost_estimate(a)["measured_usd"], 5 + 10 + 0.5 + 25)
+
+    def test_cache_reads_are_cheaper_on_fable_5_1_than_on_fable_5(self):
+        self.assertAlmostEqual(an.cost_estimate(self.archive("claude-fable-5-1", cache_read=1_000_000))["measured_usd"], 0.25)
+        self.assertAlmostEqual(an.cost_estimate(self.archive("claude-fable-5", cache_read=1_000_000))["measured_usd"], 1.0)
+
+    def test_earlier_generations_price_by_family(self):
+        self.assertAlmostEqual(an.cost_estimate(self.archive("claude-opus-4-6", output=1_000_000))["measured_usd"], 25)
+        self.assertAlmostEqual(an.cost_estimate(self.archive("claude-sonnet-4-5", input=1_000_000))["measured_usd"], 3)
+        self.assertAlmostEqual(an.cost_estimate(self.archive("claude-haiku-4-5-20251001", output=1_000_000))["measured_usd"], 5)
+
+    def test_unknown_models_are_reported_not_guessed(self):
+        cost = an.cost_estimate(self.archive("claude-mystery-9", output=1000, cache_read=500))
+        self.assertEqual(cost["measured_usd"], 0)
+        self.assertEqual(cost["unpriced_tokens"], 1500)
+
+    def test_empty_archive_costs_nothing(self):
+        self.assertEqual(an.cost_estimate({}), {"measured_usd": 0.0, "unpriced_tokens": 0})
 
 
 class TestChurnByDate(unittest.TestCase):
