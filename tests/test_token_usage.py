@@ -109,5 +109,69 @@ class TestScan(unittest.TestCase):
             self.assertEqual(tu.scan(d).days["2026-08-06"]["turns"], 1)
 
 
+class TestMerge(unittest.TestCase):
+    def day(self, output):
+        return {"turns": 1, "models": {"claude-opus-5": {"input": 0, "output": output,
+                                                         "cache_read": 0, "cache_write": 0}}}
+
+    def test_new_days_are_added(self):
+        merged = tu.merge({"2026-08-06": self.day(10)}, {"2026-08-07": self.day(20)})
+        self.assertEqual(sorted(merged), ["2026-08-06", "2026-08-07"])
+
+    def test_a_larger_scan_replaces_the_archived_day(self):
+        merged = tu.merge({"2026-08-06": self.day(10)}, {"2026-08-06": self.day(50)})
+        self.assertEqual(tu.day_total(merged["2026-08-06"]), 50)
+
+    def test_a_smaller_scan_never_shrinks_the_archive(self):
+        # Transcripts expire, so a rescan of an old day reports less than was
+        # archived. The archive must win.
+        merged = tu.merge({"2026-08-06": self.day(50)}, {"2026-08-06": self.day(10)})
+        self.assertEqual(tu.day_total(merged["2026-08-06"]), 50)
+
+    def test_days_absent_from_the_scan_survive(self):
+        merged = tu.merge({"2026-07-01": self.day(99)}, {"2026-08-06": self.day(1)})
+        self.assertEqual(tu.day_total(merged["2026-07-01"]), 99)
+
+
+class TestArchiveRoundTrip(unittest.TestCase):
+    def test_load_of_a_missing_file_is_empty(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(tu.load(os.path.join(d, "nope.json")), {})
+
+    def test_save_then_load_preserves_days(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "token_usage.json")
+            days = {"2026-08-06": {"turns": 2, "models": {"claude-opus-5": {
+                "input": 1, "output": 2, "cache_read": 3, "cache_write": 4}}}}
+            tu.save(path, days)
+            self.assertEqual(tu.load(path), days)
+            with open(path) as f:
+                self.assertEqual(json.load(f)["version"], tu.VERSION)
+
+    def test_archive_merges_a_scan_into_an_existing_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            projects = os.path.join(d, "projects")
+            repo = os.path.join(d, "Repo")
+            write_transcripts(os.path.join(projects, tu.encode_repo_path(repo)),
+                              {"a.jsonl": [turn("m1", "2026-08-06", output=7)]})
+            path = os.path.join(d, "token_usage.json")
+            tu.save(path, {"2026-07-01": {"turns": 1, "models": {"claude-opus-5": {
+                "input": 0, "output": 5, "cache_read": 0, "cache_write": 0}}}})
+            days = tu.archive(repo, path, projects_dir=projects, log=lambda *a: None)
+            self.assertEqual(sorted(days), ["2026-07-01", "2026-08-06"])
+            self.assertEqual(tu.load(path), days)
+
+    def test_archive_without_transcripts_leaves_the_file_untouched(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "token_usage.json")
+            existing = {"2026-07-01": {"turns": 1, "models": {"claude-opus-5": {
+                "input": 0, "output": 5, "cache_read": 0, "cache_write": 0}}}}
+            tu.save(path, existing)
+            days = tu.archive(os.path.join(d, "Absent"), path,
+                              projects_dir=os.path.join(d, "projects"), log=lambda *a: None)
+            self.assertEqual(days, existing)
+            self.assertEqual(tu.load(path), existing)
+
+
 if __name__ == "__main__":
     unittest.main()

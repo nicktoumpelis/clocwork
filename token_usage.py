@@ -92,3 +92,78 @@ def scan(directory):
                     counts[counter] += usage.get(field) or 0
 
     return ScanResult(days, malformed)
+
+
+VERSION = 1
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ARCHIVE_FILE = os.path.join(SCRIPT_DIR, "token_usage.json")
+DEFAULT_REPO = os.path.join(SCRIPT_DIR, "..", "MyApp")
+
+
+def day_total(day):
+    """Every token recorded for one day, across models and counters."""
+    return sum(v for counts in day["models"].values() for v in counts.values())
+
+
+def merge(archive, scanned):
+    """Combine an archive with a fresh scan, keeping the larger record per day.
+
+    A day's measurable total grows while work continues and shrinks once its
+    session files pass out of Claude Code's retention window, so neither policy
+    is safe alone: overwriting would let retention erase archived days, and
+    skipping would freeze the current day at whatever it held on the first run
+    of the morning. Keeping the larger record does both jobs.
+    """
+    merged = dict(archive)
+    for date, day in scanned.items():
+        if date not in merged or day_total(day) > day_total(merged[date]):
+            merged[date] = day
+    return merged
+
+
+def load(path):
+    """The archived days, or {} when no archive exists yet."""
+    if not os.path.exists(path):
+        return {}
+    with open(path) as f:
+        return json.load(f).get("days", {})
+
+
+def save(path, days):
+    with open(path, "w") as f:
+        json.dump({"version": VERSION, "days": dict(sorted(days.items()))}, f, indent=1)
+        f.write("\n")
+
+
+def archive(repo_path, archive_path, projects_dir=PROJECTS_DIR, log=print):
+    """Scan a repository's transcripts and merge them into its archive."""
+    days = load(archive_path)
+    was_days, was_total = len(days), sum(day_total(d) for d in days.values())
+
+    directory = transcript_dir(repo_path, projects_dir)
+    if directory is None:
+        log(f"  No transcripts at {os.path.join(projects_dir, encode_repo_path(repo_path))}")
+        log(f"  Archive left unchanged: {was_days} days, {was_total:,} tokens")
+        return days
+
+    result = scan(directory)
+    days = merge(days, result.days)
+    save(archive_path, days)
+
+    total = sum(day_total(d) for d in days.values())
+    log(f"  Scanned {len(result.days)} days of transcripts from {directory}")
+    log(f"  Archive now {len(days)} days, {total:,} tokens "
+        f"(+{len(days) - was_days} days, +{total - was_total:,} tokens)")
+    if result.malformed:
+        log(f"  NOTE: skipped {result.malformed} unparseable lines")
+    return days
+
+
+def main():
+    repo = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else DEFAULT_REPO)
+    archive(repo, ARCHIVE_FILE)
+
+
+if __name__ == "__main__":
+    main()
