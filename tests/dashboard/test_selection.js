@@ -76,6 +76,7 @@ check(ok, 'test cumulative matches a hand computation');
 check(page.run('return SEL.shortLabel()') === LANGS[0] + ' LOC', 'short label for lang/total');
 page.run('SEL.set({ type: "comment" })');
 check(page.run('return SEL.shortLabel()') === LANGS[0] + ' Comment LOC', 'short label for lang/comment');
+check(page.run('return SEL.linesLabel()') === LANGS[0] + ' Comment Lines', 'lines label for lang/comment');
 page.run('SEL.set({ tests: true })');
 check(page.run('return window.__fired') === 3 && page.location.hash.indexOf('&tests=1') > 0, 'tests toggle fires and is persisted');
 page.run('SEL.set({ tests: true })');
