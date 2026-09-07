@@ -12,6 +12,9 @@ const chip = name => bar.children.find(b => b.textContent === name);
 const num = s => parseInt(String(s).replace(/[+,]/g, ''), 10);
 const rows = () => tbody.children.filter(r => r.className.indexOf('detail-row') < 0);
 const total = RAW.commits.length;
+const en = n => new Intl.NumberFormat('en-US').format(n);
+// Date cells are locale-formatted, so order is checked via the commit's ISO date.
+const isoOf = r => RAW.commits.find(c => c[1] === cells(r)[1])[2];
 
 // Read agent counts from summary cards (independent rendered source)
 const findSummaryCard = (label) => {
@@ -30,22 +33,22 @@ const humanCount = findSummaryCard('Human Only');
 
 section('default render');
 check(rows().length === 500, 'caps at 500 rows');
-check(count.textContent === total.toLocaleString() + ' commits · showing first 500', 'headline for full list');
+check(count.textContent === en(total) + ' commits · showing first 500', 'headline for full list');
 check(cells(rows()[0])[1].length === 7, 'SHA in its own column');
 check(thDate.getAttribute('data-dir') === 'desc', 'date sorted desc by default');
-check(cells(rows()[0])[0] >= cells(rows()[499])[0], 'newest first');
+check(isoOf(rows()[0]) >= isoOf(rows()[499]), 'newest first');
 
 section('filter chips');
 chip('Misc').fire('click');
-check(new RegExp('^' + miscCount.toLocaleString() + ' of ' + total.toLocaleString() + ' commits · Misc').test(count.textContent), 'Misc headline');
+check(new RegExp('^' + en(miscCount) + ' of ' + en(total) + ' commits · Misc').test(count.textContent), 'Misc headline');
 check(rows().every(r => cells(r)[3] === 'Misc'), 'only Misc rows');
 chip('Human').fire('click');
-check(new RegExp('^' + humanCount.toLocaleString() + ' of ' + total.toLocaleString() + ' commits · Human').test(count.textContent), 'Human headline');
+check(new RegExp('^' + en(humanCount) + ' of ' + en(total) + ' commits · Human').test(count.textContent), 'Human headline');
 check(rows().every(r => cells(r)[3] === 'Human'), 'only Human rows');
 
 section('sorting');
 thDate.fire('click');
-check(thDate.getAttribute('data-dir') === 'asc' && cells(rows()[0])[0] <= cells(rows()[rows().length - 1])[0], 'date asc');
+check(thDate.getAttribute('data-dir') === 'asc' && isoOf(rows()[0]) <= isoOf(rows()[rows().length - 1]), 'date asc');
 thMsg.fire('click');
 let msgs = rows().map(r => cells(r)[2].toLowerCase());
 check(thMsg.getAttribute('data-dir') === 'asc' && thDate.getAttribute('data-dir') === null && msgs.every((m, i) => i === 0 || msgs[i - 1] <= m), 'message asc, date indicator cleared');
@@ -68,7 +71,7 @@ search.value = 'font'; search.fire('input');
 check(rows().length > 0 && rows().every(r => cells(r)[2].toLowerCase().includes('font')), 'search matches message');
 const someSha = cells(rows()[0])[1];
 search.value = someSha; search.fire('input');
-check(rows().length === 1 && count.textContent === '1 of ' + total.toLocaleString() + ' commits', 'search by SHA gives one row');
+check(rows().length === 1 && count.textContent === '1 of ' + en(total) + ' commits', 'search by SHA gives one row');
 search.value = ''; search.fire('input');
 
 section('tabs');
@@ -115,7 +118,7 @@ const newest = rows()[0];
 const newestIdx = RAW.commits.length - 1;
 check(cells(newest)[1] === RAW.commits[newestIdx][1], 'newest row is the last commit');
 check(num(cells(newest)[5]) === stSel.net[newestIdx] && num(cells(newest)[6]) === stSel.cumulative[newestIdx], 'net and cumulative follow the selection');
-check(cells(newest)[4] === '+' + stSel.added[newestIdx].toLocaleString() + ' / -' + stSel.removed[newestIdx].toLocaleString(), '+/- follows the selection');
+check(cells(newest)[4] === '+' + en(stSel.added[newestIdx]) + ' / -' + en(stSel.removed[newestIdx]), '+/- follows the selection');
 tabs[1].fire('click');
 check(rows().map(r => cells(r)[1]).join() === stSel.gains.map(i => RAW.commits[i][1]).join(), 'gains tab lists SEL.stats().gains in order');
 check(tabs[1].textContent === 'Biggest ' + RAW.languages[0] + ' LOC Gains' && tabs[2].textContent === 'Biggest ' + RAW.languages[0] + ' LOC Drops', 'tab labels follow the selection');

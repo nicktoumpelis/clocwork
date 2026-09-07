@@ -52,8 +52,13 @@ function load(opts) {
   const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
   const scripts = []; const re = /<script>([\s\S]*?)<\/script>/g; let m;
   while ((m = re.exec(html))) scripts.push(m[1]);
-  const src = scripts.join('\n');
+  let src = scripts.join('\n');
+  // The blob may carry the region locale of the machine that generated it,
+  // which the page prefers over navigator. Tests choose: opts.region sets it,
+  // otherwise it is removed so the navigator path is what runs.
   const RAW = JSON.parse(src.match(/^var RAW = (.*);$/m)[1]);
+  if (opts.region !== undefined) RAW.locale = opts.region; else delete RAW.locale;
+  src = src.replace(/^var RAW = .*;$/m, () => 'var RAW = ' + JSON.stringify(RAW) + ';');
 
   const ids = {};
   const byId = id => ids[id] || (ids[id] = new El('div'));
@@ -84,6 +89,11 @@ function load(opts) {
     head,
     addEventListener() {}, removeEventListener() {},
   };
+  // The page reads the viewer's locale from navigator; default to en-US so
+  // assertions do not depend on the machine running the tests. Node 21+
+  // exposes a getter-only navigator, hence defineProperty over assignment.
+  const locale = opts.locale || 'en-US';
+  Object.defineProperty(global, 'navigator', { value: { language: locale, languages: [locale] }, configurable: true, writable: true });
   global.location = { hash: opts.hash || '' };
   global.history = { replaceState(_s, _t, h) { global.location.hash = h; } };
   Chart.instances = [];
