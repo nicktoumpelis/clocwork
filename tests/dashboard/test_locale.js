@@ -26,11 +26,12 @@ const kg = new Intl.NumberFormat(LOCALE, { style: 'unit', unit: 'kilogram', maxi
 const approx = f => n => f.formatRange(n, n);
 const approxSign = sig2.formatRange(9, 9).replace(/\d/g, '');
 const unitSep = kg.formatToParts(9).find(p => p.type === 'literal').value;
-const medium = new Intl.DateTimeFormat(LOCALE, { dateStyle: 'medium' });
+// The region's date format is the numeric one: 07.09.2026 in Germany, 2026-09-07 in Sweden.
+const numeric = new Intl.DateTimeFormat(LOCALE, { year: 'numeric', month: '2-digit', day: '2-digit' });
 const monthLong = new Intl.DateTimeFormat(LOCALE, { month: 'long', year: 'numeric' });
 const monthShort = new Intl.DateTimeFormat(LOCALE, { month: 'short', year: 'numeric' });
 const local = iso => { const p = iso.split('-').map(Number); return new Date(p[0], p[1] - 1, p[2]); };
-const date = iso => medium.format(local(iso));
+const date = iso => numeric.format(local(iso));
 
 const card = (grid, label) => byId(grid).children.find(x => x.children[0].textContent === label);
 const value = (grid, label) => { const c = card(grid, label); return c && c.children[1].textContent; };
@@ -45,7 +46,7 @@ check(value('statsGrid', 'Total Commits') === int.format(S.total_commits), 'comm
 check(value('statsGrid', 'AI-Assisted') === int.format(S.ai_assisted_commits) + ' (' + pct.format(S.ai_assisted_commits / S.total_commits) + ')',
       'AI-assisted share as a German percentage: ' + value('statsGrid', 'AI-Assisted'));
 check(value('statsGrid', 'Peak') === int.format(st.peak.value), 'peak lines');
-check(value('statsGrid', 'Peak Date') === date(st.peak.date), 'peak date in the medium date style: ' + value('statsGrid', 'Peak Date'));
+check(value('statsGrid', 'Peak Date') === date(st.peak.date), 'peak date in the numeric region format: ' + value('statsGrid', 'Peak Date'));
 check(value('statsGrid', 'First Commit') === date(S.first_date) && value('statsGrid', 'Last Commit') === date(S.last_date), 'first and last commit dates');
 
 section('header and footer');
@@ -67,6 +68,8 @@ check(value('tokenStats', 'CO₂e (est.)') === (T.co2_kg >= 1000 ? approx(sig2)(
       'co2e: Intl kilogram formatting with the German approximation sign: ' + value('tokenStats', 'CO₂e (est.)'));
 check(approxSign !== '~', 'sanity: the German approximation sign is not the ASCII tilde');
 check(note('tokenStats', 'CO₂e (est.)') === 'at ' + int.format(400) + ' g/kWh, location-based', 'grid intensity note');
+const usd = new Intl.NumberFormat(LOCALE, { style: 'currency', currency: 'USD', maximumSignificantDigits: 2 });
+check(value('tokenStats', 'API Cost (est.)') === usd.formatRange(T.lifetime_cost_usd, T.lifetime_cost_usd), 'api cost in the German currency format: ' + value('tokenStats', 'API Cost (est.)'));
 check(byId('tokenNote').textContent.indexOf(int.format(T.measured_total)) > 0 && byId('tokenNote').textContent.indexOf(int.format(Math.round(T.ratio))) > 0,
       'token note numbers grouped the German way');
 

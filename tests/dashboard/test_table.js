@@ -124,6 +124,30 @@ check(rows().map(r => cells(r)[1]).join() === stSel.gains.map(i => RAW.commits[i
 check(tabs[1].textContent === 'Biggest ' + RAW.languages[0] + ' LOC Gains' && tabs[2].textContent === 'Biggest ' + RAW.languages[0] + ' LOC Drops', 'tab labels follow the selection');
 tabs[0].fire('click');
 
+section('tokens column');
+{
+  tabs[0].fire('click'); search.value = ''; search.fire('input'); chip('All').fire('click');
+  thDate.fire('click'); if (thDate.getAttribute('data-dir') !== 'desc') thDate.fire('click');
+  const thTokens = headers[8];
+  check(thTokens.getAttribute('data-sort') === 'tokens' && thTokens.textContent === 'Tokens', 'Tokens is the ninth column, after Cumulative');
+  const compact = new Intl.NumberFormat('en-US', { notation: 'compact', maximumSignificantDigits: 3 });
+  const kind = {}; RAW.summary.tokens.per_day.forEach(([d, , k]) => { kind[d] = k; });
+  const rawOf = r => RAW.commits.find(x => x[1] === cells(r)[1]);
+  // Attributed from a measured day: plain. From an estimated day: the approximation sign. None: blank.
+  const expected = c => !c[8] ? '' : kind[c[2]] === 'e' ? compact.formatRange(c[8], c[8]) : compact.format(c[8]);
+  check(rows().every(r => cells(r)[7] === expected(rawOf(r))), 'token cells show the attributed figure, approximate on estimated days, blank when none');
+  check(rows().some(r => cells(r)[7] !== '') && rows().filter(r => cells(r)[3] === 'Misc').every(r => cells(r)[7] === ''), 'AI commits carry tokens, merges do not');
+  const withTokens = rows().find(r => cells(r)[7] !== '');
+  const title = withTokens && withTokens.children[8].title;
+  check(!!title && title.indexOf(en(rawOf(withTokens)[8])) >= 0 && /measured|estimated/.test(title), 'token cell title gives the exact count and whether the day was measured or estimated: ' + title);
+  thTokens.fire('click');
+  const tok = rows().map(r => rawOf(r)[8]);
+  check(thTokens.getAttribute('data-dir') === 'desc' && tok.every((v, i) => i === 0 || tok[i - 1] >= v), 'clicking Tokens sorts largest first');
+  page.run('SEL.set({ lang: "' + RAW.languages[0] + '", type: "comment" })');
+  check(cells(rows()[0])[7] === expected(rawOf(rows()[0])), 'tokens ignore the Language and Line type selection');
+  page.run('SEL.set({ lang: "All", type: "code" })');
+}
+
 section('per-language columns');
 {
   const LANGS = RAW.languages;
@@ -135,37 +159,37 @@ section('per-language columns');
   page.run('SEL.set({ lang: "All", type: "code", tests: false })');
   tabs[0].fire('click'); search.value = ''; search.fire('input'); chip('All').fire('click'); thDate.fire('click');
   if (thDate.getAttribute('data-dir') !== 'desc') thDate.fire('click');
-  check(headers.length === 8 + LANGS.length && page.cols.length === headers.length, 'one header and col per language after the fixed columns');
-  check(headers.slice(8).map(h => h.textContent).join('|') === LANGS.join('|'), 'language headers in data order');
-  check(headers.slice(8).every((h, i) => h.className.indexOf('sortable') >= 0 && h.getAttribute('data-sort') === 'lang:' + i), 'language headers sortable with lang:<idx> keys');
+  check(headers.length === 9 + LANGS.length && page.cols.length === headers.length, 'one header and col per language after the fixed columns');
+  check(headers.slice(9).map(h => h.textContent).join('|') === LANGS.join('|'), 'language headers in data order');
+  check(headers.slice(9).every((h, i) => h.className.indexOf('sortable') >= 0 && h.getAttribute('data-sort') === 'lang:' + i), 'language headers sortable with lang:<idx> keys');
   const top = rows()[0];
   const topRaw = RAW.commits.find(c => c[1] === cells(top)[1]);
   let ok = true;
   LANGS.forEach((l, li) => {
     const expected = langNet(topRaw, li, 'code');
-    const cell = cells(top)[7 + li];
+    const cell = cells(top)[8 + li];
     const shown = cell === '' ? 0 : num(cell);
     if (shown !== expected || (expected === 0 && cell !== '')) ok = false;
   });
   check(ok, 'newest row language cells equal an independent per-language net (blank for zero)');
   // find a row with a non-zero Swift net and check the badge sign class
   const swiftIdx = LANGS.indexOf('Swift');
-  const rowWithSwift = rows().find(r => cells(r)[7 + swiftIdx] !== '');
-  check(!!rowWithSwift && rowWithSwift.children[8 + swiftIdx].children[0].className.indexOf(num(cells(rowWithSwift)[7 + swiftIdx]) >= 0 ? 'positive' : 'negative') >= 0, 'non-zero language cell is a signed badge');
-  headers[8 + swiftIdx].fire('click');
-  let vals = rows().map(r => { const c = cells(r)[7 + swiftIdx]; return c === '' ? 0 : num(c); });
-  check(headers[8 + swiftIdx].getAttribute('data-dir') === 'desc' && vals.every((v, i) => i === 0 || vals[i - 1] >= v), 'clicking a language header sorts by that language, largest first');
-  headers[8 + swiftIdx].fire('click');
-  vals = rows().map(r => { const c = cells(r)[7 + swiftIdx]; return c === '' ? 0 : num(c); });
+  const rowWithSwift = rows().find(r => cells(r)[8 + swiftIdx] !== '');
+  check(!!rowWithSwift && rowWithSwift.children[9 + swiftIdx].children[0].className.indexOf(num(cells(rowWithSwift)[8 + swiftIdx]) >= 0 ? 'positive' : 'negative') >= 0, 'non-zero language cell is a signed badge');
+  headers[9 + swiftIdx].fire('click');
+  let vals = rows().map(r => { const c = cells(r)[8 + swiftIdx]; return c === '' ? 0 : num(c); });
+  check(headers[9 + swiftIdx].getAttribute('data-dir') === 'desc' && vals.every((v, i) => i === 0 || vals[i - 1] >= v), 'clicking a language header sorts by that language, largest first');
+  headers[9 + swiftIdx].fire('click');
+  vals = rows().map(r => { const c = cells(r)[8 + swiftIdx]; return c === '' ? 0 : num(c); });
   check(vals.every((v, i) => i === 0 || vals[i - 1] <= v), 'second click reverses');
   page.run('SEL.set({ type: "comment" })');
   thDate.fire('click'); if (thDate.getAttribute('data-dir') !== 'desc') thDate.fire('click');
   const top2 = rows()[0]; const top2Raw = RAW.commits.find(c => c[1] === cells(top2)[1]);
-  ok = LANGS.every((l, li) => { const cell = cells(top2)[7 + li]; return (cell === '' ? 0 : num(cell)) === langNet(top2Raw, li, 'comment'); });
+  ok = LANGS.every((l, li) => { const cell = cells(top2)[8 + li]; return (cell === '' ? 0 : num(cell)) === langNet(top2Raw, li, 'comment'); });
   check(ok, 'language cells follow the Line type selection');
   page.run('SEL.set({ lang: "' + LANGS[0] + '" })');
   const top3 = rows()[0]; const top3Raw = RAW.commits.find(c => c[1] === cells(top3)[1]);
-  ok = LANGS.every((l, li) => { const cell = cells(top3)[7 + li]; return (cell === '' ? 0 : num(cell)) === langNet(top3Raw, li, 'comment'); });
+  ok = LANGS.every((l, li) => { const cell = cells(top3)[8 + li]; return (cell === '' ? 0 : num(cell)) === langNet(top3Raw, li, 'comment'); });
   check(ok, 'language cells ignore the Language selection');
   top3.fire('click');
   check(top3.nextSibling.className === 'detail-row' && top3.nextSibling.children[0].colSpan === headers.length, 'detail row spans every column');

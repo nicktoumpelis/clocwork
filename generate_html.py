@@ -105,7 +105,7 @@ def build_embedded(data, generated, locale):
         return sorted(pairs, key=lambda p: p[0])
 
     commits = [[c["index"], c["hash"], c["date"], c["message"], c["agent"] or "",
-                1 if c["is_merge"] else 0, sparse(c["lines"]), sparse(c["test_lines"])]
+                1 if c["is_merge"] else 0, sparse(c["lines"]), sparse(c["test_lines"]), c.get("tokens", 0)]
                for c in data["commits"]]
     embedded = {"languages": data["languages"], "commits": commits, "summary": data["summary"],
                 "generated": generated}

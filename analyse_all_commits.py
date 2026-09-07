@@ -232,6 +232,48 @@ def energy_estimate(counters, measured_total, lifetime_total):
     return kwh, kwh * GRID_G_CO2E_PER_KWH / 1000
 
 
+# API list prices in US dollars per million tokens, from
+# platform.claude.com/docs/en/about-claude/pricing on 2026-09-07. Cache writes
+# are priced at the one-hour rate: Claude Code writes its cache with that TTL
+# (98% of cache-write tokens in the current transcripts) and the archive keeps
+# one cache-write counter. Long context carries no premium on these models.
+# Keys are matched as prefixes, longest first, so dated ids and whole
+# generations ('claude-opus-4-6') resolve without a row each.
+PRICE_USD_PER_MTOK = {
+    "claude-fable-5-1": {"input": 10.0, "cache_write": 20.0, "cache_read": 0.25, "output": 50.0},
+    "claude-fable-5":   {"input": 10.0, "cache_write": 20.0, "cache_read": 1.0,  "output": 50.0},
+    "claude-opus-5":    {"input": 5.0,  "cache_write": 10.0, "cache_read": 0.5,  "output": 25.0},
+    "claude-opus-4-1":  {"input": 15.0, "cache_write": 30.0, "cache_read": 1.5,  "output": 75.0},
+    "claude-opus-4":    {"input": 5.0,  "cache_write": 10.0, "cache_read": 0.5,  "output": 25.0},
+    "claude-sonnet-5":  {"input": 2.0,  "cache_write": 4.0,  "cache_read": 0.2,  "output": 10.0},
+    "claude-sonnet-4":  {"input": 3.0,  "cache_write": 6.0,  "cache_read": 0.3,  "output": 15.0},
+    "claude-haiku-4-5": {"input": 1.0,  "cache_write": 2.0,  "cache_read": 0.1,  "output": 5.0},
+}
+
+
+def price_for(model):
+    """The price row for a model id, or None when the table does not know it."""
+    for key in sorted(PRICE_USD_PER_MTOK, key=len, reverse=True):
+        if model == key or model.startswith(key + "-"):
+            return PRICE_USD_PER_MTOK[key]
+    return None
+
+
+def cost_estimate(archive_days):
+    """Measured usage priced per model and counter at API list prices, in US
+    dollars, plus the tokens of any model the table does not know, which are
+    left out of the figure rather than priced at a guess."""
+    usd, unpriced = 0.0, 0
+    for day in archive_days.values():
+        for model, counters in day["models"].items():
+            price = price_for(model)
+            if price is None:
+                unpriced += sum(counters.values())
+                continue
+            usd += sum(counters[name] * price[name] for name in price) / 1_000_000
+    return {"measured_usd": usd, "unpriced_tokens": unpriced}
+
+
 def token_summary(archive_days, results):
     """Measured and estimated token usage per day.
 
@@ -268,6 +310,10 @@ def token_summary(archive_days, results):
     lifetime_total = measured_total + estimated_total
     counters = {name: counter(name) for name in WH_PER_1K}
     energy_kwh, co2_kg = energy_estimate(counters, measured_total, lifetime_total)
+    # Like energy, the lifetime cost assumes the measured mix of models and
+    # counters held across the estimated era, so it follows the same ceiling.
+    cost = cost_estimate(archive_days)
+    lifetime_cost = cost["measured_usd"] * lifetime_total / measured_total if measured_total else 0.0
 
     return {
         "measured_total": measured_total,
@@ -277,11 +323,39 @@ def token_summary(archive_days, results):
         "ratio": ratio,
         "energy_kwh": energy_kwh,
         "co2_kg": co2_kg,
+        "cost_usd": cost["measured_usd"],
+        "lifetime_cost_usd": lifetime_cost,
+        "unpriced_tokens": cost["unpriced_tokens"],
         "cache_read_share": counter("cache_read") / measured_total if measured_total else 0.0,
         "output_per_line": round(counter("output") / covered_all) if covered_all else 0,
         "coverage_start": min(archive_days) if archive_days else None,
         "per_day": per_day,
     }
+
+
+def tokens_by_commit(per_day, results):
+    """Each day's tokens attributed to that day's AI commits, keyed by commit index.
+
+    The archive knows tokens per day, not per commit, so a day's total, measured
+    or estimated alike, is split across the AI-attributed commits of that day in
+    proportion to the lines each one changed: the same churn the estimator's
+    ratio is built on. Human and merge commits get nothing, and a day whose
+    tokens have no AI churn to land on stays unattributed rather than being
+    forced onto someone.
+    """
+    day_tokens = {date: tokens for date, tokens, _kind in per_day}
+    by_day = {}
+    for r in results:
+        if r["date"] in day_tokens and r["agent"] and r["agent"] != MISC:
+            churn = sum(sum(row) for row in r["lines"].values())
+            if churn:
+                by_day.setdefault(r["date"], []).append((r["index"], churn))
+    attributed = {}
+    for date, commits in by_day.items():
+        total = sum(churn for _index, churn in commits)
+        for index, churn in commits:
+            attributed[index] = round(day_tokens[date] * churn / total)
+    return attributed
 
 
 def analyse(repo_dir, output_path, cache_path=None, archive_path=None, max_commits=None, log=print):
@@ -371,6 +445,11 @@ def analyse(repo_dir, output_path, cache_path=None, archive_path=None, max_commi
         if r["agent"] and r["agent"] != MISC and r["agent"] not in first_appearances:
             first_appearances[r["agent"]] = {"date": r["date"], "hash": r["hash"], "index": r["index"], "message": r["message"]}
 
+    tokens = token_summary(tu.load(archive_path), results)
+    attributed = tokens_by_commit(tokens["per_day"], results)
+    for r in results:
+        r["tokens"] = attributed.get(r["index"], 0)
+
     output = {
         "languages": languages,
         "commits": results,
@@ -389,7 +468,7 @@ def analyse(repo_dir, output_path, cache_path=None, archive_path=None, max_commi
             "mapping_check": mapping_check,
             "unmeasured_commits": len(measured.failed),
             "pending_commits": len(measured.pending),
-            "tokens": token_summary(tu.load(archive_path), results),
+            "tokens": tokens,
         },
     }
 

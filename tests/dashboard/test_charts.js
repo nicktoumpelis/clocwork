@@ -7,7 +7,7 @@ const page = load();
 const { RAW, byId, charts } = page;
 const LANGS = RAW.languages;
 const fmt = n => new Intl.NumberFormat('en-US').format(n);
-const enDate = iso => { const p = iso.split('-').map(Number); return new Intl.DateTimeFormat('en-US', { dateStyle: 'medium' }).format(new Date(p[0], p[1] - 1, p[2])); };
+const enDate = iso => { const p = iso.split('-').map(Number); return new Intl.DateTimeFormat('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(p[0], p[1] - 1, p[2])); };
 const [main, daily, agentCum, pie, agentNet] = charts;
 const card = label => { const c = byId('statsGrid').children.find(x => x.children[0].textContent === label); return c && c.children[1].textContent; };
 

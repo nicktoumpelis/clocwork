@@ -13,7 +13,7 @@ const { RAW, byId, cells } = page;
 const S = RAW.summary;
 const int = new Intl.NumberFormat(REGION);
 const pct = new Intl.NumberFormat(REGION, { style: 'percent', minimumFractionDigits: 1, maximumFractionDigits: 1 });
-const date = iso => { const p = iso.split('-').map(Number); return new Intl.DateTimeFormat(REGION, { dateStyle: 'medium' }).format(new Date(p[0], p[1] - 1, p[2])); };
+const date = iso => { const p = iso.split('-').map(Number); return new Intl.DateTimeFormat(REGION, { year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(p[0], p[1] - 1, p[2])); };
 const value = label => byId('statsGrid').children.find(x => x.children[0].textContent === label).children[1].textContent;
 
 section('embedded region locale wins over the browser language');
