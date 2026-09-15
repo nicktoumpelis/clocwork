@@ -20,7 +20,7 @@ class TestRender(unittest.TestCase):
 
     def test_standard_sections_in_order(self):
         names = re.findall(r"^\.SH (.+)$", self.page, re.M)
-        self.assertEqual(names[:4], ["NAME", "SYNOPSIS", "DESCRIPTION", "COMMANDS"])
+        self.assertEqual(names[:5], ["NAME", "SYNOPSIS", "DESCRIPTION", "OPTIONS", "COMMANDS"])
         for section in ("ENVIRONMENT", "FILES", "EXIT STATUS", "SEE ALSO"):
             self.assertIn(section, names)
 
@@ -30,32 +30,71 @@ class TestRender(unittest.TestCase):
         self.assertIsNotNone(m, name)
         return m.group(1)
 
-    def test_every_command_and_option_from_the_parser_appears_in_its_own_section(self):
+    def sh_section(self, name):
+        m = re.search(rf"^\.SH {name}\n(.*?)(?=^\.SH |\Z)", self.page, re.M | re.S)
+        self.assertIsNotNone(m, name)
+        return m.group(1)
+
+    @staticmethod
+    def tag_of(action):
+        return ", ".join(o.replace("-", "\\-") for o in action.option_strings)
+
+    def test_shared_options_appear_once_and_commands_list_only_their_own(self):
         parser = cli.build_parser()
-        subparsers = next(a for a in parser._actions if a.choices)
-        for name, sub in subparsers.choices.items():
+        subs = next(a for a in parser._actions if a.choices).choices
+        seen = {}
+        for name, sub in subs.items():
+            for action in sub._actions:
+                if action.option_strings and "--help" not in action.option_strings:
+                    seen.setdefault((tuple(action.option_strings), action.help), []).append(name)
+        shared = {k: v for k, v in seen.items() if len(v) > 1}
+        options = self.sh_section("OPTIONS")
+        option_tags = re.findall(r"^\.TP\n\.B (.+)$", options, re.M)
+        self.assertEqual(len(option_tags), len(shared))
+        for (flags, help), names in shared.items():
+            tag = ", ".join(o.replace("-", "\\-") for o in flags)
+            self.assertTrue(any(t.startswith(tag) for t in option_tags), (tag, option_tags))
+            self.assertIn(manpage.escape(help.split("(")[0].strip()), options)
+            # Which commands take it is stated unless every command does.
+            note = f"Taken by {' and '.join(names)}."
+            self.assertEqual(note in options, len(names) < len(subs), (tag, note))
+        for name, sub in subs.items():
             body = self.section(name)
             tags = re.findall(r"^\.TP\n\.[BI] (.+)$", body, re.M)
-            for action in sub._actions:
-                if "--help" in action.option_strings:
-                    continue
+            own = [a for a in sub._actions if "--help" not in a.option_strings
+                   and (not a.option_strings or (tuple(a.option_strings), a.help) not in shared)]
+            self.assertEqual(len(tags), len(own), (name, tags))
+            for action in own:
                 if action.option_strings:
-                    tag = ", ".join(o.replace("-", "\\-") for o in action.option_strings)
-                    self.assertTrue(any(t.startswith(tag) for t in tags), (name, tag, tags))
+                    self.assertTrue(any(t.startswith(self.tag_of(action)) for t in tags), (name, tags))
                 else:
                     self.assertIn(manpage.escape(action.metavar or action.dest.upper()), tags, (name, tags))
                 if action.help:
                     self.assertIn(manpage.escape(action.help.split("(")[0].strip()), body, (name, action.help))
-            # Nothing the parser does not know sneaks into the list.
-            self.assertEqual(len(tags), sum(1 for a in sub._actions if "--help" not in a.option_strings))
+            # A shared option's help never repeats inside a command section
+            # (a command may re-declare the same flags with its own meaning).
+            for (_flags, help) in shared:
+                self.assertNotIn(manpage.escape(help), body, (name, help))
+
+    def test_the_real_split(self):
+        options = self.sh_section("OPTIONS")
+        self.assertRegex(options, r"\.B \\-q, \\-\\-quiet\nprint nothing but errors\n")     # all commands: no note
+        self.assertIn("explicit clocwork.toml. Taken by run and render.", options)
+        self.assertIn("(default: <repo\\-parent>/<repo\\-name>\\-stats) Taken by run and tokens.", options)
+        self.assertIn("Taken by run and tokens.", options)                              # the optional -o
+        run, tokens, render = (self.section(n) for n in ("run", "tokens", "render"))
+        run_tags = re.findall(r"^\.TP\n\.[BI] (.+)$", run, re.M)
+        self.assertEqual(run_tags, ["REPO", "\\-\\-branch REF", "\\-\\-max\\-commits N", "\\-\\-no\\-tokens", "\\-\\-cache\\-dir DIR"])
+        self.assertEqual(re.findall(r"^\.TP\n\.[BI] (.+)$", tokens, re.M), ["REPO"])
+        self.assertIn(".B \\-o, \\-\\-output DIR\nthe workspace to render", render)
 
     def test_render_requires_its_workspace_and_tokens_takes_no_page_options(self):
         render = self.section("render")
         self.assertNotIn("(default: <repo", render)
         self.assertIn(".B \\-o, \\-\\-output DIR\nthe workspace to render", render)
-        tokens = self.section("tokens")
+        synopsis = re.search(r"^\.B clocwork tokens\n(.+)$", self.page, re.M).group(1)
         for absent in ("\\-\\-config", "\\-\\-locale", "\\-\\-no\\-open"):
-            self.assertNotIn(absent, tokens, absent)
+            self.assertNotIn(absent, synopsis, absent)
 
     def test_environment_files_and_exit_status_are_documented(self):
         for text in ("CLOCWORK_LOCALE", "XDG_CACHE_HOME", "clocwork.json", "token_usage.json", "clocwork.toml"):
