@@ -137,6 +137,8 @@ def save(path, days):
             os.unlink(tmp.name)
             raise
     os.replace(tmp_name, path)
+    # NamedTemporaryFile creates 0600; the archive is a committed, shared file.
+    os.chmod(path, 0o644)
 
 
 def archive(repo_path, archive_path, projects_dir=PROJECTS_DIR, log=print):

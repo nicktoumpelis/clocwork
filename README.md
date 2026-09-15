@@ -142,10 +142,11 @@ top-level files; `**/*.py` matches at any depth.
 
 ### What counts as test code
 
-Built in, by directory: `test`, `tests`, `spec`, `specs`, `__tests__`,
-`testdata` (any case); a directory named `*Test` or `*Tests` (Xcode, JVM);
-the `src/test/`, `src/androidTest/` and `src/integrationTest/` layouts. By
-filename: `*_test.go`; `test_*.py`, `*_test.py`, `conftest.py`; `*.test.*`
+Built in, by directory: `test`, `tests`, `__tests__`, `testdata` (any
+case); `spec` and `specs` for Ruby and JavaScript files only, so a `specs/`
+directory of design documents is not counted; a directory named `*Test` or
+`*Tests` (Xcode, JVM); the `src/test/`, `src/androidTest/` and
+`src/integrationTest/` layouts. By filename: `*_test.go`; `test_*.py`, `*_test.py`, `conftest.py`; `*.test.*`
 and `*.spec.*` for JavaScript and TypeScript; `*Test.*` and `*Tests.*` for
 Java, Kotlin, C# and Swift; `*_spec.rb`, `*_test.rb`, `*_test.dart`,
 `*_test.exs`. Inline test code (Rust's `#[cfg(test)]`, Go examples in a

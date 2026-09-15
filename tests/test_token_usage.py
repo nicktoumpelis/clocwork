@@ -128,6 +128,12 @@ class TestArchiveRoundTrip(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             self.assertEqual(tu.load(os.path.join(d, "nope.json")), {})
 
+    def test_save_leaves_a_readable_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "a.json")
+            tu.save(p, {})
+            self.assertEqual(os.stat(p).st_mode & 0o777, 0o644)
+
     def test_save_then_load_preserves_days(self):
         with tempfile.TemporaryDirectory() as d:
             path = os.path.join(d, "token_usage.json")

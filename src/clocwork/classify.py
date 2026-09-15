@@ -10,7 +10,11 @@ import re
 OTHER = "Other"
 
 # Directory segments that mark test code, matched case-insensitively.
-BUILTIN_DIRS = ("test", "tests", "spec", "specs", "__tests__", "testdata")
+BUILTIN_DIRS = ("test", "tests", "__tests__", "testdata")
+# "spec" directories are a Ruby and JavaScript convention; gated to those
+# files so a specs/ directory of design documents is not counted as tests.
+SPEC_DIRS = ("spec", "specs")
+SPEC_EXTS = ("rb", "js", "jsx", "ts", "tsx", "mjs", "cjs", "coffee")
 # Directory segments matched case-sensitively: the capitalised Xcode and JVM
 # forms (Tests, WinterUITests, AppTest).
 _CAPITALISED_DIR = re.compile(r"^\w+Tests?$")
@@ -78,14 +82,16 @@ def _glob_to_regex(pattern):
 
 def _builtin_is_test(parts):
     dirs, name = parts[:-1], parts[-1]
+    ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
     if any(d.lower() in BUILTIN_DIRS for d in dirs):
+        return True
+    if ext in SPEC_EXTS and any(d.lower() in SPEC_DIRS for d in dirs):
         return True
     # JVM layouts (src/test/, src/androidTest/, src/integrationTest/) need
     # no rule of their own: "test" is a built-in word and the camel-cased
     # forms match _CAPITALISED_DIR.
     if any(_CAPITALISED_DIR.match(d) for d in dirs):
         return True
-    ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
     for regex, exts in BUILTIN_FILES:
         if (exts is None or ext in exts) and regex.search(name):
             return True
