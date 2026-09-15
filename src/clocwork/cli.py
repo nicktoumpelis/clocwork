@@ -59,8 +59,18 @@ def parse_args(argv):
     return args
 
 
+def _quiet(*args, **kwargs):
+    pass
+
+
+def _progress(*args, **kwargs):
+    # Flushed per line: an hour-long run piped to a log file (cron, nohup)
+    # would otherwise show nothing until it ends.
+    print(*args, **kwargs, flush=True)
+
+
 def _log(quiet):
-    return (lambda *a, **k: None) if quiet else print
+    return _quiet if quiet else _progress
 
 
 def _open(path, no_open):
