@@ -1,3 +1,6 @@
+import json
+import os
+import tempfile
 import unittest
 
 from clocwork import render as gh
@@ -67,7 +70,7 @@ class TestRegionLocale(unittest.TestCase):
         return lambda key: settings.get(key, "")
 
     def test_explicit_override_wins(self):
-        env = {"CLOC_LOCALE": "el_GR", "LANG": "en_US.UTF-8"}
+        env = {"CLOCWORK_LOCALE": "el_GR", "LANG": "en_US.UTF-8"}
         self.assertEqual(gh.detect_locale(env, platform="darwin", apple=self.apple(AppleLocale="en_SE")), "el-GR")
 
     def test_macos_region_setting_beats_the_shell_locale(self):
@@ -91,3 +94,73 @@ class TestRegionLocale(unittest.TestCase):
     def test_nothing_detected_gives_none(self):
         self.assertIsNone(gh.detect_locale({"LANG": "C.UTF-8"}, platform="linux", apple=self.apple()))
         self.assertIsNone(gh.detect_locale({}, platform="darwin", apple=self.apple()))
+
+
+class TestAnnotations(unittest.TestCase):
+    def test_from_first_appearances_in_index_order(self):
+        fa = {"Claude Opus 4.6": {"date": "2026-02-05", "index": 9}, "Copilot": {"date": "2026-01-01", "index": 2}}
+        self.assertEqual(gh.annotations(fa), [["2026-01-01", "Copilot", 0], ["2026-02-05", "Opus 4.6", 1]])
+
+    def test_empty(self):
+        self.assertEqual(gh.annotations({}), [])
+
+    def test_palette_has_ten_entries_matching_the_page(self):
+        self.assertEqual(len(gh.PALETTE), 10)
+        self.assertIn("'" + "', '".join(gh.PALETTE) + "'", gh.template())
+
+
+def full_data(**overrides):
+    data = json.loads(json.dumps(DATA))
+    data.setdefault("first_appearances", {})
+    data.update(overrides)
+    return data
+
+
+class TestRenderPage(unittest.TestCase):
+    PLACEHOLDERS = ("__TITLE__", "__REPO_NAME__", "__DATA__", "__ANNOTATIONS__")
+
+    def test_template_carries_the_placeholders_and_no_data(self):
+        t = gh.template()
+        for p in self.PLACEHOLDERS:
+            self.assertEqual(t.count(p), 1, p)
+        self.assertNotIn("MyApp", t)
+
+    def test_no_placeholder_survives_and_data_is_replaced_last(self):
+        data = full_data()
+        data["commits"][0]["message"] = "mentions __TITLE__ literally"
+        html = gh.render_page(data, title="T & co", repo_name="R", generated="2026-09-15", locale=None)
+        stripped = html.replace("mentions __TITLE__ literally", "")
+        for p in self.PLACEHOLDERS:
+            self.assertNotIn(p, stripped, p)
+        self.assertIn("<title>T &amp; co</title>", html)
+        self.assertIn("<h1><span>R</span>", html)
+        self.assertIn("mentions __TITLE__ literally", html)
+        self.assertRegex(html, r"(?m)^var ANNOTATIONS = \[\];")
+        self.assertRegex(html, r"(?m)^var RAW = \{.*\};$")
+
+    def test_annotations_embedded(self):
+        data = full_data(first_appearances={"Claude Opus 4.6": {"date": "2025-01-02", "index": 1}})
+        html = gh.render_page(data, title="T", repo_name="R", generated="2026-09-15", locale="en-SE")
+        self.assertIn('var ANNOTATIONS = [["2025-01-02", "Opus 4.6", 0]];', html)
+
+
+class TestRenderWorkspace(unittest.TestCase):
+    def test_writes_page_and_sidecar(self):
+        with tempfile.TemporaryDirectory() as d:
+            data = full_data()
+            data["commits"][0]["body"] = "long body"
+            data["summary"].update({"first_date": "2025-01-01", "last_date": "2025-01-04"})
+            with open(os.path.join(d, "full_commit_data.json"), "w") as f:
+                json.dump(data, f)
+            lines = []
+            out = gh.render_workspace(d, title="T", repo_name="R", locale=None, log=lines.append)
+            self.assertEqual(out, os.path.join(d, "index.html"))
+            with open(out) as f:
+                self.assertIn("var RAW = {", f.read())
+            with open(os.path.join(d, "commit_bodies.js")) as f:
+                self.assertEqual(f.read(), 'var COMMIT_BODIES = {"abc1234":"long body"};\n')
+            self.assertTrue(any("1 bodies" in l for l in lines))
+
+
+if __name__ == "__main__":
+    unittest.main()

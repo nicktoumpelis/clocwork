@@ -1,28 +1,26 @@
-#!/usr/bin/env python3
-"""Regenerate index.html by injecting fresh data from full_commit_data.json into the template.
+"""Render the dashboard: template.html plus the analysis, out to a workspace.
 
-Usage:
-    python3 generate_html.py
-
-Reads full_commit_data.json and index.html from the same directory.
-Replaces the embedded data blob in index.html with the latest data,
-and updates the annotation lines to reflect current first-appearance dates.
-The header and footer figures (commit count, date range, generation date) are
-not written here: the page renders them from the blob, formatted for the region
-locale recorded by detect_locale() below.
+The template ships inside the package and carries no data. It has four
+placeholders - __TITLE__, __REPO_NAME__, __ANNOTATIONS__ and __DATA__ - which
+are replaced with plain str.replace, data last so that a placeholder-shaped
+string inside a commit message is left alone. The header and footer figures
+(commit count, date range, generation date) are not written here: the page
+renders them from the blob, formatted for the region locale recorded by
+detect_locale() below.
 """
 
+import html as html_lib
 import json
 import os
-import re
 import subprocess
 import sys
 from datetime import datetime
+from importlib import resources
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_FILE = os.path.join(SCRIPT_DIR, "full_commit_data.json")
-HTML_FILE = os.path.join(SCRIPT_DIR, "index.html")
-BODIES_FILE = os.path.join(SCRIPT_DIR, "commit_bodies.js")
+# One colour per first appearance, cycled by index. The order is the order
+# the ten original hand-written annotations used, so existing pages keep their look.
+PALETTE = ["#d2a8ff", "#58a6ff", "#f0883e", "#79c0ff", "#56d4dd",
+           "#f778ba", "#e3b341", "#7ee787", "#ffa198", "#f2cc60"]
 
 
 # ICU keyword -> BCP 47 Unicode extension key, for the customisations macOS
@@ -75,7 +73,7 @@ def detect_locale(env=os.environ, platform=sys.platform, apple=read_default):
     generating the page records it. An explicit CLOC_LOCALE wins; then the macOS
     region setting, with the measurement-system setting carried as a -u-ms-
     extension when it has been set explicitly; then the POSIX locale variables."""
-    explicit = bcp47(env.get("CLOC_LOCALE"))
+    explicit = bcp47(env.get("CLOCWORK_LOCALE"))
     if explicit:
         return explicit
     if platform == "darwin":
@@ -114,91 +112,48 @@ def build_embedded(data, generated, locale):
     return embedded
 
 
-def replace_data_line(html, json_blob):
-    """Replace the whole "var RAW = ...;" line with one embedding json_blob.
+def annotations(first_appearances):
+    """[[date, label, colourIndex], ...] in order of first appearance.
 
-    Line-anchored so the first "};" in the blob (which a commit subject can
-    contain) does not terminate the match early, and a lambda replacement so
-    backslashes in the JSON are not interpreted as regex backreferences.
+    Labels drop the leading "Claude " so "Claude Opus 4.6" reads "Opus 4.6",
+    as the hand-written annotations did; other agents keep their name.
     """
-    html, n = re.subn(r"^var RAW = .*;$", lambda _m: f"var RAW = {json_blob};", html, count=1, flags=re.M)
-    if n != 1:
-        raise SystemExit("index.html: could not find the 'var RAW = ...;' line to replace")
-    return html
+    ordered = sorted(first_appearances.items(), key=lambda kv: kv[1]["index"])
+    return [[info["date"], agent.removeprefix("Claude "), i] for i, (agent, info) in enumerate(ordered)]
 
 
-def main():
-    with open(DATA_FILE) as f:
+def template():
+    # importlib.resources, not a filesystem path: this must also work from a zipapp.
+    return resources.files("clocwork").joinpath("template.html").read_text(encoding="utf-8")
+
+
+def render_page(data, *, title, repo_name, generated, locale):
+    page = template()
+    page = page.replace("__ANNOTATIONS__", json.dumps(annotations(data.get("first_appearances", {}))))
+    page = page.replace("__TITLE__", html_lib.escape(title))
+    page = page.replace("__REPO_NAME__", html_lib.escape(repo_name))
+    blob = json.dumps(build_embedded(data, generated, locale), separators=(",", ":"))
+    return page.replace("__DATA__", blob)     # last, so data cannot contain a live placeholder
+
+
+def render_workspace(workspace, *, title, repo_name, locale, log=print):
+    """Write index.html and commit_bodies.js from the workspace's full_commit_data.json."""
+    with open(os.path.join(workspace, "full_commit_data.json"), encoding="utf-8") as f:
         data = json.load(f)
-
-    with open(HTML_FILE) as f:
-        html = f.read()
-
-    # 1. Build compact data blob
     today = datetime.now().strftime("%Y-%m-%d")
-    region = detect_locale()
-    json_blob = json.dumps(build_embedded(data, today, region), separators=(",", ":"))
-
-    # 2. Replace the data blob (line starting with "var RAW = ")
-    html = replace_data_line(html, json_blob)
-
-    # 3. Update annotation lines from first_appearances
-    appearances = data.get("first_appearances", {})
-
-    # Map of annotation IDs to agent names
-    annotation_map = {
-        "lineOpus45": "Claude Opus 4.5",
-        "lineOpus46": "Claude Opus 4.6",
-        "lineSonnet45": "Claude Sonnet 4.5",
-        "lineOpus46_1m": "Claude Opus 4.6 (1M)",
-        "lineOpus47_1m": "Claude Opus 4.7 (1M)",
-        "lineOpus48_1m": "Claude Opus 4.8 (1M)",
-        "lineFable5": "Claude Fable 5",
-        "lineSonnet5": "Claude Sonnet 5",
-        "lineOpus5_1m": "Claude Opus 5 (1M)",
-        "lineFable51": "Claude Fable 5.1",
-    }
-
-    for anno_id, agent_name in annotation_map.items():
-        if agent_name in appearances:
-            new_date = appearances[agent_name]["date"]
-            # Update xMin and xMax for this annotation
-            pattern = rf"({anno_id}:\s*\{{[^}}]*?xMin:\s*')[^']*(')"
-            html = re.sub(pattern, rf"\g<1>{new_date}\2", html)
-            pattern = rf"({anno_id}:\s*\{{[^}}]*?xMax:\s*')[^']*(')"
-            html = re.sub(pattern, rf"\g<1>{new_date}\2", html)
-
-    # Handle Sonnet 4.6 combined with Opus 4.6 (1M) if they share a date,
-    # or split them if dates diverge
-    sonnet46_date = appearances.get("Claude Sonnet 4.6", {}).get("date")
-    opus46_1m_date = appearances.get("Claude Opus 4.6 (1M)", {}).get("date")
-    if sonnet46_date and opus46_1m_date and sonnet46_date != opus46_1m_date:
-        # Update the label to just show Opus 4.6 (1M) since dates differ
-        html = html.replace(
-            "content: 'Opus 4.6 (1M) + Sonnet 4.6'",
-            "content: 'Opus 4.6 (1M)'"
-        )
-
-    # Full commit bodies are large (over a megabyte across the history), so they
-    # live in a sidecar script the page loads only when a row is first expanded.
+    page = render_page(data, title=title, repo_name=repo_name, generated=today, locale=locale)
+    # Full commit bodies are large (over a megabyte across a long history), so
+    # they live in a sidecar script the page loads only when a row is expanded.
     bodies = {c["hash"]: c["body"] for c in data["commits"] if c.get("body")}
-    with open(BODIES_FILE, "w") as f:
+    bodies_path = os.path.join(workspace, "commit_bodies.js")
+    with open(bodies_path, "w", encoding="utf-8") as f:
         f.write("var COMMIT_BODIES = " + json.dumps(bodies, separators=(",", ":")) + ";\n")
-
-    with open(HTML_FILE, "w") as f:
-        f.write(html)
-
-    size_kb = os.path.getsize(HTML_FILE) / 1024
-    total = data["summary"]["total_commits"]
-    first = data["summary"]["first_date"]
-    last = data["summary"]["last_date"]
-    print(f"Updated {HTML_FILE}")
-    print(f"Wrote {BODIES_FILE} ({os.path.getsize(BODIES_FILE) / 1024:.0f} KB, {len(bodies):,} bodies)")
-    print(f"  File size: {size_kb:.0f} KB")
-    print(f"  Commits: {total:,}")
-    print(f"  Date range: {first} to {last}")
-    print(f"  Locale: {region or 'none recorded, the browser decides'}")
-
-
-if __name__ == "__main__":
-    main()
+    html_path = os.path.join(workspace, "index.html")
+    with open(html_path, "w", encoding="utf-8") as f:
+        f.write(page)
+    s = data["summary"]
+    log(f"Wrote {html_path} ({os.path.getsize(html_path) / 1024:.0f} KB) "
+        f"and commit_bodies.js ({os.path.getsize(bodies_path) / 1024:.0f} KB, {len(bodies):,} bodies)")
+    log(f"  Commits: {s['total_commits']:,}, {s['first_date']} to {s['last_date']}")
+    log(f"  Locale: {locale or 'none recorded, the browser decides'}")
+    return html_path

@@ -1,0 +1,1866 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>__TITLE__</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.1.0"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.2.0"></script>
+    <style>
+        :root {
+            --bg: #0d1117;
+            --surface: #161b22;
+            --surface-hover: #1c2129;
+            --border: #30363d;
+            --text: #e6edf3;
+            --text-muted: #8b949e;
+            --accent: #58a6ff;
+            --human: #8b949e;
+            --opus46: #58a6ff;
+            --opus46-1m: #79c0ff;
+            --opus45: #d2a8ff;
+            --sonnet46: #3fb950;
+            --sonnet45: #f0883e;
+            --opus47: #39c5cf;
+            --opus47-1m: #56d4dd;
+            --opus48: #db61a2;
+            --opus48-1m: #f778ba;
+            --fable5: #e3b341;
+            --haiku45: #56d364;
+            --opus5: #ff7b72;
+            --opus5-1m: #ffa198;
+            --sonnet5: #7ee787;
+            --fable51: #f2cc60;
+            --unknown: #484f58;
+            --danger: #f85149;
+            --success: #3fb950;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.5;
+            padding: 2rem;
+            max-width: 1500px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 2rem;
+            padding-bottom: 1.5rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        header h1 {
+            font-size: 2rem;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            margin-bottom: 0.25rem;
+        }
+
+        header h1 span { color: var(--accent); }
+        header p { color: var(--text-muted); font-size: 0.95rem; }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.15rem;
+            transition: border-color 0.2s;
+        }
+
+        .stat-card:hover { border-color: var(--accent); }
+        .stat-card .label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.15rem; }
+        .stat-card .value { font-size: 1.6rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+        .stat-card .delta { font-size: 0.8rem; margin-top: 0.15rem; color: var(--text-muted); }
+
+        .section { margin-bottom: 1.5rem; }
+
+        .chart-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+        }
+
+        .reset-btn {
+            padding: 0.35rem 0.85rem;
+            border-radius: 6px;
+            border: 1px solid var(--accent);
+            background: rgba(88,166,255,0.1);
+            color: var(--accent);
+            font-size: 0.78rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        .reset-btn:hover {
+            background: rgba(88,166,255,0.25);
+        }
+
+        .chart-actions { display: flex; gap: 0.5rem; flex-shrink: 0; }
+        .toggle-btn { border-color: var(--border); background: var(--surface); color: var(--text-muted); }
+        .toggle-btn.active { border-color: #3fb950; background: rgba(63,185,80,0.12); color: #3fb950; }
+        .recon-note { color: var(--text-muted); font-size: 0.78rem; margin-top: 0.5rem; }
+
+        .chart-container {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .chart-container h2 {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+        }
+
+        .chart-container h2 small {
+            font-weight: 400;
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            margin-left: 0.5rem;
+        }
+
+        .chart-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+        }
+
+        .chart-row-3 {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 1.5rem;
+        }
+
+        @media (max-width: 1100px) { .chart-row-3 { grid-template-columns: 1fr; } }
+        @media (max-width: 900px) { .chart-row { grid-template-columns: 1fr; } }
+
+        canvas { max-height: 380px; }
+
+        .agent-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .agent-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.15rem;
+            border-left: 4px solid var(--accent);
+        }
+
+        .agent-card .agent-name {
+            font-size: 0.95rem;
+            font-weight: 600;
+            margin-bottom: 0.4rem;
+        }
+
+        .agent-card .agent-detail {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            line-height: 1.7;
+        }
+
+        .agent-card .agent-detail strong {
+            color: var(--text);
+            font-variant-numeric: tabular-nums;
+        }
+
+        .jump-table {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            overflow-x: auto;
+        }
+
+        .jump-table h2 {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+        }
+
+        .jump-table h2 small {
+            font-weight: 400;
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            margin-left: 0.5rem;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.82rem;
+            font-variant-numeric: tabular-nums;
+        }
+
+        th, td {
+            padding: 0.55rem 0.7rem;
+            text-align: right;
+            border-bottom: 1px solid var(--border);
+            white-space: nowrap;
+        }
+
+        th { color: var(--text-muted); font-weight: 500; text-transform: uppercase; font-size: 0.7rem; letter-spacing: 0.5px; position: sticky; top: 0; background: var(--surface); }
+        th:first-child, td:first-child { text-align: left; }
+        th:nth-child(2), td:nth-child(2) { text-align: left; }
+        tr:hover td { background: var(--surface-hover); }
+
+        .hash { font-family: 'SF Mono', 'Fira Code', monospace; color: var(--accent); font-size: 0.78rem; }
+        .msg { color: var(--text-muted); max-width: 350px; overflow: hidden; text-overflow: ellipsis; display: inline-block; vertical-align: bottom; }
+
+        /* All Commits table: SHA and message are separate columns, both left-aligned. */
+        .all-commits th:nth-child(-n+4), .all-commits td:nth-child(-n+4) { text-align: left; }
+        .all-commits th.expander-col, .all-commits td.expander { text-align: center; padding: 0; }
+        .all-commits td { overflow: hidden; text-overflow: ellipsis; }
+        .all-commits .msg { display: inline; max-width: none; }
+        .all-commits a { color: inherit; text-decoration: none; }
+        .all-commits a:hover { text-decoration: underline; }
+        .all-commits a.msg:hover { color: var(--text); }
+
+        /* Expandable rows */
+        .all-commits tr.commit-row { cursor: pointer; }
+        .chevron {
+            display: inline-block; width: 0.5rem; height: 0.5rem;
+            border-right: 1.5px solid var(--text-muted); border-bottom: 1.5px solid var(--text-muted);
+            transform: rotate(-45deg); transition: transform 0.15s;
+        }
+        tr.expanded .chevron { transform: rotate(45deg); }
+        .all-commits tr.detail-row { height: auto; cursor: default; }
+        .all-commits tr.detail-row td { white-space: normal; overflow: visible; padding: 0.75rem 1rem 1rem 2.5rem; background: var(--bg); }
+        .all-commits tr.detail-row:hover td { background: var(--bg); }
+        .commit-detail { max-width: 80ch; }
+        .commit-detail .detail-title { font-weight: 600; color: var(--text); margin-bottom: 0.5rem; }
+        .commit-detail .detail-body { white-space: pre-wrap; word-break: break-word; font-family: inherit; font-size: 0.8rem; color: var(--text-muted); margin: 0; line-height: 1.5; }
+        .commit-detail .detail-empty { color: var(--text-muted); font-style: italic; }
+
+        /* Resizable columns */
+        .col-resizer {
+            position: absolute; top: 0; right: -3px; width: 7px; height: 100%;
+            cursor: col-resize; user-select: none; z-index: 1;
+        }
+        .col-resizer:hover, .col-resizer.dragging { background: rgba(88,166,255,0.35); }
+        /* Hidden probe used once to measure natural column widths. */
+        .all-commits.measure { position: absolute; top: 0; left: 0; visibility: hidden; pointer-events: none; table-layout: auto; width: auto; }
+
+        th.sortable { cursor: pointer; user-select: none; }
+        th.sortable:hover { color: var(--text); }
+        th.sortable[data-dir="asc"]::after { content: ' \25B2'; font-size: 0.6rem; }
+        th.sortable[data-dir="desc"]::after { content: ' \25BC'; font-size: 0.6rem; }
+
+        .badge {
+            display: inline-block;
+            padding: 0.1rem 0.45rem;
+            border-radius: 4px;
+            font-size: 0.72rem;
+            font-weight: 500;
+        }
+
+        .badge.positive { background: rgba(63,185,80,0.15); color: var(--success); }
+        .badge.negative { background: rgba(248,81,73,0.15); color: var(--danger); }
+
+        .agent-badge {
+            display: inline-block;
+            padding: 0.1rem 0.45rem;
+            border-radius: 4px;
+            font-size: 0.72rem;
+            font-weight: 500;
+            background: rgba(88,166,255,0.15);
+            color: var(--accent);
+        }
+
+        .agent-badge.human { background: rgba(139,148,158,0.15); color: var(--human); }
+        .agent-badge.opus46 { background: rgba(88,166,255,0.15); color: var(--opus46); }
+        .agent-badge.opus46-1m { background: rgba(121,192,255,0.15); color: var(--opus46-1m); }
+        .agent-badge.opus45 { background: rgba(210,168,255,0.15); color: var(--opus45); }
+        .agent-badge.sonnet46 { background: rgba(63,185,80,0.15); color: var(--sonnet46); }
+        .agent-badge.sonnet45 { background: rgba(240,136,62,0.15); color: var(--sonnet45); }
+        .agent-badge.opus47 { background: rgba(57,197,207,0.15); color: var(--opus47); }
+        .agent-badge.opus47-1m { background: rgba(86,212,221,0.15); color: var(--opus47-1m); }
+        .agent-badge.opus48 { background: rgba(219,97,162,0.15); color: var(--opus48); }
+        .agent-badge.opus48-1m { background: rgba(247,120,186,0.15); color: var(--opus48-1m); }
+        .agent-badge.fable5 { background: rgba(227,179,65,0.15); color: var(--fable5); }
+        .agent-badge.haiku45 { background: rgba(86,211,100,0.15); color: var(--haiku45); }
+        .agent-badge.opus5 { background: rgba(255,123,114,0.15); color: var(--opus5); }
+        .agent-badge.opus5-1m { background: rgba(255,161,152,0.15); color: var(--opus5-1m); }
+        .agent-badge.sonnet5 { background: rgba(126,231,135,0.15); color: var(--sonnet5); }
+        .agent-badge.fable51 { background: rgba(242,204,96,0.15); color: var(--fable51); }
+        .agent-badge.unknown { background: rgba(72,79,88,0.25); color: #8b949e; }
+        .agent-badge.misc { background: rgba(110,118,129,0.15); color: #6e7681; }
+
+        .selector-bar {
+            display: flex;
+            gap: 2rem;
+            flex-wrap: wrap;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+        .selector-group { display: flex; align-items: center; gap: 0.6rem; }
+        .selector-label { color: var(--text-muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.5px; }
+        .segmented { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+        .segmented button {
+            padding: 0.35rem 0.75rem;
+            border: none;
+            border-right: 1px solid var(--border);
+            background: var(--surface);
+            color: var(--text-muted);
+            font-family: inherit;
+            font-size: 0.78rem;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .segmented button:last-child { border-right: none; }
+        .segmented button:hover { color: var(--text); }
+        .segmented button.active { background: rgba(88,166,255,0.15); color: var(--accent); }
+
+        .timeline-note {
+            background: rgba(88,166,255,0.08);
+            border-left: 3px solid var(--accent);
+            padding: 0.75rem 1rem;
+            border-radius: 0 8px 8px 0;
+            margin-bottom: 1.5rem;
+            font-size: 0.88rem;
+            color: var(--text-muted);
+        }
+
+        .timeline-note strong { color: var(--text); }
+
+        .filter-bar {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+            margin-bottom: 1rem;
+        }
+
+        .filter-btn {
+            padding: 0.35rem 0.75rem;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background: var(--surface);
+            color: var(--text-muted);
+            font-size: 0.78rem;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .filter-btn:hover { border-color: var(--accent); color: var(--text); }
+        .filter-btn.active { background: rgba(88,166,255,0.15); border-color: var(--accent); color: var(--accent); }
+
+        .table-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            flex-wrap: wrap;
+            margin-bottom: 1rem;
+        }
+        .table-header h2 { margin-bottom: 0; }
+
+        .tab-strip { display: flex; align-items: baseline; gap: 1.25rem; flex-wrap: wrap; }
+        .tab-strip small { font-weight: 400; color: var(--text-muted); font-size: 0.8rem; }
+        .tab {
+            padding: 0 0 0.35rem;
+            border: none;
+            border-bottom: 2px solid transparent;
+            background: none;
+            color: var(--text-muted);
+            font-family: inherit;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: color 0.15s, border-color 0.15s;
+        }
+        .tab:hover { color: var(--text); }
+        .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+
+        .search-input {
+            width: 100%;
+            max-width: 300px;
+            padding: 0.4rem 0.75rem;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background: var(--bg);
+            color: var(--text);
+            font-size: 0.82rem;
+            font-family: inherit;
+            outline: none;
+            transition: border-color 0.15s;
+        }
+        .search-input::placeholder { color: var(--text-muted); }
+        .search-input:focus { border-color: var(--accent); }
+
+        .commit-list {
+            --row-height: 2.4rem;
+            max-height: calc(18 * var(--row-height));   /* sticky header + 17 rows */
+            overflow-y: auto;
+        }
+        .all-commits tr { height: var(--row-height); }
+        .all-commits th, .all-commits td { padding-top: 0; padding-bottom: 0; }
+
+        footer {
+            text-align: center;
+            padding-top: 2rem;
+            color: var(--text-muted);
+            font-size: 0.8rem;
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <h1><span>__REPO_NAME__</span> Full Commit History</h1>
+    <p>Every commit analysed &middot; <span id="headerCommits"></span> commits from <span id="headerFrom"></span> to <span id="headerTo"></span></p>
+</header>
+
+<div class="stats-grid" id="statsGrid"></div>
+
+<div class="selector-bar" id="selectorBar">
+    <div class="selector-group">
+        <span class="selector-label">Language</span>
+        <div class="segmented" id="langSelector"></div>
+    </div>
+    <div class="selector-group">
+        <span class="selector-label">Line type</span>
+        <div class="segmented" id="typeSelector"></div>
+    </div>
+</div>
+
+<div class="timeline-note">
+    <strong>How this works:</strong> Every non-merge commit is diffed against its parent with <code>cloc</code>, which classifies each line as code, comment or blank per language; the running totals reconcile against a cloc snapshot of HEAD. AI agent contributions are identified from <code>Co-Authored-By</code> commit trailers. Each point on the main chart is an actual commit.
+</div>
+
+<div class="chart-container">
+    <div class="chart-header">
+        <h2><span id="mainChartTitle">Lines Over Time</span> <small>every commit, colour-coded by agent &middot; drag to zoom, double-click to reset</small></h2>
+        <div class="chart-actions">
+            <button class="reset-btn toggle-btn" id="testsToggle" title="Overlay cumulative test lines for the same language and line type">Tests</button>
+            <button class="reset-btn" id="resetZoomBtn" style="display:none" onclick="resetMainZoom()">Reset Zoom</button>
+        </div>
+    </div>
+    <canvas id="mainChart"></canvas>
+    <div class="recon-note" id="reconNote" hidden></div>
+</div>
+
+<div class="chart-row">
+    <div class="chart-container">
+        <h2><span id="dailyChartTitle">Daily Lines Change</span> <small>net additions/deletions per day</small></h2>
+        <canvas id="dailyDeltaChart"></canvas>
+    </div>
+    <div class="chart-container">
+        <h2>Cumulative Contribution <small>running total by agent</small></h2>
+        <canvas id="agentCumulativeChart"></canvas>
+    </div>
+</div>
+
+<div class="chart-row">
+    <div class="chart-container">
+        <h2>Commits by Agent <small>share of total commits</small></h2>
+        <canvas id="agentPieChart"></canvas>
+    </div>
+    <div class="chart-container">
+        <h2><span id="agentNetTitle">Net Lines by Agent</span> <small>lines added minus lines deleted</small></h2>
+        <canvas id="agentNetChart"></canvas>
+    </div>
+</div>
+
+<h2 style="margin: 1.5rem 0 1rem;">Token Usage</h2>
+<div class="stats-grid" id="tokenStats"></div>
+
+<div class="chart-container">
+    <h2>Tokens per Day <small>measured from Claude Code transcripts &middot; earlier days estimated from lines changed</small></h2>
+    <canvas id="tokenChart"></canvas>
+    <div class="recon-note" id="tokenNote"></div>
+</div>
+
+<h2 style="margin: 1.5rem 0 1rem;">Agent Breakdown</h2>
+<div class="agent-grid" id="agentGrid"></div>
+
+<div class="jump-table">
+    <div class="table-header">
+        <div class="tab-strip" id="commitTabs">
+            <button class="tab active" data-tab="all">All Commits</button>
+            <button class="tab" data-tab="gains">Biggest LOC Gains</button>
+            <button class="tab" data-tab="drops">Biggest LOC Drops</button>
+            <small id="allCommitsCount"></small>
+        </div>
+        <input type="search" class="search-input" id="commitSearch" placeholder="Search by commit message or SHA" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="filter-bar" id="filterBar"></div>
+    <div class="commit-list" id="commitList">
+        <table class="all-commits" id="allCommitsTable">
+            <colgroup id="allCommitsColgroup"><col><col><col><col><col><col><col><col><col></colgroup>
+            <thead><tr id="allCommitsHeadRow">
+                <th class="expander-col"></th>
+                <th class="sortable" data-sort="date">Date</th>
+                <th>SHA</th>
+                <th class="sortable" data-sort="message">Commit</th>
+                <th class="sortable" data-sort="agent">Agent</th>
+                <th class="sortable" data-sort="churn" title="Sorts by lines added plus lines deleted">+/-</th>
+                <th class="sortable" data-sort="net">Net</th>
+                <th class="sortable" data-sort="cumulative">Cumulative</th>
+                <th class="sortable" data-sort="tokens" title="Tokens attributed to the commit: the day's measured or estimated total, split across that day's AI commits by lines changed">Tokens</th>
+            </tr></thead>
+            <tbody id="allCommitsBody"></tbody>
+        </table>
+    </div>
+</div>
+
+<footer>
+    Generated on <span id="generatedOn"></span> &middot; Full analysis of <span id="footerCommits"></span> commits using <code>cloc --diff</code> per commit
+</footer>
+
+<script>
+var RAW = __DATA__;
+var ANNOTATIONS = __ANNOTATIONS__;   // [[date, label, colourIndex], ...] from first appearances
+
+// Chart annotations are data: one dashed line per first appearance, coloured
+// by index into a fixed palette so the assignment is stable across runs.
+var ANNOTATION_PALETTE = ['#d2a8ff', '#58a6ff', '#f0883e', '#79c0ff', '#56d4dd', '#f778ba', '#e3b341', '#7ee787', '#ffa198', '#f2cc60'];
+function hexToRgba(hex, alpha) {
+    var n = parseInt(hex.slice(1), 16);
+    return 'rgba(' + (n >> 16 & 255) + ',' + (n >> 8 & 255) + ',' + (n & 255) + ',' + alpha + ')';
+}
+function annotationObjects(list) {
+    var out = {};
+    (list || []).forEach(function(a, i) {
+        var colour = ANNOTATION_PALETTE[a[2] % ANNOTATION_PALETTE.length];
+        out['first' + i] = {
+            type: 'line', xMin: a[0], xMax: a[0],
+            borderColor: colour, borderWidth: 1.5, borderDash: [6, 3],
+            label: { display: true, content: a[1], position: 'start',
+                     backgroundColor: hexToRgba(colour, 0.15), color: colour,
+                     font: { size: 10, weight: '600' },
+                     padding: { top: 3, bottom: 3, left: 6, right: 6 }, borderRadius: 4 }
+        };
+    });
+    return out;
+}
+
+// Unpack compact data
+var LANGS = RAW.languages;
+var ROWS = RAW.commits;   // [idx, hash, date, msg, agent, isMerge, lines, testLines]; lines = [[langIdx, [codeAdd, codeRem, commentAdd, commentRem, blankAdd, blankRem]], ...]
+var SUMMARY = RAW.summary;
+
+var TYPE_INDEX = { code: 0, comment: 1, blank: 2 };
+var TYPE_LABELS = { code: 'Code', comment: 'Comment', blank: 'Blank', total: 'Total' };
+
+// --- Selection: owns the Language / Line type / Tests choice and every
+// aggregate derived from it. Views read SEL.stats() and re-render on change.
+var SEL = (function() {
+    var state = { lang: 'All', type: 'code', tests: false };
+    var listeners = [];
+    var cached = null;
+
+    function parseHash() {
+        var h = (window.location && window.location.hash || '').replace(/^#/, '');
+        h.split('&').forEach(function(pair) {
+            var kv = pair.split('=');
+            var k = kv[0], v = decodeURIComponent(kv[1] || '');
+            if (k === 'lang' && (v === 'All' || LANGS.indexOf(v) >= 0)) state.lang = v;
+            if (k === 'type' && Object.prototype.hasOwnProperty.call(TYPE_LABELS, v)) state.type = v;
+            if (k === 'tests') state.tests = v === '1';
+        });
+    }
+    function writeHash() {
+        var h = '#lang=' + encodeURIComponent(state.lang) + '&type=' + state.type + (state.tests ? '&tests=1' : '');
+        if (window.history && window.history.replaceState) window.history.replaceState(null, '', h);
+        else window.location.hash = h;
+    }
+    // [added, removed] of one matrix row under the selected line type.
+    function typePair(v) {
+        if (state.type === 'total') return [v[0] + v[2] + v[4], v[1] + v[3] + v[5]];
+        var t = TYPE_INDEX[state.type];
+        return [v[2 * t], v[2 * t + 1]];
+    }
+    function pair(entries) {
+        var a = 0, r = 0;
+        for (var i = 0; i < entries.length; i++) {
+            var e = entries[i];
+            if (state.lang !== 'All' && LANGS[e[0]] !== state.lang) continue;
+            var tp = typePair(e[1]);
+            a += tp[0]; r += tp[1];
+        }
+        return [a, r];
+    }
+    // Net per language for one commit under the selected line type, ignoring
+    // the language selection (the per-language table columns use this).
+    function perLanguageNet(entries) {
+        var out = new Array(LANGS.length);
+        for (var k = 0; k < LANGS.length; k++) out[k] = 0;
+        for (var i = 0; i < entries.length; i++) {
+            var tp = typePair(entries[i][1]);
+            out[entries[i][0]] += tp[0] - tp[1];
+        }
+        return out;
+    }
+    function compute() {
+        var n = ROWS.length;
+        var added = new Array(n), removed = new Array(n), net = new Array(n);
+        var cumulative = new Array(n), testCumulative = new Array(n), langNet = new Array(n);
+        var agents = {}, daily = [], dayIndex = {};
+        var runAll = 0, runTests = 0, peakValue = -Infinity, peakIndex = 0;
+        for (var i = 0; i < n; i++) {
+            var c = ROWS[i];
+            var p = pair(c[6]), tp = pair(c[7]);
+            added[i] = p[0]; removed[i] = p[1]; net[i] = p[0] - p[1];
+            langNet[i] = perLanguageNet(c[6]);
+            runAll += net[i]; runTests += tp[0] - tp[1];
+            cumulative[i] = runAll; testCumulative[i] = runTests;
+            if (runAll > peakValue) { peakValue = runAll; peakIndex = i; }
+            var name = c[4] || 'Human';
+            var s = agents[name];
+            if (!s) s = agents[name] = { commits: 0, added: 0, removed: 0, net: 0, first_date: c[2], last_date: c[2] };
+            s.commits++; s.added += p[0]; s.removed += p[1]; s.net += net[i]; s.last_date = c[2];
+            var d = dayIndex[c[2]];
+            if (d === undefined) { d = daily.length; dayIndex[c[2]] = d; daily.push({ date: c[2], net: 0, cumulative: 0, testCumulative: 0, commits: 0, agents: {} }); }
+            var day = daily[d];
+            day.net += net[i]; day.cumulative = runAll; day.testCumulative = runTests; day.commits++;
+            day.agents[name] = (day.agents[name] || 0) + 1;
+        }
+        var nonMerge = [];
+        for (var j = 0; j < n; j++) if (!ROWS[j][5]) nonMerge.push(j);
+        var gains = nonMerge.slice().sort(function(x, y) { return net[y] - net[x] || x - y; }).slice(0, 25);
+        var drops = nonMerge.slice().sort(function(x, y) { return net[x] - net[y] || x - y; }).slice(0, 15);
+        return { added: added, removed: removed, net: net, cumulative: cumulative, testCumulative: testCumulative,
+                 langNet: langNet, agents: agents, daily: daily, gains: gains, drops: drops,
+                 peak: { value: peakValue, date: ROWS[peakIndex][2], hash: ROWS[peakIndex][1], index: peakIndex } };
+    }
+    function sumSnapshot(snap) {
+        var total = 0;
+        Object.keys(snap || {}).forEach(function(lang) {
+            if (state.lang !== 'All' && lang !== state.lang) return;
+            var v = snap[lang];
+            total += state.type === 'total' ? v.code + v.comment + v.blank : v[state.type];
+        });
+        return total;
+    }
+    return {
+        get: function() { return { lang: state.lang, type: state.type, tests: state.tests }; },
+        set: function(partial) {
+            var changed = false;
+            Object.keys(partial).forEach(function(k) { if (state[k] !== partial[k]) { state[k] = partial[k]; changed = true; } });
+            if (!changed) return;
+            if ('lang' in partial || 'type' in partial) cached = null;
+            writeHash();
+            listeners.forEach(function(fn) { fn(state); });
+        },
+        on: function(fn) { listeners.push(fn); },
+        stats: function() { if (!cached) cached = compute(); return cached; },
+        headTotal: function(testsOnly) { return sumSnapshot(testsOnly ? SUMMARY.head_snapshot.tests : SUMMARY.head_snapshot.all); },
+        drift: function() { return sumSnapshot(SUMMARY.reconciliation); },
+        shortLabel: function() {
+            var lang = state.lang === 'All' ? '' : state.lang + ' ';
+            return lang + (state.type === 'total' ? 'LOC' : TYPE_LABELS[state.type] + ' LOC');
+        },
+        linesLabel: function() {
+            var lang = state.lang === 'All' ? '' : state.lang + ' ';
+            return lang + (state.type === 'total' ? 'Lines' : TYPE_LABELS[state.type] + ' Lines');
+        },
+        _init: parseHash
+    };
+})();
+SEL._init();
+
+var C = ROWS;
+
+// --- Selector bar ---
+(function() {
+    function build(container, values, current, onPick) {
+        values.forEach(function(v) {
+            var b = document.createElement('button');
+            b.textContent = v.label;
+            b.setAttribute('data-value', v.value);
+            b.className = v.value === current ? 'active' : '';
+            b.addEventListener('click', function() { onPick(v.value); });
+            container.appendChild(b);
+        });
+    }
+    function sync(container, value) {
+        Array.prototype.forEach.call(container.children, function(b) { b.className = b.getAttribute('data-value') === value ? 'active' : ''; });
+    }
+    var langEl = document.getElementById('langSelector'), typeEl = document.getElementById('typeSelector');
+    build(langEl, [{ value: 'All', label: 'All' }].concat(LANGS.map(function(l) { return { value: l, label: l }; })), SEL.get().lang, function(v) { SEL.set({ lang: v }); });
+    build(typeEl, ['code', 'comment', 'blank', 'total'].map(function(t) { return { value: t, label: TYPE_LABELS[t] }; }), SEL.get().type, function(v) { SEL.set({ type: v }); });
+    SEL.on(function(s) { sync(langEl, s.lang); sync(typeEl, s.type); });
+})();
+
+// --- Locale-aware formatting ---
+//
+// Every number, percentage, compact figure and date on the page goes through
+// FMT so the region's conventions apply: 3 744 and 54,3 % in Sweden, 3,744
+// and 54.3% in the US. The prose stays English. Units ECMA-402 does not know
+// (kWh, MWh, t) keep their SI symbol beside a locale-formatted number.
+//
+// The locale is the region locale recorded by generate_html.py on the machine
+// that built the page: operating systems keep language and region apart, and
+// browsers expose only the language list, so that record is the one way to
+// reach the region's formats. Without it, or if it is not a usable tag, the
+// browser's language preferences decide.
+var LOCALE = (function() {
+    var tag = RAW.locale;
+    try { if (tag && Intl.getCanonicalLocales(tag).length) return tag; } catch (e) { /* not a locale */ }
+    return (typeof navigator !== 'undefined' && (navigator.languages || navigator.language)) || undefined;
+})();
+var FMT = (function() {
+    // Value of a Unicode extension key in a BCP 47 tag ('en-SE-u-ms-metric'
+    // -> 'metric' for 'ms'), or null.
+    function extension(tag, key) {
+        var u = String(tag).split('-u-')[1];
+        var parts = u ? u.split('-x-')[0].split('-') : [];
+        for (var i = 0; i + 1 < parts.length; i += 2) if (parts[i] === key) return parts[i + 1];
+        return null;
+    }
+    // ECMA-402 exposes no measurement system, so it comes from a -u-ms-
+    // extension when the tag carries one (an explicit macOS setting arrives
+    // that way), else from the region: CLDR puts the US, Liberia and Myanmar
+    // on US customary units and everyone else on metric.
+    function usCustomary(tag) {
+        var ms = extension(tag, 'ms');
+        if (ms) return ms === 'ussystem';
+        try { return ['US', 'LR', 'MM'].indexOf(new Intl.Locale(tag).maximize().region) >= 0; }
+        catch (e) { return false; }
+    }
+    function num(opts) {
+        var f = new Intl.NumberFormat(LOCALE, opts);
+        var fn = function(n) { return f.format(n); };
+        // The approximation sign is locale-specific too (~ in English, ≈ in
+        // German, 約 in Japanese); formatRange(n, n) yields it on engines that
+        // have it (2022 onwards), older ones fall back to the tilde.
+        fn.approx = function(n) { return f.formatRange ? f.formatRange(n, n) : '~' + f.format(n); };
+        fn.parts = function(n) { return f.formatToParts(n); };
+        return fn;
+    }
+    // 'YYYY-MM-DD' is parsed as local midnight: new Date('YYYY-MM-DD') means
+    // UTC midnight, which west of Greenwich formats as the previous day.
+    // Results are memoised because the table formats the same few hundred
+    // dates thousands of times when measuring column widths.
+    function when(opts) {
+        var f = new Intl.DateTimeFormat(LOCALE, opts), cache = Object.create(null);
+        return function(d) {
+            if (typeof d !== 'string') return f.format(new Date(d));
+            if (!(d in cache)) { var p = d.split('-'); cache[d] = f.format(new Date(+p[0], +p[1] - 1, +p[2])); }
+            return cache[d];
+        };
+    }
+    var kg = num({ style: 'unit', unit: 'kilogram', maximumSignificantDigits: 2 });
+    // The gap Intl leaves between a number and a unit symbol (a space in most
+    // locales, a narrow no-break space in French) is reused for the units it
+    // cannot format itself.
+    var gap = kg.parts(9).filter(function(p) { return p.type === 'literal'; })[0];
+    var resolved = new Intl.NumberFormat(LOCALE).resolvedOptions().locale;
+    return {
+        locale: resolved,
+        // The -u-ms- extension is dropped from the resolved locale, so the
+        // measurement system is read from the tag itself when there is one.
+        usCustomary: usCustomary(typeof LOCALE === 'string' ? LOCALE : resolved),
+        num: num({}),
+        signed: num({ signDisplay: 'always' }),
+        pct: num({ style: 'percent', minimumFractionDigits: 1, maximumFractionDigits: 1 }),
+        compact: num({ notation: 'compact', maximumSignificantDigits: 3 }),
+        compactWhole: num({ notation: 'compact', maximumFractionDigits: 0 }),
+        sig2: num({ maximumSignificantDigits: 2 }),
+        kg: kg,
+        lb: num({ style: 'unit', unit: 'pound', maximumSignificantDigits: 2 }),
+        // API prices are in US dollars whatever the region; the locale still
+        // decides the symbol, where it goes and the digits.
+        usd: num({ style: 'currency', currency: 'USD', maximumSignificantDigits: 2 }),
+        usdExact: num({ style: 'currency', currency: 'USD', maximumFractionDigits: 0 }),
+        unitGap: gap ? gap.value : ' ',
+        // A region's date format is its numeric one: 2026-09-07 in Sweden,
+        // 07.09.2026 in Germany, 09/07/2026 in the US. Month names stay for
+        // labels that name a month rather than a day.
+        date: when({ year: 'numeric', month: '2-digit', day: '2-digit' }),
+        monthYear: when({ month: 'long', year: 'numeric' }),
+        monthShort: when({ month: 'short', year: 'numeric' })
+    };
+})();
+var fmt = FMT.num;
+
+// Time axes label their months through Intl rather than the date-fns
+// adapter, whose format strings are en-US only. Chart.js 4 hands time-scale
+// callbacks the tick's timestamp (version 3 passed the formatted label, which
+// would throw here), so mind this if the pinned chart.js version changes.
+function monthTick(value) { return FMT.monthShort(value); }
+// Tooltip title for charts whose points are { x: 'YYYY-MM-DD', y }.
+function dateTitle(items) { return FMT.date(items[0].raw.x); }
+
+var AGENT_COLORS = {
+    'Human': '#8b949e',
+    'Claude Opus 4.5': '#d2a8ff',
+    'Claude Opus 4.6': '#58a6ff',
+    'Claude Opus 4.6 (1M)': '#79c0ff',
+    'Claude Opus 4.7': '#39c5cf',
+    'Claude Opus 4.7 (1M)': '#56d4dd',
+    'Claude Opus 4.8': '#db61a2',
+    'Claude Opus 4.8 (1M)': '#f778ba',
+    'Claude Fable 5': '#e3b341',
+    'Claude Fable 5.1': '#f2cc60',
+    'Claude Opus 5': '#ff7b72',
+    'Claude Opus 5 (1M)': '#ffa198',
+    'Claude Sonnet 4.5': '#f0883e',
+    'Claude Sonnet 4.6': '#3fb950',
+    'Claude Sonnet 5': '#7ee787',
+    'Claude Haiku 4.5': '#56d364',
+    'Claude (unknown version)': '#484f58',
+    'Misc': '#6e7681'
+};
+
+function agentClass(a) {
+    // Derive the badge class from the agent name so any Claude model gets a
+    // class without a code change: 'Claude Opus 4.6 (1M)' -> 'opus46-1m',
+    // 'Claude Fable 5.1' -> 'fable51'. Models with no matching CSS rule fall
+    // back to the base .agent-badge style.
+    if (!a || a === 'Human') return 'human';
+    if (a === 'Claude (unknown version)') return 'unknown';
+    if (a === 'Misc') return 'misc';
+    var oneM = a.indexOf('(1M') >= 0;
+    var base = a.replace(/^Claude\s+/i, '').replace(/\s*\(.*$/, '').replace(/[^A-Za-z0-9]/g, '').toLowerCase();
+    return base + (oneM ? '-1m' : '');
+}
+
+// Chart defaults
+Chart.defaults.color = '#8b949e';
+Chart.defaults.borderColor = '#30363d';
+Chart.defaults.font.family = "-apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif";
+Chart.defaults.locale = FMT.locale;
+
+// --- Header and footer figures ---
+// Rendered here rather than baked in by generate_html.py so they follow the
+// viewer's locale like every other number on the page.
+(function() {
+    function set(id, text) { document.getElementById(id).textContent = text; }
+    set('headerCommits', fmt(SUMMARY.total_commits));
+    set('headerFrom', FMT.monthYear(SUMMARY.first_date));
+    set('headerTo', FMT.monthYear(SUMMARY.last_date));
+    set('footerCommits', fmt(SUMMARY.total_commits));
+    if (RAW.generated) set('generatedOn', FMT.date(RAW.generated));
+})();
+
+// --- Summary Stats ---
+(function() {
+    var grid = document.getElementById('statsGrid');
+    function render() {
+        while (grid.firstChild) grid.removeChild(grid.firstChild);
+        var s = SEL.stats();
+        var aiShare = FMT.pct(SUMMARY.ai_assisted_commits / SUMMARY.total_commits);
+        var cards = [
+            { label: 'Total Commits', value: fmt(SUMMARY.total_commits) },
+            { label: 'AI-Assisted', value: fmt(SUMMARY.ai_assisted_commits) + ' (' + aiShare + ')' },
+            { label: 'Human Only', value: fmt(SUMMARY.human_only_commits) },
+            { label: 'Misc (merges)', value: fmt(SUMMARY.misc_commits || 0) },
+            { label: 'Lines at HEAD', value: fmt(SEL.headTotal(false)) },
+            { label: 'Peak', value: fmt(s.peak.value) },
+            { label: 'Peak Date', value: FMT.date(s.peak.date) },
+            { label: 'First Commit', value: FMT.date(SUMMARY.first_date) },
+            { label: 'Last Commit', value: FMT.date(SUMMARY.last_date) },
+        ];
+        if (SUMMARY.unmeasured_commits) cards.push({ label: 'Unmeasured by cloc', value: fmt(SUMMARY.unmeasured_commits) });
+        if (SUMMARY.pending_commits) cards.push({ label: 'Not yet measured', value: fmt(SUMMARY.pending_commits) });
+        cards.forEach(function(c) {
+            var card = document.createElement('div');
+            card.className = 'stat-card';
+            var l = document.createElement('div'); l.className = 'label'; l.textContent = c.label;
+            var v = document.createElement('div'); v.className = 'value'; v.textContent = c.value;
+            card.appendChild(l); card.appendChild(v);
+            grid.appendChild(card);
+        });
+    }
+    SEL.on(render);
+    render();
+})();
+
+// --- Main Chart: lines over time for the selected language/type, colored by agent ---
+var mainChartInstance = null;
+function resetMainZoom() {
+    if (mainChartInstance) {
+        mainChartInstance.resetZoom();
+        document.getElementById('resetZoomBtn').style.display = 'none';
+    }
+}
+(function() {
+    var pointColors = ROWS.map(function(c) { return AGENT_COLORS[c[4] || 'Human'] || '#8b949e'; });
+    function series(values) { return ROWS.map(function(c, i) { return { x: c[2], y: values[i] }; }); }
+    var st = SEL.stats();
+    var datasets = [{
+        label: SEL.linesLabel(),
+        data: series(st.cumulative),
+        borderColor: '#58a6ff', backgroundColor: 'rgba(88,166,255,0.05)', fill: true, tension: 0.1,
+        pointRadius: 1.5, pointHoverRadius: 6, borderWidth: 1.5,
+        pointBackgroundColor: pointColors, pointBorderColor: pointColors,
+    }, {
+        label: 'Tests',
+        data: series(st.testCumulative),
+        borderColor: '#3fb950', backgroundColor: 'rgba(63,185,80,0.05)', fill: true, tension: 0.1,
+        pointRadius: 0, pointHoverRadius: 4, borderWidth: 1.5,
+        hidden: !SEL.get().tests,
+    }];
+
+    mainChartInstance = new Chart(document.getElementById('mainChart'), {
+        type: 'line',
+        data: { datasets: datasets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            interaction: { intersect: false, mode: 'nearest' },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: '#1c2129', borderColor: '#30363d', borderWidth: 1,
+                    titleColor: '#e6edf3', bodyColor: '#8b949e', padding: 12, cornerRadius: 8,
+                    callbacks: {
+                        title: function(items) {
+                            var idx = items[0].dataIndex;
+                            return FMT.date(ROWS[idx][2]) + '  (' + ROWS[idx][1] + ')';
+                        },
+                        afterTitle: function(items) {
+                            var idx = items[0].dataIndex;
+                            return ROWS[idx][3];
+                        },
+                        label: function(ctx) {
+                            var idx = ctx.dataIndex;
+                            var s = SEL.stats();
+                            var agent = ROWS[idx][4] || 'Human';
+                            var delta = ctx.datasetIndex === 1
+                                ? s.testCumulative[idx] - (idx ? s.testCumulative[idx - 1] : 0)
+                                : s.net[idx];
+                            return ['  ' + ctx.dataset.label + ': ' + fmt(ctx.parsed.y), '  Delta: ' + FMT.signed(delta), '  Agent: ' + agent];
+                        }
+                    }
+                },
+                annotation: {
+                    clip: false,
+                    annotations: annotationObjects(ANNOTATIONS)
+                },
+                zoom: {
+                    zoom: {
+                        drag: {
+                            enabled: true,
+                            backgroundColor: 'rgba(88,166,255,0.12)',
+                            borderColor: 'rgba(88,166,255,0.4)',
+                            borderWidth: 1
+                        },
+                        mode: 'x',
+                        onZoomComplete: function() {
+                            document.getElementById('resetZoomBtn').style.display = 'inline-block';
+                        }
+                    },
+                    limits: {
+                        x: { minRange: 7 * 24 * 60 * 60 * 1000 }
+                    }
+                }
+            },
+            scales: {
+                x: { type: 'time', time: { unit: 'month' }, ticks: { callback: monthTick }, grid: { display: false } },
+                y: { beginAtZero: true, title: { display: true, text: SEL.linesLabel(), color: '#8b949e' }, grid: { color: '#21262d' } }
+            }
+        }
+    });
+
+    // Double-click to reset zoom
+    document.getElementById('mainChart').addEventListener('dblclick', function() {
+        resetMainZoom();
+    });
+
+    var toggle = document.getElementById('testsToggle');
+    var note = document.getElementById('reconNote');
+    var title = document.getElementById('mainChartTitle');
+    toggle.addEventListener('click', function() { SEL.set({ tests: !SEL.get().tests }); });
+    function refresh() {
+        var s = SEL.stats();
+        var ds = mainChartInstance.data.datasets;
+        ds[0].label = SEL.linesLabel();
+        ds[0].data = series(s.cumulative);
+        ds[1].data = series(s.testCumulative);
+        ds[1].hidden = !SEL.get().tests;
+        mainChartInstance.options.scales.y.title.text = SEL.linesLabel();
+        mainChartInstance.update();
+        toggle.className = 'reset-btn toggle-btn' + (SEL.get().tests ? ' active' : '');
+        title.textContent = SEL.linesLabel() + ' Over Time';
+        var drift = SEL.drift();
+        note.hidden = drift === 0;
+        note.textContent = drift === 0 ? '' : 'Running total differs from the cloc snapshot of HEAD by ' + FMT.signed(drift) + ' lines for this selection: lines edited inside merge commits during conflict resolution are not attributed to any commit.';
+    }
+    SEL.on(refresh);
+    refresh();
+})();
+
+// --- Daily Delta Chart ---
+(function() {
+    function build() { return SEL.stats().daily.map(function(d) { return { x: d.date, y: d.net }; }); }
+    function colours(data, up, down) { return data.map(function(d) { return d.y >= 0 ? up : down; }); }
+    var data = build();
+    var chart = new Chart(document.getElementById('dailyDeltaChart'), {
+        type: 'bar',
+        data: { datasets: [{
+            label: SEL.linesLabel() + ' Change', data: data,
+            backgroundColor: colours(data, 'rgba(63,185,80,0.6)', 'rgba(248,81,73,0.6)'),
+            borderColor: colours(data, '#3fb950', '#f85149'),
+            borderWidth: 1, borderRadius: 2
+        }] },
+        options: {
+            responsive: true, maintainAspectRatio: true,
+            interaction: { intersect: false, mode: 'index' },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: '#1c2129', borderColor: '#30363d', borderWidth: 1,
+                    titleColor: '#e6edf3', bodyColor: '#8b949e', padding: 12, cornerRadius: 8,
+                    callbacks: {
+                        title: dateTitle,
+                        label: function(ctx) {
+                            var day = SEL.stats().daily[ctx.dataIndex];
+                            var lines = ['  Delta: ' + FMT.signed(ctx.parsed.y), '  Commits: ' + fmt(day.commits)];
+                            Object.keys(day.agents).forEach(function(a) { lines.push('    ' + a + ': ' + fmt(day.agents[a])); });
+                            return lines;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: { type: 'time', time: { unit: 'month' }, ticks: { callback: monthTick }, grid: { display: false } },
+                y: { title: { display: true, text: 'Lines Change', color: '#8b949e' }, grid: { color: '#21262d' } }
+            }
+        }
+    });
+    var title = document.getElementById('dailyChartTitle');
+    function refresh() {
+        var d = build();
+        var ds = chart.data.datasets[0];
+        ds.label = SEL.linesLabel() + ' Change';
+        ds.data = d;
+        ds.backgroundColor = colours(d, 'rgba(63,185,80,0.6)', 'rgba(248,81,73,0.6)');
+        ds.borderColor = colours(d, '#3fb950', '#f85149');
+        chart.options.scales.y.title.text = SEL.linesLabel() + ' Change';
+        chart.update();
+        title.textContent = 'Daily ' + SEL.linesLabel() + ' Change';
+    }
+    SEL.on(refresh);
+    refresh();
+})();
+
+// --- Agent Cumulative Contribution Chart ---
+(function() {
+    function buildDatasets() {
+        var s = SEL.stats();
+        var names = Object.keys(s.agents).filter(function(a) { return s.agents[a].net !== 0; })
+            .sort(function(a, b) { return s.agents[b].net - s.agents[a].net; });
+        var totals = {}, running = {};
+        names.forEach(function(a) { totals[a] = 0; running[a] = []; });
+        ROWS.forEach(function(c, i) {
+            var agent = c[4] || 'Human';
+            if (totals[agent] !== undefined) totals[agent] += s.net[i];
+            names.forEach(function(a) { running[a].push({ x: c[2], y: totals[a] }); });
+        });
+        return names.map(function(a) {
+            return { label: a, data: running[a], borderColor: AGENT_COLORS[a] || '#484f58',
+                     backgroundColor: (AGENT_COLORS[a] || '#484f58') + '15', fill: true, tension: 0.2,
+                     pointRadius: 0, pointHoverRadius: 4, borderWidth: 2 };
+        });
+    }
+    var chart = new Chart(document.getElementById('agentCumulativeChart'), {
+        type: 'line',
+        data: { datasets: buildDatasets() },
+        options: {
+            responsive: true, maintainAspectRatio: true,
+            interaction: { intersect: false, mode: 'index' },
+            plugins: {
+                legend: { display: true, labels: { boxWidth: 10, padding: 12 } },
+                tooltip: {
+                    backgroundColor: '#1c2129', borderColor: '#30363d', borderWidth: 1,
+                    titleColor: '#e6edf3', bodyColor: '#8b949e', padding: 12, cornerRadius: 8,
+                    callbacks: {
+                        title: dateTitle,
+                        label: function(ctx) { return '  ' + ctx.dataset.label + ': ' + FMT.signed(ctx.parsed.y); }
+                    }
+                }
+            },
+            scales: {
+                x: { type: 'time', time: { unit: 'month' }, ticks: { callback: monthTick }, grid: { display: false } },
+                y: { title: { display: true, text: 'Cumulative Lines', color: '#8b949e' }, grid: { color: '#21262d' } }
+            }
+        }
+    });
+    SEL.on(function() { chart.data.datasets = buildDatasets(); chart.update(); });
+})();
+
+// --- Agent Pie Chart ---
+(function() {
+    var agents = SEL.stats().agents; var names = Object.keys(agents).sort(function(a, b) { return agents[b].commits - agents[a].commits; });
+    new Chart(document.getElementById('agentPieChart'), {
+        type: 'doughnut',
+        data: {
+            labels: names,
+            datasets: [{
+                data: names.map(function(a) { return agents[a].commits; }),
+                backgroundColor: names.map(function(a) { return AGENT_COLORS[a] || '#484f58'; }),
+                borderColor: '#161b22',
+                borderWidth: 2
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: true,
+            plugins: {
+                legend: { position: 'right', labels: { boxWidth: 10, padding: 10, font: { size: 11 } } },
+                tooltip: {
+                    backgroundColor: '#1c2129', borderColor: '#30363d', borderWidth: 1,
+                    titleColor: '#e6edf3', bodyColor: '#8b949e', padding: 12, cornerRadius: 8,
+                    callbacks: {
+                        label: function(ctx) {
+                            return '  ' + ctx.label + ': ' + fmt(ctx.parsed) + ' commits (' + FMT.pct(ctx.parsed / SUMMARY.total_commits) + ')';
+                        }
+                    }
+                }
+            }
+        }
+    });
+})();
+
+// --- Agent Net Lines Bar Chart ---
+(function() {
+    function sortedNames() { var s = SEL.stats(); return Object.keys(s.agents).sort(function(a, b) { return s.agents[b].net - s.agents[a].net; }); }
+    var names = sortedNames();
+    function added() { var s = SEL.stats(); return names.map(function(a) { return s.agents[a].added; }); }
+    function removed() { var s = SEL.stats(); return names.map(function(a) { return -s.agents[a].removed; }); }
+    function colours() { return names.map(function(a) { return (AGENT_COLORS[a] || '#484f58') + 'aa'; }); }
+    var chart = new Chart(document.getElementById('agentNetChart'), {
+        type: 'bar',
+        data: { labels: names, datasets: [
+            { label: 'Added', data: added(), backgroundColor: colours(), borderRadius: 4 },
+            { label: 'Deleted', data: removed(), backgroundColor: 'rgba(248,81,73,0.4)', borderRadius: 4 }
+        ] },
+        options: {
+            responsive: true, maintainAspectRatio: true,
+            plugins: {
+                legend: { display: true, labels: { boxWidth: 10, padding: 12 } },
+                tooltip: {
+                    backgroundColor: '#1c2129', borderColor: '#30363d', borderWidth: 1,
+                    titleColor: '#e6edf3', bodyColor: '#8b949e', padding: 12, cornerRadius: 8,
+                    callbacks: {
+                        label: function(ctx) {
+                            var st = SEL.stats().agents[names[ctx.dataIndex]];
+                            if (ctx.datasetIndex === 0) return '  Added: ' + FMT.signed(st.added);
+                            return '  Deleted: ' + FMT.signed(-st.removed);
+                        },
+                        afterBody: function(items) {
+                            var st = SEL.stats().agents[names[items[0].dataIndex]];
+                            return '  Net: ' + FMT.signed(st.net);
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: { grid: { display: false } },
+                y: { title: { display: true, text: SEL.linesLabel(), color: '#8b949e' }, grid: { color: '#21262d' } }
+            }
+        }
+    });
+    var title = document.getElementById('agentNetTitle');
+    function refresh() {
+        names = sortedNames();
+        chart.data.labels = names;
+        chart.data.datasets[0].data = added();
+        chart.data.datasets[0].backgroundColor = colours();
+        chart.data.datasets[1].data = removed();
+        chart.options.scales.y.title.text = SEL.linesLabel();
+        chart.update();
+        title.textContent = 'Net ' + SEL.linesLabel() + ' by Agent';
+    }
+    SEL.on(refresh);
+    refresh();
+})();
+
+// --- Token Usage: measured from archived transcripts, estimated before that ---
+//
+// Deliberately independent of SEL. Tokens are not per-language and not
+// per-line-type, so this section must not move when the Language or Line type
+// selector changes; wiring it to SEL would make a number change when nothing
+// about it had.
+(function() {
+    var T = SUMMARY.tokens;
+    if (!T || !T.per_day.length) return;
+
+    // Kept in step with GRID_G_CO2E_PER_KWH in analyse_all_commits.py, which is
+    // where the figure is actually applied; this copy only labels the card.
+    var GRID_G_CO2E_PER_KWH = 400;
+
+    // Compact notation abbreviates the way the viewer's locale does: 6.51B
+    // for a US viewer, 6,51 Mrd. for a German one.
+    var big = FMT.compact;
+
+    // The lifetime figure extrapolates one model era across seven earlier
+    // months, so it is shown coarsely on purpose: a precise-looking
+    // 37,255,401,150 would imply an accuracy the estimator does not have.
+    function coarse(n) { return n >= 1e9 ? FMT.compactWhole.approx(n) : big.approx(n); }
+
+    // Energy and carbon derive from the token ceiling and rest on published
+    // per-token figures that vary by an order of magnitude between sources, so
+    // they are rounded harder still: two significant figures, never more.
+    // Intl formats kilograms itself; it knows neither kilowatt-hour nor tonne,
+    // so those keep their SI symbol after the gap Intl uses for units.
+    function energy(kwh) { return kwh >= 1000 ? FMT.sig2.approx(kwh / 1000) + FMT.unitGap + 'MWh' : FMT.sig2.approx(kwh) + FMT.unitGap + 'kWh'; }
+    // Mass follows the measurement system: pounds where US customary units
+    // are in force, otherwise kilograms up to a tonne and tonnes beyond.
+    function carbon(kg) {
+        if (FMT.usCustomary) return FMT.lb.approx(kg * 2.20462262);
+        return kg >= 1000 ? FMT.sig2.approx(kg / 1000) + FMT.unitGap + 't' : FMT.kg.approx(kg);
+    }
+
+    var grid = document.getElementById('tokenStats');
+    [
+        { label: 'Tokens (lifetime est. ceiling)', value: coarse(T.lifetime_total) },
+        { label: 'Measured', value: big(T.measured_total), delta: fmt(T.measured_days) + ' days from ' + FMT.date(T.coverage_start) },
+        { label: 'Cache Read', value: FMT.pct(T.cache_read_share),
+          delta: 'of tokens were context re-read, not newly written' },
+        { label: 'Output per Line', value: fmt(T.output_per_line),
+          delta: 'tokens generated per line of code changed' },
+        // Data regenerated before the footprint estimate existed has no energy
+        // fields. Drop those two cards rather than throw: this IIFE runs before
+        // the agent cards and the commit table, so an exception here would take
+        // the rest of the page down with it.
+    ].concat(T.energy_kwh == null ? [] : [
+        { label: 'Electricity (est.)', value: energy(T.energy_kwh),
+          delta: 'weighted by token type; cached reads cost far less' },
+        { label: 'CO\u2082e (est.)', value: carbon(T.co2_kg),
+          delta: 'at ' + fmt(GRID_G_CO2E_PER_KWH) + ' g/kWh, location-based' }
+    ]).concat(T.lifetime_cost_usd == null ? [] : [
+        // The measured window is priced exactly at list prices; the lifetime
+        // figure follows the token ceiling, so it is shown coarsely like it.
+        { label: 'API Cost (est.)', value: FMT.usd.approx(T.lifetime_cost_usd),
+          delta: FMT.usdExact(T.cost_usd) + ' over the ' + fmt(T.measured_days) + ' measured days at list prices' }
+    ]).forEach(function(c) {
+        var card = document.createElement('div');
+        card.className = 'stat-card';
+        var l = document.createElement('div'); l.className = 'label'; l.textContent = c.label;
+        var v = document.createElement('div'); v.className = 'value'; v.textContent = c.value;
+        card.appendChild(l); card.appendChild(v);
+        if (c.delta) {
+            var d = document.createElement('div'); d.className = 'delta'; d.textContent = c.delta;
+            card.appendChild(d);
+        }
+        grid.appendChild(card);
+    });
+
+    function points(tag) {
+        return T.per_day.filter(function(r) { return r[2] === tag; })
+                        .map(function(r) { return { x: r[0], y: r[1] }; });
+    }
+
+    new Chart(document.getElementById('tokenChart'), {
+        type: 'bar',
+        data: { datasets: [
+            { label: 'Estimated', data: points('e'),
+              backgroundColor: 'rgba(139,148,158,0.35)', borderColor: 'rgba(139,148,158,0.7)',
+              borderWidth: 1, borderRadius: 2 },
+            { label: 'Measured', data: points('m'),
+              backgroundColor: 'rgba(88,166,255,0.6)', borderColor: '#58a6ff',
+              borderWidth: 1, borderRadius: 2 }
+        ] },
+        options: {
+            responsive: true, maintainAspectRatio: true,
+            interaction: { intersect: false, mode: 'index' },
+            plugins: {
+                legend: { display: true, labels: { boxWidth: 10, padding: 12 } },
+                tooltip: {
+                    backgroundColor: '#1c2129', borderColor: '#30363d', borderWidth: 1,
+                    titleColor: '#e6edf3', bodyColor: '#8b949e', padding: 12, cornerRadius: 8,
+                    callbacks: {
+                        title: dateTitle,
+                        label: function(ctx) { return '  ' + ctx.dataset.label + ': ' + fmt(ctx.parsed.y); }
+                    }
+                }
+            },
+            scales: {
+                x: { type: 'time', time: { unit: 'month' }, ticks: { callback: monthTick }, grid: { display: false } },
+                y: { title: { display: true, text: 'Tokens', color: '#8b949e' }, grid: { color: '#21262d' },
+                     ticks: { callback: function(v) { return big(v); } } }
+            }
+        }
+    });
+
+    document.getElementById('tokenNote').textContent =
+        'Measured: ' + fmt(T.measured_total) + ' tokens across ' + fmt(T.measured_days) +
+        ' days of Claude Code transcripts, which are kept for about ' + fmt(30) + ' days. Earlier days are estimated at ' +
+        fmt(Math.round(T.ratio)) + ' tokens per AI-attributed line changed, calibrated only on the measured window — ' +
+        'predominantly Opus 5 with a 1M context, so earlier months on smaller-context models are overstated. ' +
+        'The estimate also prices bulk deletions at the same rate as written code, so days dominated ' +
+        'by mass file removals are inflated most. Treat the lifetime figure as an upper bound rather than a best ' +
+        'guess: the true total is plausibly around half of it. The electricity and CO\u2082e figures ' +
+        'are order-of-magnitude only: they follow that same ceiling, and published energy-per-token ' +
+        'figures vary widely between sources and none cover agentic coding at these context sizes. ' +
+        'The API cost prices each measured counter at its model\u2019s list price, cache reads and writes ' +
+        'at their own rates, and scales with the same ceiling: it is what this usage would cost through ' +
+        'the API, not what a subscription charges.';
+})();
+
+// --- Agent Detail Cards ---
+(function() {
+    var grid = document.getElementById('agentGrid');
+    function render() {
+        while (grid.firstChild) grid.removeChild(grid.firstChild);
+        var s = SEL.stats();
+        var names = Object.keys(s.agents).sort(function(a, b) { return s.agents[b].net - s.agents[a].net; });
+        names.forEach(function(a) {
+            var st = s.agents[a];
+            var card = document.createElement('div');
+            card.className = 'agent-card';
+            card.style.borderLeftColor = AGENT_COLORS[a] || '#484f58';
+
+            var name = document.createElement('div');
+            name.className = 'agent-name';
+            name.textContent = a;
+            name.style.color = AGENT_COLORS[a] || '#8b949e';
+
+            var detail = document.createElement('div');
+            detail.className = 'agent-detail';
+
+            var lines = [
+                'Commits: ' + fmt(st.commits),
+                'Added: ' + FMT.signed(st.added) + ' ' + SEL.shortLabel(),
+                'Deleted: ' + FMT.signed(-st.removed) + ' ' + SEL.shortLabel(),
+                'Net: ' + FMT.signed(st.net) + ' ' + SEL.shortLabel(),
+                'Active: ' + FMT.date(st.first_date) + ' to ' + FMT.date(st.last_date)
+            ];
+            lines.forEach(function(line) {
+                var div = document.createElement('div');
+                var parts = line.split(': ');
+                div.textContent = parts[0] + ': ';
+                var strong = document.createElement('strong');
+                strong.textContent = parts[1];
+                div.appendChild(strong);
+                detail.appendChild(div);
+            });
+
+            card.appendChild(name);
+            card.appendChild(detail);
+            grid.appendChild(card);
+        });
+    }
+    SEL.on(render);
+    render();
+})();
+
+// --- All Commits Table with Filters, Search, and Sorting ---
+(function() {
+    var filterBar = document.getElementById('filterBar');
+    var tbody = document.getElementById('allCommitsBody');
+    var countEl = document.getElementById('allCommitsCount');
+    var searchInput = document.getElementById('commitSearch');
+    var tabButtons = document.querySelectorAll('#commitTabs .tab');
+    var table = document.getElementById('allCommitsTable');
+    var commitList = document.getElementById('commitList');
+    var headRow = document.getElementById('allCommitsHeadRow');
+    var colgroup = document.getElementById('allCommitsColgroup');
+    var FIXED_COLUMNS = 9;   // expander, Date, SHA, Commit, Agent, +/-, Net, Cumulative, Tokens
+
+    // One Net column per language, generated from the data so a new language
+    // appears without a code change. They follow the Line type selection only.
+    LANGS.forEach(function(name, li) {
+        var th = document.createElement('th');
+        th.className = 'sortable';
+        th.setAttribute('data-sort', 'lang:' + li);
+        th.textContent = name;
+        th.title = 'Net ' + name + ' lines for the selected line type';
+        headRow.appendChild(th);
+        colgroup.appendChild(document.createElement('col'));
+    });
+    var headers = Array.prototype.slice.call(headRow.children);
+    var cols = Array.prototype.slice.call(colgroup.children);
+    var sortHeaders = headers.filter(function(h) { return (h.className || '').indexOf('sortable') >= 0; });
+    var activeFilter = 'all';
+    var MAX_ROWS = 500;
+    var COLUMN_COUNT = headers.length;
+    var repoUrl = SUMMARY.repo_url || null;
+    var expanded = {};
+
+    function commitUrl(c) { return repoUrl ? repoUrl + '/commit/' + c[1] : null; }
+
+    // Full commit bodies live in commit_bodies.js, loaded on first expand.
+    var bodiesState = 'idle';   // idle | loading | ready | failed
+    var bodiesWaiting = [];
+    function loadBodies(cb) {
+        if (bodiesState === 'ready' || bodiesState === 'failed') { cb(); return; }
+        bodiesWaiting.push(cb);
+        if (bodiesState === 'loading') return;
+        bodiesState = 'loading';
+        var script = document.createElement('script');
+        script.src = 'commit_bodies.js';
+        script.onload = function() { bodiesState = 'ready'; flushBodies(); };
+        script.onerror = function() { bodiesState = 'failed'; flushBodies(); };
+        document.head.appendChild(script);
+    }
+    function flushBodies() {
+        var cbs = bodiesWaiting; bodiesWaiting = [];
+        cbs.forEach(function(cb) { cb(); });
+    }
+    function bodyFor(c) {
+        if (bodiesState !== 'ready') return null;
+        return (window.COMMIT_BODIES && window.COMMIT_BODIES[c[1]]) || '';
+    }
+
+    // Each tab is a view over the same commit array with its own default
+    // ordering: newest first for the full list, ranked by net for the jumps.
+    var TABS = {
+        all:   { rows: function() { return C; }, sortKey: 'date', sortDir: 'desc' },
+        gains: { rows: function() { return SEL.stats().gains.map(function(i) { return C[i]; }); }, sortKey: 'net', sortDir: 'desc' },
+        drops: { rows: function() { return SEL.stats().drops.map(function(i) { return C[i]; }); }, sortKey: 'net', sortDir: 'asc' }
+    };
+    var activeTab = 'all';
+    var sortKey = TABS.all.sortKey;
+    var sortDir = TABS.all.sortDir;
+
+    // Direction used the first time a column is clicked: text ascends,
+    // numbers and dates descend so the biggest or newest come first.
+    var DEFAULT_DIR = { date: 'desc', message: 'asc', agent: 'asc', churn: 'desc', net: 'desc', cumulative: 'desc', tokens: 'desc' };
+
+    var SORT_VALUE = {
+        message:    function(c) { return c[3].toLowerCase(); },
+        agent:      function(c) { return (c[4] || 'Human').toLowerCase(); },
+        churn:      function(c) { var s = SEL.stats(); return s.added[c[0]] + s.removed[c[0]]; },
+        net:        function(c) { return SEL.stats().net[c[0]]; },
+        cumulative: function(c) { return SEL.stats().cumulative[c[0]]; },
+        tokens:     function(c) { return c[8]; }
+    };
+
+    // Tokens are archived per day and split across that day's AI commits by
+    // lines changed (analyse_all_commits.py). A share of an estimated day is
+    // shown as approximate, the way the token chart separates the two kinds;
+    // a commit with nothing attributed shows nothing. Independent of SEL.
+    var TOKEN_DAY_KIND = {};
+    ((SUMMARY.tokens && SUMMARY.tokens.per_day) || []).forEach(function(r) { TOKEN_DAY_KIND[r[0]] = r[2]; });
+    function tokenText(c) {
+        if (!c[8]) return '';
+        return TOKEN_DAY_KIND[c[2]] === 'e' ? FMT.compact.approx(c[8]) : FMT.compact(c[8]);
+    }
+
+    // One chip per agent present in the data, ordered by first appearance,
+    // so new models show up without editing this list. Human comes first
+    // and the Misc catch-all (merge commits) last.
+    var agents = SEL.stats().agents;
+    var agentNames = ['all', 'Human'].concat(
+        Object.keys(agents)
+            .filter(function(a) { return a !== 'Human' && a !== 'Misc'; })
+            .sort(function(a, b) { return agents[a].first_date < agents[b].first_date ? -1 : agents[a].first_date > agents[b].first_date ? 1 : a < b ? -1 : 1; })
+    );
+    if (agents['Misc']) agentNames.push('Misc');
+
+    // Commit index (c[0]) is git order, so it orders same-day commits correctly
+    // where the date string alone cannot.
+    function langSortValue(key) {
+        if (key.indexOf('lang:') !== 0) return null;
+        var li = parseInt(key.slice(5), 10);
+        return function(c) { return SEL.stats().langNet[c[0]][li]; };
+    }
+
+    function compareCommits(a, b) {
+        var value = SORT_VALUE[sortKey] || langSortValue(sortKey);
+        // Date has no SORT_VALUE: commit index is the whole comparator (git
+        // order stands in for time-of-day), so it flips with sortDir like any
+        // other column. Everywhere else, index is only a tie-break for equal
+        // values and always breaks ascending, matching SEL.stats().gains/drops
+        // (Task 10) so the gains/drops tabs render in exactly that order.
+        if (!value) { var r = a[0] - b[0]; return sortDir === 'asc' ? r : -r; }
+        var va = value(a), vb = value(b);
+        var r = va < vb ? -1 : va > vb ? 1 : 0;
+        if (r === 0) return a[0] - b[0];
+        return sortDir === 'asc' ? r : -r;
+    }
+
+    function matchesSearch(c, q) {
+        return !q || c[3].toLowerCase().indexOf(q) >= 0 || c[1].indexOf(q) >= 0;
+    }
+
+    function updateHeadline(matched, total) {
+        var text = matched < total
+            ? fmt(matched) + ' of ' + fmt(total) + ' commits'
+            : fmt(matched) + ' commits';
+        if (activeFilter !== 'all') text += ' \u00b7 ' + activeFilter;
+        if (matched > MAX_ROWS) text += ' \u00b7 showing first ' + fmt(MAX_ROWS);
+        countEl.textContent = text;
+    }
+
+    function updateSortHeaders() {
+        sortHeaders.forEach(function(th) {
+            if (th.getAttribute('data-sort') === sortKey) th.setAttribute('data-dir', sortDir);
+            else th.removeAttribute('data-dir');
+        });
+    }
+
+    function renderTable() {
+        while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
+        var q = searchInput.value.trim().toLowerCase();
+        var source = TABS[activeTab].rows();
+        var rows = source.filter(function(c) {
+            var agent = c[4] || 'Human';
+            return (activeFilter === 'all' || agent === activeFilter) && matchesSearch(c, q);
+        });
+        rows.sort(compareCommits);
+        updateHeadline(rows.length, source.length);
+        updateSortHeaders();
+
+        rows.slice(0, MAX_ROWS).forEach(function(c) {
+            var row = buildRow(c);
+            tbody.appendChild(row);
+            if (expanded[c[1]]) {
+                row.classList.add('expanded');
+                tbody.appendChild(buildDetailRow(c));
+            }
+        });
+    }
+
+    function linkOrSpan(c, className, text) {
+        var url = commitUrl(c);
+        var el = document.createElement(url ? 'a' : 'span');
+        el.className = className;
+        el.textContent = text;
+        if (url) { el.href = url; el.target = '_blank'; el.rel = 'noopener'; }
+        return el;
+    }
+
+    function buildRow(c) {
+        var s = SEL.stats(); var idx = c[0];
+        var agent = c[4] || 'Human';
+        var row = document.createElement('tr');
+        row.className = 'commit-row';
+        row.setAttribute('data-hash', c[1]);
+
+        var tdExpand = document.createElement('td'); tdExpand.className = 'expander';
+        var chevron = document.createElement('span'); chevron.className = 'chevron';
+        tdExpand.appendChild(chevron); row.appendChild(tdExpand);
+
+        var tdDate = document.createElement('td'); tdDate.textContent = FMT.date(c[2]); row.appendChild(tdDate);
+
+        var tdSha = document.createElement('td');
+        tdSha.appendChild(linkOrSpan(c, 'hash', c[1])); row.appendChild(tdSha);
+
+        var tdCommit = document.createElement('td');
+        var msg = linkOrSpan(c, 'msg', c[3]); msg.title = c[3];
+        tdCommit.appendChild(msg); row.appendChild(tdCommit);
+
+        var tdAgent = document.createElement('td');
+        var agBadge = document.createElement('span');
+        agBadge.className = 'agent-badge ' + agentClass(c[4]);
+        agBadge.textContent = agent;
+        tdAgent.appendChild(agBadge); row.appendChild(tdAgent);
+
+        // Deletions are negated so the locale's own minus sign is used; a
+        // commit with nothing deleted therefore shows -0, as it always has.
+        var tdDelta = document.createElement('td');
+        tdDelta.textContent = FMT.signed(s.added[idx]) + ' / ' + FMT.signed(-s.removed[idx]);
+        row.appendChild(tdDelta);
+
+        var tdNet = document.createElement('td');
+        if (s.net[idx] !== 0) {
+            var netBadge = document.createElement('span');
+            netBadge.className = 'badge ' + (s.net[idx] >= 0 ? 'positive' : 'negative');
+            netBadge.textContent = FMT.signed(s.net[idx]);
+            tdNet.appendChild(netBadge);
+        } else {
+            tdNet.textContent = '0';
+        }
+        row.appendChild(tdNet);
+
+        var tdCumul = document.createElement('td'); tdCumul.textContent = fmt(s.cumulative[idx]); row.appendChild(tdCumul);
+
+        var tdTokens = document.createElement('td');
+        tdTokens.textContent = tokenText(c);
+        if (c[8]) tdTokens.title = fmt(c[8]) + ' tokens attributed from a' + (TOKEN_DAY_KIND[c[2]] === 'e' ? 'n estimated' : ' measured') + ' day';
+        row.appendChild(tdTokens);
+
+        s.langNet[idx].forEach(function(value) {
+            var td = document.createElement('td');
+            if (value !== 0) {
+                var badge = document.createElement('span');
+                badge.className = 'badge ' + (value >= 0 ? 'positive' : 'negative');
+                badge.textContent = FMT.signed(value);
+                td.appendChild(badge);
+            }
+            row.appendChild(td);
+        });
+
+        row.addEventListener('click', function(e) {
+            if (e.target && e.target.closest && e.target.closest('a')) return;   // let links navigate
+            toggleRow(row, c);
+        });
+        return row;
+    }
+
+    function buildDetailRow(c) {
+        var tr = document.createElement('tr');
+        tr.className = 'detail-row';
+        var td = document.createElement('td');
+        td.colSpan = COLUMN_COUNT;
+        td.appendChild(renderDetail(c));
+        tr.appendChild(td);
+        return tr;
+    }
+
+    function renderDetail(c) {
+        var wrap = document.createElement('div');
+        wrap.className = 'commit-detail';
+        var title = document.createElement('div'); title.className = 'detail-title'; title.textContent = c[3];
+        wrap.appendChild(title);
+        var body = bodyFor(c);
+        var text = document.createElement('div');
+        if (body === null) {
+            text.className = 'detail-empty';
+            text.textContent = bodiesState === 'failed' ? 'Full message unavailable (commit_bodies.js not found).' : 'Loading full message\u2026';
+        } else if (body) {
+            text.className = 'detail-body';
+            text.textContent = body;
+        } else {
+            text.className = 'detail-empty';
+            text.textContent = 'No further description.';
+        }
+        wrap.appendChild(text);
+        return wrap;
+    }
+
+    function toggleRow(row, c) {
+        var hash = c[1];
+        if (expanded[hash]) {
+            delete expanded[hash];
+            row.classList.remove('expanded');
+            var next = row.nextSibling;
+            if (next && next.className === 'detail-row') tbody.removeChild(next);
+            return;
+        }
+        expanded[hash] = true;
+        row.classList.add('expanded');
+        var detail = buildDetailRow(c);
+        if (row.nextSibling) tbody.insertBefore(detail, row.nextSibling); else tbody.appendChild(detail);
+        if (bodiesState !== 'ready' && bodiesState !== 'failed') {
+            loadBodies(function() {
+                if (!expanded[hash] || detail.parentNode !== tbody) return;
+                var td = detail.firstChild;
+                while (td.firstChild) td.removeChild(td.firstChild);
+                td.appendChild(renderDetail(c));
+            });
+        }
+    }
+
+    // --- Resizable columns ---
+    // Starting widths come from measuring the widest content each column can
+    // show, so every column except Commit fits without truncation. Commit takes
+    // whatever is left. These fallbacks only apply if measuring is impossible.
+    var FALLBACK_WIDTHS = [32, 100, 84, null, 170, 130, 84, 100].concat(LANGS.map(function() { return 90; }));
+    var COMMIT_COLUMN = 3;
+    var MIN_WIDTH = 40;
+    var MIN_COMMIT_WIDTH = 260;
+    var MIN_EXPANDER_WIDTH = 32;   // the chevron alone is too small a click target
+
+    function widestStrings() {
+        var date = '', delta = '', net = '', cumul = '', tokens = '';
+        var langs = LANGS.map(function() { return ''; });
+        var s = SEL.stats();
+        C.forEach(function(c, i) {
+            var t = FMT.date(c[2]);
+            var d = FMT.signed(s.added[i]) + ' / ' + FMT.signed(-s.removed[i]);
+            var n = FMT.signed(s.net[i]);
+            var k = fmt(s.cumulative[i]);
+            var tk = tokenText(c);
+            if (t.length > date.length) date = t;
+            if (tk.length > tokens.length) tokens = tk;
+            if (d.length > delta.length) delta = d;
+            if (n.length > net.length) net = n;
+            if (k.length > cumul.length) cumul = k;
+            s.langNet[i].forEach(function(v, li) {
+                var str = FMT.signed(v);
+                if (str.length > langs[li].length) langs[li] = str;
+            });
+        });
+        return { date: date, sha: C[0][1], delta: delta, net: net, cumul: cumul, tokens: tokens, langs: langs };
+    }
+
+    function measureNaturalWidths() {
+        if (!commitList) return null;
+        var probe = document.createElement('table');
+        probe.className = 'all-commits measure';
+
+        var thead = document.createElement('thead');
+        var headRow = document.createElement('tr');
+        headers.forEach(function(th) {
+            var h = document.createElement('th');
+            h.className = th.className;
+            h.textContent = th.textContent;
+            if (th.getAttribute('data-sort')) h.setAttribute('data-dir', 'desc');   // include the sort arrow
+            headRow.appendChild(h);
+        });
+        thead.appendChild(headRow);
+        probe.appendChild(thead);
+
+        // One row per agent so the widest badge is measured; the other cells
+        // repeat the widest value they can ever hold.
+        var w = widestStrings();
+        var tbody = document.createElement('tbody');
+        var agentNames = Object.keys(SEL.stats().agents);
+        if (!agentNames.length) agentNames = ['Human'];
+        agentNames.forEach(function(name) {
+            var tr = document.createElement('tr');
+            var cellsSpec = [
+                { cls: 'expander', build: function(td) { var ch = document.createElement('span'); ch.className = 'chevron'; td.appendChild(ch); } },
+                { text: w.date },
+                { build: function(td) { var a = document.createElement('span'); a.className = 'hash'; a.textContent = w.sha; td.appendChild(a); } },
+                { text: 'x' },
+                { build: function(td) { var b = document.createElement('span'); b.className = 'agent-badge ' + agentClass(name === 'Human' ? '' : name); b.textContent = name; td.appendChild(b); } },
+                { text: w.delta },
+                { build: function(td) { var b = document.createElement('span'); b.className = 'badge positive'; b.textContent = w.net; td.appendChild(b); } },
+                { text: w.cumul },
+                { text: w.tokens }
+            ].concat(w.langs.map(function(str) {
+                return { build: function(td) { var b = document.createElement('span'); b.className = 'badge positive'; b.textContent = str; td.appendChild(b); } };
+            }));
+            cellsSpec.forEach(function(spec) {
+                var td = document.createElement('td');
+                if (spec.cls) td.className = spec.cls;
+                if (spec.text !== undefined) td.textContent = spec.text;
+                if (spec.build) spec.build(td);
+                tr.appendChild(td);
+            });
+            tbody.appendChild(tr);
+        });
+        probe.appendChild(tbody);
+
+        commitList.appendChild(probe);
+        var widths = [];
+        for (var i = 0; i < COLUMN_COUNT; i++) {
+            var max = headRow.children[i].offsetWidth || 0;
+            for (var r = 0; r < tbody.children.length; r++) {
+                var cw = tbody.children[r].children[i].offsetWidth || 0;
+                if (cw > max) max = cw;
+            }
+            widths.push(max);
+        }
+        commitList.removeChild(probe);
+        return widths.every(function(x) { return isFinite(x) && x > 0; }) ? widths : null;
+    }
+
+    function applyWidths(widths) {
+        var total = 0;
+        widths.forEach(function(w, i) { cols[i].style.width = w + 'px'; total += w; });
+        table.style.tableLayout = 'fixed';
+        table.style.width = total + 'px';
+    }
+
+    function initColumnWidths() {
+        if (!cols.length || !commitList) return;
+        var measured = measureNaturalWidths();
+        var widths = (measured || FALLBACK_WIDTHS).map(function(w, i) {
+            return i === COMMIT_COLUMN ? null : Math.ceil(w) + 2;   // 2px slack against rounding
+        });
+        widths[0] = Math.max(widths[0], MIN_EXPANDER_WIDTH);
+        var available = commitList.clientWidth || 1100;
+        var fixed = 0;
+        widths.forEach(function(w) { if (w) fixed += w; });
+        widths[COMMIT_COLUMN] = Math.max(MIN_COMMIT_WIDTH, available - fixed - 2);
+        applyWidths(widths);
+    }
+
+    function currentWidths() {
+        return Array.prototype.map.call(cols, function(col) { return parseFloat(col.style.width) || 0; });
+    }
+
+    headers.forEach(function(th, i) {
+        var handle = document.createElement('span');
+        handle.className = 'col-resizer';
+        handle.addEventListener('click', function(e) { e.stopPropagation(); });
+        handle.addEventListener('pointerdown', function(e) {
+            e.preventDefault(); e.stopPropagation();
+            var startX = e.clientX;
+            var widths = currentWidths();
+            var startWidth = widths[i];
+            handle.classList.add('dragging');
+            function onMove(ev) {
+                widths[i] = Math.max(MIN_WIDTH, startWidth + (ev.clientX - startX));
+                applyWidths(widths);
+            }
+            function onUp() {
+                handle.classList.remove('dragging');
+                document.removeEventListener('pointermove', onMove);
+                document.removeEventListener('pointerup', onUp);
+            }
+            document.addEventListener('pointermove', onMove);
+            document.addEventListener('pointerup', onUp);
+        });
+        th.appendChild(handle);
+    });
+    initColumnWidths();
+
+    sortHeaders.forEach(function(th) {
+        th.addEventListener('click', function() {
+            var key = th.getAttribute('data-sort');
+            if (sortKey === key) {
+                sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+            } else {
+                sortKey = key;
+                sortDir = TABS[activeTab].sortKey === key ? TABS[activeTab].sortDir : (DEFAULT_DIR[key] || 'desc');
+            }
+            renderTable();
+        });
+    });
+
+    tabButtons.forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            activeTab = btn.getAttribute('data-tab');
+            sortKey = TABS[activeTab].sortKey;
+            sortDir = TABS[activeTab].sortDir;
+            tabButtons.forEach(function(b) { b.classList.remove('active'); });
+            btn.classList.add('active');
+            renderTable();
+        });
+    });
+
+    function updateTabLabels() {
+        tabButtons.forEach(function(b) {
+            var k = b.getAttribute('data-tab');
+            if (k === 'gains') b.textContent = 'Biggest ' + SEL.shortLabel() + ' Gains';
+            if (k === 'drops') b.textContent = 'Biggest ' + SEL.shortLabel() + ' Drops';
+        });
+    }
+    SEL.on(function() { updateTabLabels(); renderTable(); initColumnWidths(); });
+    updateTabLabels();
+
+    searchInput.addEventListener('input', renderTable);
+
+    agentNames.forEach(function(name) {
+        var btn = document.createElement('button');
+        btn.className = 'filter-btn' + (name === 'all' ? ' active' : '');
+        btn.textContent = name === 'all' ? 'All' : name;
+        btn.addEventListener('click', function() {
+            activeFilter = name;
+            filterBar.querySelectorAll('.filter-btn').forEach(function(b) { b.classList.remove('active'); });
+            btn.classList.add('active');
+            renderTable();
+        });
+        filterBar.appendChild(btn);
+    });
+
+    renderTable();
+})();
+</script>
+</body>
+</html>
