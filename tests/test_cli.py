@@ -27,6 +27,18 @@ class TestParseArgs(unittest.TestCase):
         a = cli.parse_args(["render", "-o", "/ws"])
         self.assertEqual((a.command, a.output, a.repo), ("render", "/ws", None))
 
+    def test_render_requires_a_workspace(self):
+        with self.assertRaises(SystemExit):
+            with redirect_stderr(io.StringIO()):
+                cli.parse_args(["render"])
+
+    def test_tokens_rejects_the_page_options_it_would_ignore(self):
+        for flag in (["--no-open"], ["--locale", "en-SE"], ["--config", "x.toml"]):
+            with self.subTest(flag=flag):
+                with self.assertRaises(SystemExit):
+                    with redirect_stderr(io.StringIO()):
+                        cli.parse_args(["tokens", "/tmp/x"] + flag)
+
     def test_options(self):
         a = cli.parse_args(["--branch", "dev", "--max-commits", "5", "--cache-dir", "/c",
                             "--config", "/f.toml", "--locale", "en-SE", "-q"])
@@ -60,9 +72,10 @@ class TestEndToEnd(unittest.TestCase):
         self.tmp.cleanup()
 
     def run_cli(self, *args):
+        quiet = ["-q"] if args[0] == "tokens" else ["--no-open", "-q"]   # tokens has no page to open
         err = io.StringIO()
         with redirect_stderr(err):
-            code = cli.main(list(args) + ["--no-open", "-q"], projects_dir=self.projects)
+            code = cli.main(list(args) + quiet, projects_dir=self.projects)
         return code, err.getvalue()
 
     def test_full_run_into_the_sibling_workspace(self):
@@ -109,6 +122,14 @@ class TestEndToEnd(unittest.TestCase):
         code, err = self.run_cli("render", "-o", self.ws)
         self.assertEqual(code, 2)
         self.assertIn("full_commit_data.json", err)
+
+    def test_corrupt_analysis_file_is_an_error_not_a_traceback(self):
+        self.assertEqual(self.run_cli(self.repo, "--cache-dir", self.cache)[0], 0)
+        with open(os.path.join(self.ws, "full_commit_data.json"), "w") as f:
+            f.write("{not json")
+        code, err = self.run_cli("render", "-o", self.ws)
+        self.assertEqual(code, 2)
+        self.assertIn("not valid JSON", err)
 
     def test_render_refuses_a_directory_that_is_not_a_workspace(self):
         code, err = self.run_cli("render", "-o", self.root)

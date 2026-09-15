@@ -148,7 +148,10 @@ def render_workspace(workspace, *, title, repo_name, locale, log=print):
         raise FileNotFoundError(
             f"{workspace} has no full_commit_data.json to render; run `clocwork REPO -o {workspace}` first")
     with open(data_path, encoding="utf-8") as f:
-        data = json.load(f)
+        try:
+            data = json.load(f)
+        except ValueError as e:
+            raise OSError(f"{data_path} is not valid JSON ({e}); run `clocwork REPO -o {workspace}` to rebuild it") from None
     today = datetime.now().strftime("%Y-%m-%d")
     page = render_page(data, title=title, repo_name=repo_name, generated=today, locale=locale)
     # Full commit bodies are large (over a megabyte across a long history), so

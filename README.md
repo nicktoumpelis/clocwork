@@ -8,9 +8,9 @@ tokens, dollars and electricity. Every commit is measured with
 `cloc --git --diff`, cached per file, and reconciled against a `cloc` snapshot
 of HEAD so drift is visible rather than silent.
 
-The output is one self-contained `index.html` (plus a `commit_bodies.js`
-sidecar for the full commit messages) written to a **workspace** next to the
-repository, never inside it.
+The output is one `index.html` (its charts load Chart.js and its plugins from a CDN) plus a
+`commit_bodies.js` sidecar for the full commit messages, written to a
+**workspace** next to the repository, never inside it.
 
 ## Requirements
 
@@ -65,21 +65,23 @@ iterated on without re-analysing.
 Options (`clocwork run --help`):
 
 ```
-  -o, --output DIR  workspace directory (default: <repo-parent>/<repo-
-                    name>-stats)
+  -q, --quiet       print nothing but errors
   --config PATH     explicit clocwork.toml
   --locale TAG      region locale for the page (default: $CLOCWORK_LOCALE,
                     else the machine's region)
   --no-open         do not open the dashboard in a browser
-  -q, --quiet       print nothing but errors
+  -o, --output DIR  workspace directory (default: <repo-parent>/<repo-
+                    name>-stats)
   --branch REF      ref to analyse (default: the checked-out branch)
   --max-commits N   measure at most N uncached commits this run
   --no-tokens       skip the transcript scan
   --cache-dir DIR   cache location (default: $XDG_CACHE_HOME/clocwork, else
-                    ~/.cache/clocwork)
+                    ~/.cache/clocwork; wins over both)
 ```
 
-`tokens` and `render` take the first five; `--version` prints the version.
+`tokens` takes only `-o` and `-q`: it writes no page. `render` takes the page
+options and `-q`, and its `-o` is required. `--version` prints the version.
+The same reference is a manual page: `man ./man/clocwork.1` from a clone.
 
 The page formats every number, date and unit for a region locale. The
 generator records it, because browsers expose only the language list: the
@@ -184,6 +186,14 @@ node tests/dashboard/run_all.js                   # the page, in a fake DOM unde
 The dashboard suite renders a synthetic workspace (`tests/dashboard/fixture.py`)
 through `./clocwork render`. Set `CLOCWORK_DASH_WORKSPACE=<dir>` to run the
 same checks over any rendered workspace, a real one included.
+
+`man/clocwork.1` is generated from the argparse parsers, and a test checks the
+committed page is current. After changing any help text or the version,
+regenerate it:
+
+```bash
+PYTHONPATH=src python3 -m clocwork.manpage > man/clocwork.1
+```
 
 To exercise the command end to end against a throwaway repository with Go,
 Python, JavaScript and Java test conventions:
