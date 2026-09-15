@@ -163,4 +163,3 @@ def archive(repo_path, archive_path, projects_dir=PROJECTS_DIR, log=print):
     if result.malformed:
         log(f"  NOTE: skipped {result.malformed} unparseable lines")
     return days
-

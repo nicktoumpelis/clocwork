@@ -173,14 +173,29 @@ class TestInputs(unittest.TestCase):
             self.assertIn("Jules", data["first_appearances"])
 
     def test_branch_snapshot_and_test_share_follow_the_requested_ref(self):
-        # main is checked out; the feature branch has one more Markdown file.
+        # A `docs` branch, not merged, adds a Python test file; main stays
+        # checked out with an untracked docs/ directory of the same name, which
+        # cloc would take for the ref if it were given the bare branch name.
         with tempfile.TemporaryDirectory() as d:
             fx.make_repo(d)
-            data = an.analyse(d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), os.path.join(d, "t.json"),
-                              branch="feature", log=lambda *a: None)
-            head = data["summary"]["head_snapshot"]["all"]
-            self.assertEqual(head["Markdown"]["code"], fx.HEAD_MARKDOWN["code"])   # Notes.md is on feature
-            self.assertEqual({l: v for l, v in data["summary"]["reconciliation"].items() if any(v.values())}, {})
+            fx._git(d, "checkout", "-q", "-b", "docs")
+            fx._write(d, "tests/test_x.py", "def test_x():\n    assert True\n")
+            fx._git(d, "add", ".")
+            fx._git(d, "commit", "-q", "-m", "Python test", date="2025-01-07T10:00:00+00:00")
+            fx._git(d, "checkout", "-q", "main")
+            fx._write(d, "docs/decoy.md", "# decoy\n")
+            fx._write(d, "main/decoy.md", "# decoy\n")
+            args = (d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), os.path.join(d, "t.json"))
+            lines = []
+            on_docs = an.analyse(*args, branch="docs", log=lines.append)
+            self.assertEqual(on_docs["summary"]["total_commits"], 5)
+            self.assertEqual(on_docs["summary"]["head_snapshot"]["tests"]["Python"]["code"], 2)
+            self.assertEqual({l: v for l, v in on_docs["summary"]["reconciliation"].items() if any(v.values())}, {})
+            self.assertTrue(any(l.startswith("  Test code at docs:") for l in lines), lines)
+            on_main = an.analyse(*args, log=lambda *a: None)
+            self.assertEqual(on_main["summary"]["total_commits"], 4)
+            self.assertNotIn("Python", on_main["summary"]["head_snapshot"]["all"])
+            self.assertEqual(on_main["summary"]["head_snapshot"]["all"]["Swift"], fx.HEAD_SWIFT)
 
     def test_shallow_clone_is_warned_about(self):
         with tempfile.TemporaryDirectory() as d:

@@ -143,8 +143,8 @@ top-level files; `**/*.py` matches at any depth.
 ### What counts as test code
 
 Built in, by directory: `test`, `tests`, `__tests__`, `testdata` (any
-case); `spec` and `specs` for Ruby and JavaScript files only, so a `specs/`
-directory of design documents is not counted; a directory named `*Test` or
+case); `spec` and `specs` for Ruby, JavaScript, TypeScript and CoffeeScript
+files only, so a `specs/` directory of design documents is not counted; a directory named `*Test` or
 `*Tests` (Xcode, JVM); the `src/test/`, `src/androidTest/` and
 `src/integrationTest/` layouts. By filename: `*_test.go`; `test_*.py`, `*_test.py`, `conftest.py`; `*.test.*`
 and `*.spec.*` for JavaScript and TypeScript; `*Test.*` and `*Tests.*` for

@@ -90,8 +90,8 @@ def parse_remote(remote):
     if not m:
         return None
     path = m.group("path").rstrip("/").removesuffix(".git").rstrip("/")
-    if not path:
-        return None
+    if "/" not in path:
+        return None          # a repository is owner/name at least
     return m.group("host").lower(), path
 
 

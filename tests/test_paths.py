@@ -103,6 +103,7 @@ class TestRemoteUrl(unittest.TestCase):
         self.assertEqual(paths.parse_remote("https://example.com/x/y/"), ("example.com", "x/y"))
         self.assertIsNone(paths.parse_remote("not a remote"))
         self.assertIsNone(paths.parse_remote("/local/path"))
+        self.assertIsNone(paths.parse_remote("https://github.com/x"))     # no owner/name
 
 
 class TestIdentity(unittest.TestCase):

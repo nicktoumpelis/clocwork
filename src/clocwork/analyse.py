@@ -295,9 +295,15 @@ def analyse(repo_dir, output_path, cache_path, archive_path, *, config=None, bra
     rules, agents = config.rules, config.agents
 
     branch = branch or git(repo_dir, "rev-parse", "--abbrev-ref", "HEAD").strip()
-    log(f"Analysing repo: {repo_dir} (branch: {branch})")
+    # cloc --git takes a working-tree path in preference to a ref of the same
+    # name (a `docs` branch beside a docs/ directory), so every cloc call gets
+    # the resolved commit, never the bare name.
+    rev = git(repo_dir, "rev-parse", "--verify", "--quiet", f"{branch}^{{commit}}").strip()
+    if not rev:
+        raise NoCommits(f"{repo_dir} has no commits on {branch}")
+    log(f"Analysing repo: {repo_dir} (branch: {branch}, {rev[:7]})")
     log("Step 1: Extracting full commit history...")
-    commits = parse_log(repo_dir, branch, agents)
+    commits = parse_log(repo_dir, rev, agents)
     if not commits:
         raise NoCommits(f"{repo_dir} has no commits on {branch}")
     log(f"  Parsed {len(commits)} commits")
@@ -306,7 +312,7 @@ def analyse(repo_dir, output_path, cache_path, archive_path, *, config=None, bra
 
     log(f"Step 2: Measuring lines per commit with cloc (cache: {cache_path})...")
     show_ext_table = cl.load_extension_table()
-    learned = cl.learn_extensions(repo_dir, branch)
+    learned = cl.learn_extensions(repo_dir, rev)
     table = cl.merge_language_tables(show_ext_table, learned)
     new_extensions = sorted(ext for ext in learned if ext not in show_ext_table)
     if new_extensions:
@@ -318,7 +324,7 @@ def analyse(repo_dir, output_path, cache_path, archive_path, *, config=None, bra
     measured = cl.measure_commits(repo_dir, measure_input, cache, table, rules, max_commits=max_commits, log=log)
 
     log(f"Step 3: Snapshot of {branch} for reconciliation...")
-    by_lang, by_file_all, by_file_tests = cl.snapshot(repo_dir, branch, table, rules)
+    by_lang, by_file_all, by_file_tests = cl.snapshot(repo_dir, rev, table, rules)
 
     log("Step 4: Building per-commit records and running totals...")
     running_all, running_tests = {}, {}
