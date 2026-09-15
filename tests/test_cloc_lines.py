@@ -111,6 +111,8 @@ class TestParseSnapshots(unittest.TestCase):
 import os
 import shutil
 import tempfile
+import threading
+import time
 
 from tests import repo_fixture as fx
 
@@ -148,6 +150,21 @@ class TestCache(unittest.TestCase):
             with open(p, "w") as f:
                 f.write("{not valid json at all")
             self.assertIsNone(cl.Cache(p).get("x"))
+
+
+class TestMatrixOrder(unittest.TestCase):
+    TABLE = {"swift": "Swift", "md": "Markdown"}
+
+    def test_languages_are_sorted_whatever_order_cloc_listed_the_files(self):
+        # cloc's by-file output follows Perl hash order and differs between two
+        # runs over the same commit; the matrices must not, or the workspace
+        # file churns on every run and two runs cannot be compared byte for byte.
+        counts = {"code": 1, "comment": 0, "blank": 0}
+        forward = {"added": {"z.swift": counts, "a.md": counts}, "removed": {}}
+        backward = {"added": {"a.md": counts, "z.swift": counts}, "removed": {}}
+        for rows in (forward, backward):
+            lines, _ = cl.classify_rows(rows, self.TABLE, cf.DEFAULT_RULES)
+            self.assertEqual(list(lines), ["Markdown", "Swift"])
 
 
 class TestMeasureCommits(unittest.TestCase):
@@ -209,6 +226,82 @@ class TestMeasureCommits(unittest.TestCase):
         self.assertEqual(res.failed, ["b"])
         self.assertIsNone(self.cache.get("b"))
         self.assertIn("a", res.measured)
+
+    def test_jobs_run_differs_at_the_same_time(self):
+        # The first two calls meet at a two-party barrier, which only opens
+        # when both are in flight at once. Under a single worker the second
+        # party never arrives, the wait times out, and the test fails.
+        barrier = threading.Barrier(2, timeout=5)
+        lock = threading.Lock()
+        arrivals = []
+
+        def differ(repo, parent, commit):
+            with lock:
+                arrivals.append(commit)
+                k = len(arrivals)
+            if k <= 2:
+                barrier.wait()
+            return self.differ(repo, parent, commit)
+
+        res = cl.measure_commits("/nowhere", self.COMMITS, self.cache, self.TABLE, cf.DEFAULT_RULES,
+                                 differ=differ, log=lambda *a: None, jobs=2)
+        self.assertEqual(sorted(res.measured), ["a", "b", "c"])
+        self.assertFalse(barrier.broken)
+
+    def test_parallel_run_matches_the_serial_run(self):
+        commits = self.COMMITS + [{"hash": "d", "parent": "c", "is_merge": False}]
+
+        def differ(repo, parent, commit):
+            if commit == "a":
+                time.sleep(0.05)          # so a later failure ("d") completes first
+            if commit in ("a", "d"):
+                raise cl.ClocError("boom")
+            return self.differ(repo, parent, commit)
+
+        def measure(cache, jobs):
+            return cl.measure_commits("/nowhere", commits, cache, self.TABLE, cf.DEFAULT_RULES,
+                                      differ=differ, log=lambda *a: None, jobs=jobs)
+
+        serial_cache = cl.Cache(os.path.join(self.tmp.name, "serial.json"))
+        serial = measure(serial_cache, 1)
+        parallel_cache = cl.Cache(os.path.join(self.tmp.name, "parallel.json"))
+        parallel = measure(parallel_cache, 4)
+        self.assertEqual(serial.failed, ["a", "d"])       # history order, not completion order
+        self.assertEqual(parallel, serial)
+        self.assertEqual(parallel_cache.entries, serial_cache.entries)
+
+    def test_interrupt_saves_what_was_measured_and_cancels_the_queue(self):
+        commits = [{"hash": f"c{i:02d}", "parent": None, "is_merge": False} for i in range(50)]
+        called = []
+
+        def differ(repo, parent, commit):
+            called.append(commit)
+            if commit == "c01":
+                time.sleep(0.05)          # so c00's result is consumed before this one lands
+                raise KeyboardInterrupt
+            time.sleep(0.001)             # let the main thread in to cancel what is still queued
+            return {"added": {"a.swift": {"code": 1, "comment": 0, "blank": 0}}, "removed": {}}
+
+        with self.assertRaises(KeyboardInterrupt):
+            cl.measure_commits("/nowhere", commits, self.cache, self.TABLE, cf.DEFAULT_RULES,
+                               differ=differ, log=lambda *a: None, jobs=1)
+        self.assertNotIn("c49", called)                                  # the queue was cancelled
+        self.assertIsNotNone(cl.Cache(self.cache.path).get("c00"))       # the flush happened on the way out
+
+    def test_jobs_still_running_at_an_interrupt_are_kept(self):
+        commits = [{"hash": "slow", "parent": None, "is_merge": False},
+                   {"hash": "boom", "parent": None, "is_merge": False}]
+
+        def differ(repo, parent, commit):
+            if commit == "boom":
+                raise KeyboardInterrupt
+            time.sleep(0.1)               # in flight when the interrupt lands; finishes during the join
+            return {"added": {"a.swift": {"code": 1, "comment": 0, "blank": 0}}, "removed": {}}
+
+        with self.assertRaises(KeyboardInterrupt):
+            cl.measure_commits("/nowhere", commits, self.cache, self.TABLE, cf.DEFAULT_RULES,
+                               differ=differ, log=lambda *a: None, jobs=2)
+        self.assertIsNotNone(cl.Cache(self.cache.path).get("slow"))      # not thrown away, not re-measured next run
 
 
 @unittest.skipUnless(HAVE_CLOC, "cloc not installed")

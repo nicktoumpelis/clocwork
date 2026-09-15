@@ -282,12 +282,13 @@ def tokens_by_commit(per_day, results):
 
 
 def analyse(repo_dir, output_path, cache_path, archive_path, *, config=None, branch=None,
-            max_commits=None, log=print):
+            max_commits=None, jobs=1, log=print):
     """Analyse `repo_dir` into `output_path` (full_commit_data.json).
 
     `cache_path` is the per-file cloc cache, `archive_path` the token archive
     (read only; absent is normal). `config` supplies the test rules and agent
-    table; `branch` defaults to the checked-out branch.
+    table; `branch` defaults to the checked-out branch; `jobs` is how many
+    cloc processes measure commits at once.
     """
     cl.require_cloc()
     repo_dir = paths.find_repo(repo_dir)
@@ -310,7 +311,7 @@ def analyse(repo_dir, output_path, cache_path, archive_path, *, config=None, bra
     if is_shallow(repo_dir):
         log("  WARNING: shallow clone; diffs against absent parents will be wrong")
 
-    log(f"Step 2: Measuring lines per commit with cloc (cache: {cache_path})...")
+    log(f"Step 2: Measuring lines per commit with cloc, {jobs} at a time (cache: {cache_path})...")
     show_ext_table = cl.load_extension_table()
     learned = cl.learn_extensions(repo_dir, rev)
     table = cl.merge_language_tables(show_ext_table, learned)
@@ -321,7 +322,8 @@ def analyse(repo_dir, output_path, cache_path, archive_path, *, config=None, bra
     measure_input = [{"hash": c["hash"], "parent": c["parents"][0] if c["parents"] else None,
                       "is_merge": is_merge_commit(c)} for c in commits]
     log(f"  {sum(1 for m in measure_input if not m['is_merge'] and cache.get(m['hash']) is None)} commits not yet cached")
-    measured = cl.measure_commits(repo_dir, measure_input, cache, table, rules, max_commits=max_commits, log=log)
+    measured = cl.measure_commits(repo_dir, measure_input, cache, table, rules, max_commits=max_commits,
+                                  jobs=jobs, log=log)
 
     log(f"Step 3: Snapshot of {branch} for reconciliation...")
     by_lang, by_file_all, by_file_tests = cl.snapshot(repo_dir, rev, table, rules)

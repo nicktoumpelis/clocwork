@@ -1,4 +1,4 @@
-.TH CLOCWORK 1 "2026-09-15" "clocwork 0.1.0" "User Commands"
+.TH CLOCWORK 1 "2026-09-16" "clocwork 0.1.0" "User Commands"
 .SH NAME
 clocwork \- lines per language, AI co\-authored commits and token cost over a repository's history
 .SH SYNOPSIS
@@ -48,7 +48,7 @@ workspace directory (default: <repo\-parent>/<repo\-name>\-stats). Taken by run 
 .SH COMMANDS
 .SS run
 .B clocwork run
-[\-q] [\-\-config PATH] [\-\-locale TAG] [\-\-no\-open] [\-o DIR] [\-\-branch REF] [\-\-max\-commits N] [\-\-no\-tokens] [\-\-cache\-dir DIR] [REPO]
+[\-q] [\-\-config PATH] [\-\-locale TAG] [\-\-no\-open] [\-o DIR] [\-\-branch REF] [\-\-max\-commits N] [\-j N] [\-\-no\-tokens] [\-\-cache\-dir DIR] [REPO]
 .PP
 analyse, archive tokens and render (the default)
 .TP
@@ -60,6 +60,9 @@ ref to analyse (default: the checked\-out branch)
 .TP
 .B \-\-max\-commits N
 measure at most N uncached commits this run
+.TP
+.B \-j, \-\-jobs N
+cloc processes to run at once (default: one per CPU core)
 .TP
 .B \-\-no\-tokens
 skip the transcript scan

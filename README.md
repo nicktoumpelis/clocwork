@@ -34,10 +34,11 @@ pip install -e ~/code/clocwork      # or: pipx install ~/code/clocwork
 cd ~/code/foo && clocwork
 ```
 
-The first run over a long history measures every commit with `cloc`: about
-half a minute per hundred commits on a small repository (289 commits of
-[spf13/cast](https://github.com/spf13/cast) took 82 seconds), and about an
-hour on a repository with a few thousand large commits. Results are cached, so
+The first run over a long history measures every commit with `cloc`, running
+one `cloc` process per CPU core (`--jobs N` chooses the number). On a 10-core
+machine the 289 commits of [spf13/cast](https://github.com/spf13/cast) take
+14 seconds (113 seconds with `--jobs 1`), and a repository of 3,800 commits,
+2,700 of them non-merge, takes about four minutes. Results are cached, so
 later runs take seconds. `--max-commits N` caps one run and a later run
 continues from where it stopped.
 
@@ -74,6 +75,7 @@ Options (`clocwork run --help`):
                     name>-stats)
   --branch REF      ref to analyse (default: the checked-out branch)
   --max-commits N   measure at most N uncached commits this run
+  -j, --jobs N      cloc processes to run at once (default: one per CPU core)
   --no-tokens       skip the transcript scan
   --cache-dir DIR   cache location (default: $XDG_CACHE_HOME/clocwork, else
                     ~/.cache/clocwork; wins over both)

@@ -50,9 +50,20 @@ class TestParseArgs(unittest.TestCase):
             with redirect_stderr(io.StringIO()):
                 cli.parse_args(["--max-commits", "-1"])
 
+    def test_jobs(self):
+        self.assertEqual(cli.parse_args(["-j", "3"]).jobs, 3)
+        self.assertEqual(cli.parse_args(["--jobs", "8"]).jobs, 8)
+        self.assertIsNone(cli.parse_args([]).jobs)       # resolved to the core count at run time, not in --help
+        for bad in ("0", "-2", "x"):
+            with self.subTest(bad=bad):
+                with self.assertRaises(SystemExit):
+                    with redirect_stderr(io.StringIO()):
+                        cli.parse_args(["--jobs", bad])
+
     def test_run_only_options_default_on_other_commands(self):
         a = cli.parse_args(["render", "-o", "/ws"])
-        self.assertEqual((a.branch, a.max_commits, a.no_tokens, a.cache_dir), (None, None, False, None))
+        self.assertEqual((a.branch, a.max_commits, a.no_tokens, a.cache_dir, a.jobs),
+                         (None, None, False, None, None))
 
 
 @unittest.skipUnless(HAVE_CLOC, "cloc not installed")
@@ -77,6 +88,22 @@ class TestEndToEnd(unittest.TestCase):
         with redirect_stderr(err):
             code = cli.main(list(args) + quiet, projects_dir=self.projects)
         return code, err.getvalue()
+
+    def test_jobs_reach_the_analyser(self):
+        seen = []
+        original = cli.analyse.analyse
+
+        def fake(*a, **k):
+            seen.append(k.get("jobs"))
+            raise cli.analyse.NoCommits("stop here")
+
+        cli.analyse.analyse = fake
+        try:
+            self.run_cli(self.repo, "--cache-dir", self.cache, "--no-tokens", "-j", "3")
+            self.run_cli(self.repo, "--cache-dir", self.cache, "--no-tokens")
+        finally:
+            cli.analyse.analyse = original
+        self.assertEqual(seen, [3, os.cpu_count() or 1])     # explicit, then one per core
 
     def test_full_run_into_the_sibling_workspace(self):
         code, err = self.run_cli(self.repo, "--cache-dir", self.cache)
