@@ -58,6 +58,24 @@ class TestRender(unittest.TestCase):
         self.assertEqual(manpage.escape(".dot first"), "\\&.dot first")
         self.assertEqual(manpage.escape("'quote first"), "\\&'quote first")
 
+    def test_files_tags_are_one_line_each(self):
+        # A .TP tag is exactly one line; a second line of the tag becomes body text.
+        for tag in re.findall(r"\.TP\n(.+)\n(.+)\n", self.page):
+            self.assertFalse(tag[1].startswith((".I ", ".IR ", ".B ", ".BR ")), tag)
+        self.assertIn('.IR index.html ", " commit_bodies.js\n', self.page)
+
+    def test_options_fall_back_to_the_dest_and_keep_positional_order(self):
+        import argparse
+        p = argparse.ArgumentParser(prog="x")
+        p.add_argument("first")
+        p.add_argument("second", nargs="?")
+        p.add_argument("--flag", action="store_true", help="a switch")
+        p.add_argument("--value", help="takes one")
+        text = manpage._options(p)
+        self.assertLess(text.index(".I FIRST"), text.index(".I SECOND"))
+        self.assertIn(".B \\-\\-flag\na switch", text)
+        self.assertIn(".B \\-\\-value VALUE\ntakes one", text)
+
     def test_date_defaults_to_today(self):
         self.assertRegex(manpage.render(), r'^\.TH CLOCWORK 1 "\d{4}-\d{2}-\d{2}"')
 

@@ -4,7 +4,7 @@
 
 The page is committed rather than built at install time because pip has no
 portable way to install a manual page; a clone reads it with
-`man ./man/clocwork.1`, and the Homebrew formula installs it. A test
+`man ./man/clocwork.1`, and the Homebrew formula will install it. A test
 regenerates the page and compares it with the committed one, so a change to
 the help text that is not followed by the command above fails the suite.
 Everything a parser knows - commands, options, defaults - comes from the
@@ -42,18 +42,20 @@ def _synopsis(name, sub):
 
 
 def _options(sub):
-    out = []
+    """Positionals first, then options, each in declaration order."""
+    positionals, options = [], []
     for action in sub._actions:
-        if not action.option_strings or "--help" in action.option_strings:
+        if "--help" in action.option_strings:
             continue
-        flags = ", ".join(escape(o) for o in action.option_strings)
-        if action.metavar:
-            flags += " " + escape(action.metavar)
-        out.append(f".TP\n.B {flags}\n{escape(action.help or '')}\n")
-    for action in sub._actions:
-        if not action.option_strings and action.dest != "help":
-            out.insert(0, f".TP\n.I {escape(action.metavar or action.dest.upper())}\n{escape(action.help or '')}\n")
-    return "".join(out)
+        metavar = action.metavar or action.dest.upper()
+        if action.option_strings:
+            flags = ", ".join(escape(o) for o in action.option_strings)
+            if action.nargs != 0:                 # takes a value; store_true has nargs 0
+                flags += " " + escape(metavar)
+            options.append(f".TP\n.B {flags}\n{escape(action.help or '')}\n")
+        else:
+            positionals.append(f".TP\n.I {escape(metavar)}\n{escape(action.help or '')}\n")
+    return "".join(positionals + options)
 
 
 def render(parser=None, version=__version__, date=None):
@@ -88,14 +90,16 @@ def render(parser=None, version=__version__, date=None):
     lines.append(".SH FILES\n"
                  ".TP\n.I <repo\\-parent>/<repo\\-name>\\-stats/\nThe workspace: a sibling of the repository, overridden with\n.BR \\-o .\n"
                  ".TP\n.I clocwork.json\nWhich repository the workspace belongs to. A run against another repository is refused rather than overwriting the workspace.\n"
-                 ".TP\n.I clocwork.toml\nOptional configuration: page title, test\\-path rules, extra agents. Also read from\n.I .clocwork.toml\nin the repository, and from\n.BR \\-\\-config .\n"
+                 ".TP\n.I clocwork.toml\nOptional configuration: page title, test\\-path rules, extra agents. The first found wins:\n"
+                 ".BR \\-\\-config ,\nthen this file in the workspace, then\n.I .clocwork.toml\nin the repository.\n"
                  ".TP\n.I token_usage.json\nThe per\\-day token archive scanned from Claude Code transcripts. It cannot be regenerated once the transcripts expire; no run shrinks it.\n"
                  ".TP\n.I full_commit_data.json\nThe analysis the page is rendered from.\n"
-                 ".TP\n.I index.html\nand\n.I commit_bodies.js\nThe dashboard and its sidecar of full commit messages.\n"
+                 ".TP\n.IR index.html \", \" commit_bodies.js\nThe dashboard and its sidecar of full commit messages.\n"
                  ".TP\n.I ~/.cache/clocwork/<name>\\-<hash>/cloc_cache.json\nPer\\-file cloc results keyed by commit, so a changed test rule or language table re\\-reads the cache instead of re\\-running cloc.")
     lines.append(".SH EXIT STATUS\n.TP\n.B 0\nSuccess.\n"
                  f".TP\n.B {EXIT_ERROR}\nAn error the command reported: cloc missing, no git repository, a repository with no commits, "
-                 "a workspace belonging to another repository, invalid configuration, or an unreadable or unwritable file.")
+                 "a workspace belonging to another repository, invalid configuration, or an unreadable or unwritable file. "
+                 "A usage error also exits 2, with the usage line on standard error.")
     lines.append(".SH SEE ALSO\n.BR cloc (1),\n.BR git (1),\n.BR git\\-log (1)")
     return "\n".join(lines) + "\n"
 

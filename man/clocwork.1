@@ -129,10 +129,11 @@ The workspace: a sibling of the repository, overridden with
 Which repository the workspace belongs to. A run against another repository is refused rather than overwriting the workspace.
 .TP
 .I clocwork.toml
-Optional configuration: page title, test\-path rules, extra agents. Also read from
+Optional configuration: page title, test\-path rules, extra agents. The first found wins:
+.BR \-\-config ,
+then this file in the workspace, then
 .I .clocwork.toml
-in the repository, and from
-.BR \-\-config .
+in the repository.
 .TP
 .I token_usage.json
 The per\-day token archive scanned from Claude Code transcripts. It cannot be regenerated once the transcripts expire; no run shrinks it.
@@ -140,9 +141,7 @@ The per\-day token archive scanned from Claude Code transcripts. It cannot be re
 .I full_commit_data.json
 The analysis the page is rendered from.
 .TP
-.I index.html
-and
-.I commit_bodies.js
+.IR index.html ", " commit_bodies.js
 The dashboard and its sidecar of full commit messages.
 .TP
 .I ~/.cache/clocwork/<name>\-<hash>/cloc_cache.json
@@ -153,7 +152,7 @@ Per\-file cloc results keyed by commit, so a changed test rule or language table
 Success.
 .TP
 .B 2
-An error the command reported: cloc missing, no git repository, a repository with no commits, a workspace belonging to another repository, invalid configuration, or an unreadable or unwritable file.
+An error the command reported: cloc missing, no git repository, a repository with no commits, a workspace belonging to another repository, invalid configuration, or an unreadable or unwritable file. A usage error also exits 2, with the usage line on standard error.
 .SH SEE ALSO
 .BR cloc (1),
 .BR git (1),
