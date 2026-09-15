@@ -23,7 +23,7 @@ The output is one `index.html` (its charts load Chart.js and its plugins from a 
 From a clone, no install step:
 
 ```bash
-git clone git@github.com:nicktoumpelis/clocwork.git
+git clone https://github.com/nicktoumpelis/clocwork.git
 cd ~/code/foo && ~/code/clocwork/clocwork
 ```
 
