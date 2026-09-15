@@ -46,26 +46,52 @@ SNAPSHOT_FILE_JSON = {
 }
 
 
-class TestParseDiff(unittest.TestCase):
+class TestDiffRows(unittest.TestCase):
+    def test_keeps_added_and_removed_files_only(self):
+        rows = cl.diff_rows(DIFF_JSON)
+        self.assertEqual(set(rows), {"added", "removed"})
+        self.assertEqual(rows["added"]["App/Main.swift"], {"code": 3, "comment": 2, "blank": 1})
+        self.assertEqual(rows["removed"]["App/Main.swift"], {"code": 1, "comment": 0, "blank": 0})
+        self.assertNotIn("header", rows["added"])
+        self.assertNotIn("SUM", rows["added"])
+        self.assertNotIn("nFiles", rows["added"]["App/Main.swift"])
+
+    def test_empty(self):
+        self.assertEqual(cl.diff_rows({}), {"added": {}, "removed": {}})
+
+
+class TestClassifyRows(unittest.TestCase):
     def setUp(self):
         self.table = cf.parse_extension_table(EXT_TEXT)
+        self.rows = cl.diff_rows(DIFF_JSON)
 
     def test_sums_added_and_removed_per_language(self):
-        lines, tests = cl.parse_diff_json(DIFF_JSON, self.table)
+        lines, tests = cl.classify_rows(self.rows, self.table, cf.DEFAULT_RULES)
         self.assertEqual(lines["Swift"], [5, 1, 3, 0, 1, 0])
         self.assertEqual(lines["Markdown"], [2, 0, 0, 0, 1, 0])
 
     def test_test_files_are_summed_separately(self):
-        _, tests = cl.parse_diff_json(DIFF_JSON, self.table)
+        _, tests = cl.classify_rows(self.rows, self.table, cf.DEFAULT_RULES)
         self.assertEqual(tests, {"Swift": [2, 0, 1, 0, 0, 0]})
 
     def test_zero_rows_and_modified_are_ignored(self):
-        lines, _ = cl.parse_diff_json(DIFF_JSON, self.table)
+        lines, _ = cl.classify_rows(self.rows, self.table, cf.DEFAULT_RULES)
         self.assertNotIn(cf.OTHER, lines)          # pbxproj had all zeros
         self.assertEqual(lines["Swift"][2], 3)     # modified comment lines not added
 
-    def test_empty_output(self):
-        self.assertEqual(cl.parse_diff_json({}, self.table), ({}, {}))
+    def test_reclassification_without_remeasuring(self):
+        # Same rows, changed rules, changed result: the point of caching per file.
+        _, before = cl.classify_rows(self.rows, self.table, cf.DEFAULT_RULES)
+        _, after = cl.classify_rows(self.rows, self.table, cf.TestRules(include=["App/**"]))
+        self.assertEqual(before, {"Swift": [2, 0, 1, 0, 0, 0]})
+        self.assertEqual(after, {"Swift": [5, 1, 3, 0, 1, 0]})
+
+    def test_changed_language_table_reclassifies_too(self):
+        lines, _ = cl.classify_rows(self.rows, {"swift": "Swift", "md": "Text"}, cf.DEFAULT_RULES)
+        self.assertEqual(lines["Text"], [2, 0, 0, 0, 1, 0])
+
+    def test_empty(self):
+        self.assertEqual(cl.classify_rows(cl.diff_rows({}), self.table, cf.DEFAULT_RULES), ({}, {}))
 
 
 class TestParseSnapshots(unittest.TestCase):
@@ -92,24 +118,28 @@ HAVE_CLOC = shutil.which("cloc") is not None
 
 
 class TestCache(unittest.TestCase):
-    def test_roundtrip_and_atomic_write(self):
+    ROWS = {"added": {"a.swift": {"code": 1, "comment": 0, "blank": 0}}, "removed": {}}
+
+    def test_roundtrip_and_atomic_write_creating_the_directory(self):
         with tempfile.TemporaryDirectory() as d:
-            p = os.path.join(d, "cache.json")
+            p = os.path.join(d, "key", "cache.json")      # ~/.cache/clocwork/<key>/ does not exist yet
             c = cl.Cache(p)
             self.assertIsNone(c.get("abc"))
-            c.put("abc", {"Swift": [1, 0, 0, 0, 0, 0]}, {})
+            c.put("abc", self.ROWS)
             self.assertEqual(c.dirty, 1)
             c.save()
             self.assertEqual(c.dirty, 0)
             self.assertFalse(os.path.exists(p + ".tmp"))
-            again = cl.Cache(p)
-            self.assertEqual(again.get("abc"), {"lines": {"Swift": [1, 0, 0, 0, 0, 0]}, "test_lines": {}})
+            with open(p) as f:
+                self.assertEqual(json.load(f)["version"], 3)
+            self.assertEqual(cl.Cache(p).get("abc"), self.ROWS)
 
-    def test_version_mismatch_starts_empty(self):
+    def test_version_2_is_discarded(self):
+        # Per-language aggregates cannot be turned back into per-file rows.
         with tempfile.TemporaryDirectory() as d:
             p = os.path.join(d, "cache.json")
             with open(p, "w") as f:
-                json.dump({"version": 0, "commits": {"x": {"lines": {}, "test_lines": {}}}}, f)
+                json.dump({"version": 2, "commits": {"x": {"lines": {"Swift": [1, 0, 0, 0, 0, 0]}, "test_lines": {}}}}, f)
             self.assertIsNone(cl.Cache(p).get("x"))
 
     def test_corrupt_cache_file_starts_empty(self):
@@ -136,31 +166,46 @@ class TestMeasureCommits(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def differ(self, repo, parent, commit, table):
+    TABLE = {"swift": "Swift"}
+
+    def differ(self, repo, parent, commit):
         self.calls.append((parent, commit))
         if commit == "b" and getattr(self, "fail_b", False):
             raise cl.ClocError("boom")
-        return ({"Swift": [1, 0, 0, 0, 0, 0]}, {})
+        return {"added": {"a.swift": {"code": 1, "comment": 0, "blank": 0}}, "removed": {}}
+
+    def measure(self, **kw):
+        return cl.measure_commits("/nowhere", self.COMMITS, self.cache, self.TABLE, cf.DEFAULT_RULES,
+                                  differ=self.differ, log=lambda *a: None, **kw)
 
     def test_cap_leaves_pending_and_skips_merges(self):
-        res = cl.measure_commits("/nowhere", self.COMMITS, self.cache, {}, max_commits=2,
-                                 differ=self.differ, log=lambda *a: None)
+        res = self.measure(max_commits=2)
         self.assertEqual([c for _, c in self.calls], ["a", "b"])
         self.assertEqual(self.calls[0][0], cl.EMPTY_TREE)      # root diffed against the empty tree
         self.assertEqual(sorted(res.measured), ["a", "b"])
+        self.assertEqual(res.measured["a"], ({"Swift": [1, 0, 0, 0, 0, 0]}, {}))   # classified, not raw rows
         self.assertEqual(res.pending, ["c"])
         self.assertEqual(res.failed, [])
 
     def test_second_run_uses_cache(self):
-        cl.measure_commits("/nowhere", self.COMMITS, self.cache, {}, differ=self.differ, log=lambda *a: None)
+        self.measure()
         self.calls.clear()
-        res = cl.measure_commits("/nowhere", self.COMMITS, self.cache, {}, differ=self.differ, log=lambda *a: None)
+        res = self.measure()
         self.assertEqual(self.calls, [])
         self.assertEqual(sorted(res.measured), ["a", "b", "c"])
+        self.assertEqual(res.measured["c"], ({"Swift": [1, 0, 0, 0, 0, 0]}, {}))
+
+    def test_cached_rows_are_reclassified_with_the_rules_of_this_run(self):
+        self.measure()
+        self.calls.clear()
+        res = cl.measure_commits("/nowhere", self.COMMITS, self.cache, self.TABLE, cf.TestRules(include=["*.swift"]),
+                                 differ=self.differ, log=lambda *a: None)
+        self.assertEqual(self.calls, [])
+        self.assertEqual(res.measured["a"][1], {"Swift": [1, 0, 0, 0, 0, 0]})
 
     def test_failure_is_reported_and_not_cached(self):
         self.fail_b = True
-        res = cl.measure_commits("/nowhere", self.COMMITS, self.cache, {}, differ=self.differ, log=lambda *a: None)
+        res = self.measure()
         self.assertEqual(res.failed, ["b"])
         self.assertIsNone(self.cache.get("b"))
         self.assertIn("a", res.measured)
@@ -179,12 +224,12 @@ class TestRealCloc(unittest.TestCase):
         cls.tmp.cleanup()
 
     def test_diff_root_commit(self):
-        lines, tests = cl.diff_commit(self.tmp.name, None, self.hashes[0], self.table)
+        lines, tests = cl.classify_rows(cl.diff_commit(self.tmp.name, None, self.hashes[0]), self.table, cf.DEFAULT_RULES)
         self.assertEqual(lines, {"Swift": fx.SWIFT_ROW_1, "Markdown": fx.MARKDOWN_ROW_1})
         self.assertEqual(tests, {})
 
     def test_diff_with_test_file(self):
-        lines, tests = cl.diff_commit(self.tmp.name, self.hashes[0], self.hashes[1], self.table)
+        lines, tests = cl.classify_rows(cl.diff_commit(self.tmp.name, self.hashes[0], self.hashes[1]), self.table, cf.DEFAULT_RULES)
         self.assertEqual(lines, {"Swift": fx.SWIFT_ROW_2})
         self.assertEqual(tests, {"Swift": fx.SWIFT_TEST_ROW_2})
 

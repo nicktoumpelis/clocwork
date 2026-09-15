@@ -17,6 +17,7 @@ import sys
 from clocwork import cloc as cl
 from clocwork import paths
 from clocwork.agents import DEFAULT_AGENTS
+from clocwork.classify import DEFAULT_RULES
 from clocwork import tokens as tu
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -283,7 +284,7 @@ def tokens_by_commit(per_day, results):
     return attributed
 
 
-def analyse(repo_dir, output_path, cache_path=None, archive_path=None, max_commits=None, log=print):
+def analyse(repo_dir, output_path, cache_path=None, archive_path=None, max_commits=None, log=print, rules=DEFAULT_RULES):
     cl.require_cloc()
     if not os.path.isdir(os.path.join(repo_dir, ".git")):
         raise SystemExit(f"Error: {repo_dir} is not a git repository")
@@ -307,10 +308,10 @@ def analyse(repo_dir, output_path, cache_path=None, archive_path=None, max_commi
     measure_input = [{"hash": c["hash"], "parent": c["parents"][0] if c["parents"] else None,
                       "is_merge": is_merge_commit(c)} for c in commits]
     log(f"  {sum(1 for m in measure_input if not m['is_merge'] and cache.get(m['hash']) is None)} commits not yet cached")
-    measured = cl.measure_commits(repo_dir, measure_input, cache, table, max_commits=max_commits, log=log)
+    measured = cl.measure_commits(repo_dir, measure_input, cache, table, rules, max_commits=max_commits, log=log)
 
     log("Step 3: Snapshot of HEAD for reconciliation...")
-    by_lang, by_file_all, by_file_tests = cl.snapshot(repo_dir, "HEAD", table)
+    by_lang, by_file_all, by_file_tests = cl.snapshot(repo_dir, "HEAD", table, rules)
 
     log("Step 4: Building per-commit records and running totals...")
     running_all, running_tests = {}, {}
