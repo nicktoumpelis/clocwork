@@ -1,10 +1,27 @@
 // tests/dashboard/harness.js
-// Runs the page script from index.html inside a minimal fake DOM so table and
-// chart logic can be exercised from node. Only the DOM surface the page uses
-// is implemented; extend it when the page starts using something new.
+// Renders the synthetic workspace from fixture.py through `clocwork render`,
+// then runs the page script inside a minimal fake DOM so table and chart
+// logic can be exercised from node. Only the DOM surface the page uses is
+// implemented; extend it when the page starts using something new.
 'use strict';
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
+const { execFileSync } = require('child_process');
+
+// CLOCWORK_DASH_WORKSPACE points the suite at an already rendered workspace
+// (a real one, say) instead of the synthetic fixture.
+let WORKSPACE = process.env.CLOCWORK_DASH_WORKSPACE || null;
+function workspace() {
+  if (WORKSPACE) return WORKSPACE;
+  const root = path.resolve(__dirname, '..', '..');
+  WORKSPACE = fs.mkdtempSync(path.join(os.tmpdir(), 'clocwork-dash-'));
+  execFileSync('python3', [path.join(__dirname, 'fixture.py'), WORKSPACE], { stdio: 'inherit' });
+  execFileSync(path.join(root, 'clocwork'), ['render', '-o', WORKSPACE, '--no-open', '-q'], { stdio: 'inherit' });
+  const rendered = WORKSPACE;
+  process.on('exit', () => { try { fs.rmSync(rendered, { recursive: true, force: true }); } catch (e) { /* best effort */ } });
+  return WORKSPACE;
+}
 
 function El(tag) {
   this.tagName = tag; this.children = []; this.attrs = {}; this.listeners = {};
@@ -48,8 +65,7 @@ Chart.prototype.resetZoom = function () {};
 
 function load(opts) {
   opts = opts || {};
-  const root = path.resolve(__dirname, '..', '..');
-  const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  const html = fs.readFileSync(path.join(workspace(), 'index.html'), 'utf8');
   const scripts = []; const re = /<script>([\s\S]*?)<\/script>/g; let m;
   while ((m = re.exec(html))) scripts.push(m[1]);
   let src = scripts.join('\n');
@@ -106,7 +122,7 @@ function load(opts) {
   return {
     RAW, byId, headers: headRow.children, tabs, cols: colgroup.children, head, charts: Chart.instances, location: global.location,
     cells: row => row.children.slice(1).map(td => td.children.length ? td.children[0].textContent : td.textContent),
-    bodiesFile: path.join(root, 'commit_bodies.js'),
+    bodiesFile: path.join(workspace(), 'commit_bodies.js'),
     run: js => new Function(js)(),
   };
 }

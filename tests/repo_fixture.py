@@ -80,3 +80,43 @@ def add_branch_merge(root):
     _git(root, "merge", "-q", "--no-ff", "feature2", "-m", "Merge branch 'feature2' into main",
          date="2025-01-06T10:00:00+00:00")
     return _git(root, "log", "--reverse", "--format=%H", "main").splitlines()[-2:]
+
+
+GO = "package pkg\n\n// Serve serves.\nfunc Serve() {}\n"
+GO_TEST = "package pkg\n\nimport \"testing\"\n\nfunc TestServe(t *testing.T) {}\n"
+PY = "def run():\n    # work\n    return 1\n"
+PY_TEST = "from src.app import run\n\n\ndef test_run():\n    assert run() == 1\n"
+JS = "export function app() { return 1; }\n"
+JS_TEST = "import { app } from './app';\ntest('app', () => expect(app()).toBe(1));\n"
+JAVA = "public class A {\n    // main\n    public static void main(String[] a) {}\n}\n"
+JAVA_TEST = "public class ATest {\n    public void testA() {}\n}\n"
+
+
+def make_polyglot_repo(root):
+    """Go, Python, JavaScript and Java with each ecosystem's test convention and
+    three different agent trailers. No Xcode-style Tests/ directory anywhere,
+    so nothing here matches the rule the Swift fixture relies on."""
+    _git(root, "init", "-q", "-b", "main")
+    _write(root, "pkg/server.go", GO)
+    _write(root, "pkg/server_test.go", GO_TEST)
+    _git(root, "add", ".")
+    _git(root, "commit", "-q", "-m", "Go\n\nCo-Authored-By: GitHub Copilot <copilot@github.com>",
+         date="2025-02-01T10:00:00+00:00")
+    _write(root, "src/app.py", PY)
+    _write(root, "tests/test_app.py", PY_TEST)
+    _write(root, "web/app.js", JS)
+    _write(root, "web/app.test.js", JS_TEST)
+    _git(root, "add", ".")
+    _git(root, "commit", "-q", "-m", "Python and JS\n\nCo-Authored-By: Cursor <cursor@cursor.com>",
+         date="2025-02-02T10:00:00+00:00")
+    _write(root, "src/main/java/A.java", JAVA)
+    _write(root, "src/test/java/ATest.java", JAVA_TEST)
+    _git(root, "add", ".")
+    _git(root, "commit", "-q", "-m", "Java\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+         date="2025-02-03T10:00:00+00:00")
+    _write(root, "docs/notes.md", "# Notes\n")
+    _git(root, "add", ".")
+    # An agent no built-in rule knows: attributed only when [agents].extra names it.
+    _git(root, "commit", "-q", "-m", "Notes\n\nCo-Authored-By: Jules <jules@google.com>",
+         date="2025-02-04T10:00:00+00:00")
+    return _git(root, "log", "--reverse", "--format=%H", "main").splitlines()

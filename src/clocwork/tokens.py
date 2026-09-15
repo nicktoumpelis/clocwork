@@ -15,10 +15,10 @@ without deduplication over-counts by more than 2x.
 
 import json
 import os
-import re
-import sys
 import tempfile
 from collections import namedtuple
+
+from clocwork.paths import claude_project_dir
 
 COUNTERS = ("input", "output", "cache_read", "cache_write")
 
@@ -35,15 +35,9 @@ PROJECTS_DIR = os.path.expanduser("~/.claude/projects")
 ScanResult = namedtuple("ScanResult", "days malformed")
 
 
-def encode_repo_path(repo_path):
-    """Claude Code's directory name for a repository: the absolute path with
-    every non-alphanumeric character replaced by a hyphen, one for one."""
-    return re.sub(r"[^a-zA-Z0-9]", "-", os.path.abspath(repo_path))
-
-
 def transcript_dir(repo_path, projects_dir=PROJECTS_DIR):
     """The transcript directory for a repository, or None when it does not exist."""
-    directory = os.path.join(projects_dir, encode_repo_path(repo_path))
+    directory = os.path.join(projects_dir, claude_project_dir(repo_path))
     return directory if os.path.isdir(directory) else None
 
 
@@ -97,10 +91,6 @@ def scan(directory):
 
 VERSION = 1
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-ARCHIVE_FILE = os.path.join(SCRIPT_DIR, "token_usage.json")
-DEFAULT_REPO = os.path.join(SCRIPT_DIR, "..", "MyApp")
-
 
 def day_total(day):
     """Every token recorded for one day, across models and counters."""
@@ -147,6 +137,8 @@ def save(path, days):
             os.unlink(tmp.name)
             raise
     os.replace(tmp_name, path)
+    # NamedTemporaryFile creates 0600; the archive is a committed, shared file.
+    os.chmod(path, 0o644)
 
 
 def archive(repo_path, archive_path, projects_dir=PROJECTS_DIR, log=print):
@@ -156,7 +148,7 @@ def archive(repo_path, archive_path, projects_dir=PROJECTS_DIR, log=print):
 
     directory = transcript_dir(repo_path, projects_dir)
     if directory is None:
-        log(f"  No transcripts at {os.path.join(projects_dir, encode_repo_path(repo_path))}")
+        log(f"  No transcripts at {os.path.join(projects_dir, claude_project_dir(repo_path))}")
         log(f"  Archive left unchanged: {was_days} days, {was_total:,} tokens")
         return days
 
@@ -171,12 +163,3 @@ def archive(repo_path, archive_path, projects_dir=PROJECTS_DIR, log=print):
     if result.malformed:
         log(f"  NOTE: skipped {result.malformed} unparseable lines")
     return days
-
-
-def main():
-    repo = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else DEFAULT_REPO)
-    archive(repo, ARCHIVE_FILE)
-
-
-if __name__ == "__main__":
-    main()

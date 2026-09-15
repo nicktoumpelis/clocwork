@@ -3,7 +3,8 @@ import os
 import tempfile
 import unittest
 
-import token_usage as tu
+from clocwork import paths
+from clocwork import tokens as tu
 
 
 def turn(msg_id, date, model="claude-opus-5", output=10, cache_read=1000):
@@ -32,17 +33,6 @@ def write_transcripts(directory, files):
             f.write("\n".join(lines) + "\n")
 
 
-class TestEncodeRepoPath(unittest.TestCase):
-    def test_spaces_and_tildes_become_hyphens(self):
-        self.assertEqual(
-            tu.encode_repo_path("/Users/nick/Library/Mobile Documents/com~apple~CloudDocs/MyApp"),
-            "-Users-nick-Library-Mobile-Documents-com-apple-CloudDocs-MyApp",
-        )
-
-    def test_leading_slash_becomes_a_hyphen(self):
-        self.assertEqual(tu.encode_repo_path("/tmp/Repo"), "-tmp-Repo")
-
-
 class TestTranscriptDir(unittest.TestCase):
     def test_returns_none_when_absent(self):
         with tempfile.TemporaryDirectory() as d:
@@ -50,7 +40,7 @@ class TestTranscriptDir(unittest.TestCase):
 
     def test_returns_directory_when_present(self):
         with tempfile.TemporaryDirectory() as d:
-            want = os.path.join(d, tu.encode_repo_path("/tmp/Repo"))
+            want = os.path.join(d, paths.claude_project_dir("/tmp/Repo"))
             os.makedirs(want)
             self.assertEqual(tu.transcript_dir("/tmp/Repo", projects_dir=d), want)
 
@@ -138,6 +128,12 @@ class TestArchiveRoundTrip(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             self.assertEqual(tu.load(os.path.join(d, "nope.json")), {})
 
+    def test_save_leaves_a_readable_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "a.json")
+            tu.save(p, {})
+            self.assertEqual(os.stat(p).st_mode & 0o777, 0o644)
+
     def test_save_then_load_preserves_days(self):
         with tempfile.TemporaryDirectory() as d:
             path = os.path.join(d, "token_usage.json")
@@ -152,7 +148,7 @@ class TestArchiveRoundTrip(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             projects = os.path.join(d, "projects")
             repo = os.path.join(d, "Repo")
-            write_transcripts(os.path.join(projects, tu.encode_repo_path(repo)),
+            write_transcripts(os.path.join(projects, paths.claude_project_dir(repo)),
                               {"a.jsonl": [turn("m1", "2026-08-06", output=7)]})
             path = os.path.join(d, "token_usage.json")
             tu.save(path, {"2026-07-01": {"turns": 1, "models": {"claude-opus-5": {

@@ -16,18 +16,14 @@ import csv
 import io
 import json
 import os
-import re
 import shutil
 import subprocess
 import time
 from collections import namedtuple
 
-TYPES = ("code", "comment", "blank")
-OTHER = "Other"
+from clocwork.classify import DEFAULT_RULES, language_for, parse_extension_table
 
-# A file is test code when any directory on its path is "Tests" or ends in
-# "Tests" (WinterTests, WinterUITests). The filename itself is not considered.
-TEST_SEGMENT = re.compile(r"^\w*Tests$")
+TYPES = ("code", "comment", "blank")
 
 # git's well-known empty tree, used as the parent of the root commit.
 EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
@@ -45,34 +41,6 @@ def empty_row():
     return [0, 0, 0, 0, 0, 0]
 
 
-def is_test_path(path):
-    parts = path.replace("\\", "/").split("/")
-    return any(TEST_SEGMENT.match(seg) for seg in parts[:-1])
-
-
-def parse_extension_table(text):
-    """Parse `cloc --show-ext` output into {extension: language}.
-
-    Language names are kept whole: "C/C++ Header" is one language, and an
-    ambiguous entry such as "MATLAB/Mathematica/Objective-C/MUMPS/Mercury" is
-    reported verbatim so the HEAD mapping check can flag it if it ever appears.
-    """
-    table = {}
-    for line in text.splitlines():
-        parts = line.split(None, 1)
-        if len(parts) == 2:
-            table[parts[0].lower()] = parts[1].strip()
-    return table
-
-
-def language_for(path, table):
-    name = path.rsplit("/", 1)[-1]
-    if "." not in name or name.startswith(".") and name.count(".") == 1:
-        return OTHER
-    ext = name.rsplit(".", 1)[-1].lower()
-    return table.get(ext, OTHER)
-
-
 _SKIP_KEYS = ("header", "SUM", "nFiles")
 
 
@@ -86,26 +54,36 @@ def _prune(matrix):
     return {lang: row for lang, row in matrix.items() if any(row)}
 
 
-def parse_diff_json(obj, table):
-    """Sum a `cloc --git --diff --by-file --json` result into per-language matrices.
+def _type_counts(counts):
+    return {t: int(counts.get(t, 0)) for t in TYPES}
 
-    Returns (lines, test_lines). "modified" lines are changed in place and do
-    not alter totals, so only the "added" and "removed" sections are read.
+
+def diff_rows(obj):
+    """The added and removed sections of a `cloc --git --diff --by-file --json`
+    result as per-file rows, unclassified. "modified" lines are changed in
+    place and do not alter totals, so they are not kept."""
+    rows = {}
+    for section in ("added", "removed"):
+        rows[section] = {path: _type_counts(counts)
+                         for path, counts in obj.get(section, {}).items()
+                         if path not in _SKIP_KEYS and isinstance(counts, dict)}
+    return rows
+
+
+def classify_rows(rows, table, rules):
+    """Per-language matrices (lines, test_lines) from per-file rows.
+
+    Classification happens here, at read time, so a changed language table or
+    test rule costs a re-read of the cache rather than a re-run of cloc.
     """
     lines, test_lines = {}, {}
     for section, offset in (("added", 0), ("removed", 1)):
-        for path, counts in obj.get(section, {}).items():
-            if path in _SKIP_KEYS or not isinstance(counts, dict):
-                continue
+        for path, counts in rows.get(section, {}).items():
             lang = language_for(path, table)
             _add_counts(lines, lang, offset, counts)
-            if is_test_path(path):
+            if rules.is_test(path):
                 _add_counts(test_lines, lang, offset, counts)
     return _prune(lines), _prune(test_lines)
-
-
-def _type_counts(counts):
-    return {t: int(counts.get(t, 0)) for t in TYPES}
 
 
 def _accumulate(target, lang, counts):
@@ -120,7 +98,7 @@ def parse_snapshot_by_language(obj):
             if k not in _SKIP_KEYS and isinstance(v, dict)}
 
 
-def parse_snapshot_by_file(obj, table):
+def parse_snapshot_by_file(obj, table, rules=DEFAULT_RULES):
     """Parse `cloc --git --by-file --json <rev>` into (all_files, test_files)."""
     all_files, test_files = {}, {}
     for path, counts in obj.items():
@@ -129,14 +107,15 @@ def parse_snapshot_by_file(obj, table):
         lang = language_for(path, table)
         tc = _type_counts(counts)
         _accumulate(all_files, lang, tc)
-        if is_test_path(path):
+        if rules.is_test(path):
             _accumulate(test_files, lang, tc)
     return all_files, test_files
 
 
 def require_cloc():
     if shutil.which("cloc") is None:
-        raise ClocMissing("cloc is not installed or not on PATH. Install it with: brew install cloc")
+        raise ClocMissing("cloc is not installed or not on PATH. Install it with: brew install cloc (macOS), "
+                          "apt install cloc (Debian/Ubuntu), or see https://github.com/AlDanial/cloc")
 
 
 def run_cloc(args, cwd):
@@ -197,21 +176,23 @@ def build_language_table(repo, rev):
     return merge_language_tables(load_extension_table(), learn_extensions(repo, rev))
 
 
-def diff_commit(repo, parent, commit, table):
-    return parse_diff_json(run_cloc(["--git", "--diff", "--by-file", parent or EMPTY_TREE, commit], repo), table)
+def diff_commit(repo, parent, commit):
+    return diff_rows(run_cloc(["--git", "--diff", "--by-file", parent or EMPTY_TREE, commit], repo))
 
 
-def snapshot(repo, rev, table):
+def snapshot(repo, rev, table, rules=DEFAULT_RULES):
     by_lang = parse_snapshot_by_language(run_cloc(["--git", rev], repo))
-    all_files, tests = parse_snapshot_by_file(run_cloc(["--git", "--by-file", rev], repo), table)
+    all_files, tests = parse_snapshot_by_file(run_cloc(["--git", "--by-file", rev], repo), table, rules)
     return by_lang, all_files, tests
 
 
 class Cache:
     """Per-commit results keyed by full hash, written atomically."""
 
-    # 2: rows depend on the language table, which now learns from HEAD (Task 14a).
-    VERSION = 2
+    # 2: per-language aggregates that depended on the language table.
+    # 3: per-file rows; language and test classification happen on read, so
+    #    neither the table nor the test rules can invalidate an entry.
+    VERSION = 3
 
     def __init__(self, path):
         self.path = path
@@ -229,11 +210,12 @@ class Cache:
     def get(self, commit_hash):
         return self.entries.get(commit_hash)
 
-    def put(self, commit_hash, lines, test_lines):
-        self.entries[commit_hash] = {"lines": lines, "test_lines": test_lines}
+    def put(self, commit_hash, rows):
+        self.entries[commit_hash] = rows
         self.dirty += 1
 
     def save(self):
+        os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
         tmp = self.path + ".tmp"
         with open(tmp, "w") as f:
             json.dump({"version": self.VERSION, "commits": self.entries}, f, separators=(",", ":"), sort_keys=True)
@@ -244,14 +226,16 @@ class Cache:
 MeasureResult = namedtuple("MeasureResult", "measured failed pending")
 
 
-def measure_commits(repo, commits, cache, table, max_commits=None, flush_every=50,
+def measure_commits(repo, commits, cache, table, rules, max_commits=None, flush_every=50,
                     differ=None, log=print, clock=time.monotonic):
     """Measure every non-merge commit not already in the cache.
 
     commits: [{"hash", "parent", "is_merge"}] in history order.
     Returns MeasureResult(measured={hash: (lines, test_lines)}, failed=[hash], pending=[hash]).
-    Failures are logged and not cached so a later run retries them. When
-    max_commits is set, uncached commits beyond the cap are left pending.
+    The cache holds per-file rows; every entry, cached or fresh, is classified
+    with this run's table and rules on the way out. Failures are logged and
+    not cached so a later run retries them. When max_commits is set, uncached
+    commits beyond the cap are left pending.
     """
     differ = differ or diff_commit
     measured, failed, pending = {}, [], []
@@ -267,19 +251,19 @@ def measure_commits(repo, commits, cache, table, max_commits=None, flush_every=5
             continue
         cached = cache.get(c["hash"])
         if cached is not None:
-            measured[c["hash"]] = (cached["lines"], cached["test_lines"])
+            measured[c["hash"]] = classify_rows(cached, table, rules)
             continue
         if c["hash"] not in todo_hashes:
             pending.append(c["hash"])
             continue
         try:
-            lines, test_lines = differ(repo, c["parent"] or EMPTY_TREE, c["hash"], table)
+            rows = differ(repo, c["parent"] or EMPTY_TREE, c["hash"])
         except ClocError as e:
             failed.append(c["hash"])
             log(f"  cloc failed on {c['hash'][:7]}: {e}")
             continue
-        cache.put(c["hash"], lines, test_lines)
-        measured[c["hash"]] = (lines, test_lines)
+        cache.put(c["hash"], rows)
+        measured[c["hash"]] = classify_rows(rows, table, rules)
         done += 1
         if done % flush_every == 0:
             cache.save()

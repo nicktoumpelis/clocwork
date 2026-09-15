@@ -1,66 +1,27 @@
 #!/usr/bin/env python3
-"""Analyse every commit in one repository's history: lines per language and type via cloc, AI agent detection.
+"""Analyse every commit in a repository's history: lines per language and type
+via cloc, AI agent detection, and token usage from the transcript archive.
 
-Usage:
-    python3 analyse_all_commits.py [path-to-repo]
-
-If no path is given, defaults to the sibling 'MyApp' directory. The repository
-was renamed once (from 'OldApp'); commits from before the
-rename are still in this history, so the analysed range spans both names.
+The repository, the output path, the cache, the archive and the classification
+rules are all inputs; nothing here knows which repository it is measuring.
 """
 
 import json
-import os
-import re
 import subprocess
-import sys
 
-import cloc_lines as cl
-import token_usage as tu
-
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_REPO = os.path.join(SCRIPT_DIR, "..", "MyApp")
-OUTPUT_FILE = os.path.join(SCRIPT_DIR, "full_commit_data.json")
-CACHE_FILE = os.path.join(SCRIPT_DIR, "cloc_cache.json")
-ARCHIVE_FILE = os.path.join(SCRIPT_DIR, "token_usage.json")
-
-# AI agent detection.
-#
-# Attribution is read from "Co-Authored-By:" trailer lines only, so a human
-# commit that merely mentions CLAUDE.md or a claude-* branch name is not
-# counted as AI-assisted.
-#
-# Model names are parsed generically rather than listed one by one, so any
-# Claude model - past, present, or future - is recognised without a code
-# change. Two naming schemes are handled:
-#
-#   family-first (Claude 4+):  "Claude Opus 4.6", "Claude Fable 5.1",
-#                              "Claude Opus 5 (1M context)"
-#   version-first (Claude 3.x): "Claude 3.5 Sonnet", "Claude 3 Opus"
-#
-# Both normalise to "Claude <Family> <version>", with " (1M)" appended for the
-# 1M-context variants, so the dashboard sees one consistent naming scheme.
-# The version is captured greedily, which is what keeps "Fable 5.1" from being
-# read as "Fable 5".
-CLAUDE_FAMILIES = r"(?:Fable|Opus|Sonnet|Haiku|Mythos)"
-CLAUDE_VERSION = r"\d+(?:\.\d+)?"
-CLAUDE_CONTEXT = r"(?:\s*\((\d+[KM]) context\))?"
-
-MODEL_FAMILY_FIRST = re.compile(
-    rf"Claude\s+({CLAUDE_FAMILIES})\s+({CLAUDE_VERSION}){CLAUDE_CONTEXT}",
-    re.IGNORECASE,
-)
-MODEL_VERSION_FIRST = re.compile(
-    rf"Claude\s+({CLAUDE_VERSION})\s+({CLAUDE_FAMILIES}){CLAUDE_CONTEXT}",
-    re.IGNORECASE,
-)
-COAUTHOR_TRAILER = re.compile(r"^\s*Co-Authored-By:\s*(.+)$", re.IGNORECASE | re.MULTILINE)
-
-UNKNOWN_CLAUDE = "Claude (unknown version)"
+from clocwork import cloc as cl
+from clocwork import paths
+from clocwork import tokens as tu
+from clocwork.agents import DEFAULT_AGENTS
+from clocwork.config import Config
 
 # Merge commits carry no code of their own, so they are filed under a
 # catch-all category rather than being attributed to a human or an AI agent.
 MISC = "Misc"
+
+
+class NoCommits(RuntimeError):
+    pass
 
 
 def is_merge_commit(commit):
@@ -68,57 +29,19 @@ def is_merge_commit(commit):
     return len(commit.get("parents", [])) > 1 or commit["message"].startswith("Merge pull request")
 
 
-def normalise_model(family, version, context):
-    name = f"Claude {family.capitalize()} {version}"
-    if context:
-        name += f" ({context.upper()})"
-    return name
-
-
-def parse_claude_model(text):
-    """Return the normalised Claude model name found in a co-author trailer, or None."""
-    m = MODEL_FAMILY_FIRST.search(text)
-    if m:
-        return normalise_model(m.group(1), m.group(2), m.group(3))
-    m = MODEL_VERSION_FIRST.search(text)
-    if m:
-        return normalise_model(m.group(2), m.group(1), m.group(3))
-    if re.search(r"\bClaude\b", text, re.IGNORECASE):
-        return UNKNOWN_CLAUDE
-    return None
-
-
 def git(repo, *args):
     result = subprocess.run(["git"] + list(args), capture_output=True, text=True, cwd=repo)
     return result.stdout
 
 
-def github_url(repo):
-    """Return the https URL of the origin remote if it is on GitHub, else None."""
-    remote = git(repo, "remote", "get-url", "origin").strip()
-    m = re.match(r"(?:git@github\.com:|https://github\.com/)([^/]+/[^/]+?)(?:\.git)?/?$", remote)
-    return f"https://github.com/{m.group(1)}" if m else None
+def is_shallow(repo):
+    return git(repo, "rev-parse", "--is-shallow-repository").strip() == "true"
 
 
-def detect_agent(body):
-    """Detect the AI agent credited in a commit body via its Co-Authored-By trailers.
-
-    The first Claude trailer wins, matching the previous first-match behaviour
-    for commits that credit more than one model.
-    """
-    if not body:
-        return None
-    for trailer in COAUTHOR_TRAILER.findall(body):
-        model = parse_claude_model(trailer)
-        if model:
-            return model
-    return None
-
-
-def parse_log(repo, branch):
+def parse_log(repo, branch, agents=DEFAULT_AGENTS):
     """Return every commit reachable from branch, oldest first, with parents, body, numstat and agent."""
     raw = git(repo, "log", branch, "--reverse",
-              "--format=COMMIT_START%n%H%n%P%n%aI%n%s%n%b%nCOMMIT_BODY_END", "--numstat")
+              "--format=COMMIT_START%n%H%n%P%n%aI%n%s%n%b%nCOMMIT_BODY_END", "--numstat", "--")
     commits = []
     current = None
     in_body = False
@@ -127,7 +50,7 @@ def parse_log(repo, branch):
 
     def finish(c):
         c["body"] = "\n".join(body_lines)
-        c["agent"] = detect_agent(c["body"])
+        c["agent"] = agents.detect(c["body"])
         commits.append(c)
 
     for line in raw.splitlines():
@@ -358,34 +281,50 @@ def tokens_by_commit(per_day, results):
     return attributed
 
 
-def analyse(repo_dir, output_path, cache_path=None, archive_path=None, max_commits=None, log=print):
+def analyse(repo_dir, output_path, cache_path, archive_path, *, config=None, branch=None,
+            max_commits=None, log=print):
+    """Analyse `repo_dir` into `output_path` (full_commit_data.json).
+
+    `cache_path` is the per-file cloc cache, `archive_path` the token archive
+    (read only; absent is normal). `config` supplies the test rules and agent
+    table; `branch` defaults to the checked-out branch.
+    """
     cl.require_cloc()
-    if not os.path.isdir(os.path.join(repo_dir, ".git")):
-        raise SystemExit(f"Error: {repo_dir} is not a git repository")
-    cache_path = cache_path or os.path.join(os.path.dirname(output_path), "cloc_cache.json")
-    archive_path = archive_path or os.path.join(os.path.dirname(output_path), "token_usage.json")
+    repo_dir = paths.find_repo(repo_dir)
+    config = config or Config()
+    rules, agents = config.rules, config.agents
 
-    branch = git(repo_dir, "rev-parse", "--abbrev-ref", "HEAD").strip()
-    log(f"Analysing repo: {repo_dir} (branch: {branch})")
+    branch = branch or git(repo_dir, "rev-parse", "--abbrev-ref", "HEAD").strip()
+    # cloc --git takes a working-tree path in preference to a ref of the same
+    # name (a `docs` branch beside a docs/ directory), so every cloc call gets
+    # the resolved commit, never the bare name.
+    rev = git(repo_dir, "rev-parse", "--verify", "--quiet", f"{branch}^{{commit}}").strip()
+    if not rev:
+        raise NoCommits(f"{repo_dir} has no commits on {branch}")
+    log(f"Analysing repo: {repo_dir} (branch: {branch}, {rev[:7]})")
     log("Step 1: Extracting full commit history...")
-    commits = parse_log(repo_dir, branch)
+    commits = parse_log(repo_dir, rev, agents)
+    if not commits:
+        raise NoCommits(f"{repo_dir} has no commits on {branch}")
     log(f"  Parsed {len(commits)} commits")
+    if is_shallow(repo_dir):
+        log("  WARNING: shallow clone; diffs against absent parents will be wrong")
 
-    log("Step 2: Measuring lines per commit with cloc (cached in cloc_cache.json)...")
+    log(f"Step 2: Measuring lines per commit with cloc (cache: {cache_path})...")
     show_ext_table = cl.load_extension_table()
-    learned = cl.learn_extensions(repo_dir, "HEAD")
+    learned = cl.learn_extensions(repo_dir, rev)
     table = cl.merge_language_tables(show_ext_table, learned)
     new_extensions = sorted(ext for ext in learned if ext not in show_ext_table)
     if new_extensions:
-        log(f"  learned {len(new_extensions)} extensions from HEAD: {', '.join(new_extensions)}")
+        log(f"  learned {len(new_extensions)} extensions from {branch}: {', '.join(new_extensions)}")
     cache = cl.Cache(cache_path)
     measure_input = [{"hash": c["hash"], "parent": c["parents"][0] if c["parents"] else None,
                       "is_merge": is_merge_commit(c)} for c in commits]
     log(f"  {sum(1 for m in measure_input if not m['is_merge'] and cache.get(m['hash']) is None)} commits not yet cached")
-    measured = cl.measure_commits(repo_dir, measure_input, cache, table, max_commits=max_commits, log=log)
+    measured = cl.measure_commits(repo_dir, measure_input, cache, table, rules, max_commits=max_commits, log=log)
 
-    log("Step 3: Snapshot of HEAD for reconciliation...")
-    by_lang, by_file_all, by_file_tests = cl.snapshot(repo_dir, "HEAD", table)
+    log(f"Step 3: Snapshot of {branch} for reconciliation...")
+    by_lang, by_file_all, by_file_tests = cl.snapshot(repo_dir, rev, table, rules)
 
     log("Step 4: Building per-commit records and running totals...")
     running_all, running_tests = {}, {}
@@ -461,7 +400,7 @@ def analyse(repo_dir, output_path, cache_path=None, archive_path=None, max_commi
             "misc_commits": sum(1 for r in results if r["agent"] == MISC),
             "first_date": results[0]["date"],
             "last_date": results[-1]["date"],
-            "repo_url": github_url(repo_dir),
+            "repo_url": paths.remote_url(repo_dir),
             "head_snapshot": {"all": by_file_all, "tests": by_file_tests},
             "running_totals": {"all": running_all, "tests": running_tests},
             "reconciliation": reconciliation,
@@ -481,14 +420,18 @@ def analyse(repo_dir, output_path, cache_path=None, archive_path=None, max_commi
     if s["unmeasured_commits"]:
         log(f"  WARNING: {s['unmeasured_commits']} commits could not be measured by cloc")
     if s["pending_commits"]:
-        log(f"  NOTE: {s['pending_commits']} commits not yet measured (CLOC_MAX_COMMITS cap); rerun to continue")
+        log(f"  NOTE: {s['pending_commits']} commits not yet measured (--max-commits cap); rerun to continue")
     t = s["tokens"]
     if t["measured_total"]:
         log(f"  Tokens: {t['lifetime_total']:,} lifetime "
             f"({t['measured_total']:,} measured over {t['measured_days']} days, "
             f"{t['estimated_total']:,} estimated at {t['ratio']:,.0f} per AI line)")
     else:
-        log("  Tokens: no archive yet; run token_usage.py first")
+        log("  Tokens: none (no Claude Code transcript archive for this repository)")
+    head_tests = sum(v["code"] for v in by_file_tests.values())
+    head_all = sum(v["code"] for v in by_file_all.values())
+    log(f"  Test code at {branch}: {head_tests:,} of {head_all:,} code lines ({head_tests / head_all:.1%})"
+        if head_all else f"  Test code at {branch}: none")
     log("  Lines at HEAD (cloc snapshot) and drift of running totals:")
     for lang in languages:
         snap = by_lang.get(lang, {t: 0 for t in cl.TYPES})
@@ -501,21 +444,3 @@ def analyse(repo_dir, output_path, cache_path=None, archive_path=None, max_commi
     for agent, info in sorted(first_appearances.items(), key=lambda x: x[1]["index"]):
         log(f"    {agent}: {info['date']} ({info['hash']})")
     return output
-
-
-def main():
-    repo = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else DEFAULT_REPO)
-    if not os.path.isdir(os.path.join(repo, ".git")):
-        print(f"Error: {repo} is not a git repository")
-        sys.exit(1)
-    max_commits = os.environ.get("CLOC_MAX_COMMITS")
-    try:
-        analyse(repo, OUTPUT_FILE, CACHE_FILE, ARCHIVE_FILE,
-                max_commits=int(max_commits) if max_commits else None)
-    except cl.ClocMissing as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
-
-
-if __name__ == "__main__":
-    main()

@@ -1,10 +1,13 @@
 import json
 import os
 import shutil
+import subprocess
 import tempfile
 import unittest
 
-import analyse_all_commits as an
+from clocwork import analyse as an
+from clocwork import config as cfg
+from clocwork import paths
 from tests import repo_fixture as fx
 
 HAVE_CLOC = shutil.which("cloc") is not None
@@ -44,7 +47,8 @@ class TestAnalyse(unittest.TestCase):
         cls.hashes = fx.make_repo(cls.tmp.name)
         cls.out = os.path.join(cls.tmp.name, "out.json")
         cls.cache = os.path.join(cls.tmp.name, "cache.json")
-        cls.data = an.analyse(cls.tmp.name, cls.out, cls.cache, log=lambda *a: None)
+        cls.archive = os.path.join(cls.tmp.name, "token_usage.json")
+        cls.data = an.analyse(cls.tmp.name, cls.out, cls.cache, cls.archive, log=lambda *a: None)
 
     @classmethod
     def tearDownClass(cls):
@@ -94,7 +98,7 @@ class TestAnalyse(unittest.TestCase):
         original = an.cl.diff_commit
         an.cl.diff_commit = lambda *a, **k: calls.append(a) or original(*a, **k)
         try:
-            an.analyse(self.tmp.name, self.out, self.cache, log=lambda *a: None)
+            an.analyse(self.tmp.name, self.out, self.cache, self.archive, log=lambda *a: None)
         finally:
             an.cl.diff_commit = original
         self.assertEqual(calls, [])
@@ -102,7 +106,7 @@ class TestAnalyse(unittest.TestCase):
     def test_cap_marks_pending(self):
         with tempfile.TemporaryDirectory() as d:
             hashes = fx.make_repo(d)
-            data = an.analyse(d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), max_commits=1, log=lambda *a: None)
+            data = an.analyse(d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), os.path.join(d, "t.json"), max_commits=1, log=lambda *a: None)
             self.assertEqual([c["status"] for c in data["commits"]], ["ok", "pending", "pending", "merge"])
             self.assertEqual(data["summary"]["pending_commits"], 2)
 
@@ -122,7 +126,7 @@ class TestNonPrMerge(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             fx.make_repo(d)
             extra, merge = fx.add_branch_merge(d)
-            data = an.analyse(d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), log=lambda *a: None)
+            data = an.analyse(d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), os.path.join(d, "t.json"), log=lambda *a: None)
             by_hash = {c["full_hash"]: c for c in data["commits"]}
             self.assertEqual(by_hash[extra]["lines"], {"Markdown": [1, 0, 0, 0, 0, 0]})
             self.assertEqual(by_hash[merge]["status"], "merge")
@@ -133,13 +137,101 @@ class TestNonPrMerge(unittest.TestCase):
             self.assertEqual(data["summary"]["misc_commits"], 2)
 
 
+@unittest.skipUnless(HAVE_CLOC, "cloc not installed")
+class TestInputs(unittest.TestCase):
+    def test_not_a_repository(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaises(paths.NotARepository):
+                an.analyse(d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), os.path.join(d, "t.json"), log=lambda *a: None)
+
+    def test_empty_repository_is_an_error_not_an_empty_dashboard(self):
+        with tempfile.TemporaryDirectory() as d:
+            subprocess.run(["git", "init", "-q"], cwd=d, check=True)
+            with self.assertRaises(an.NoCommits):
+                an.analyse(d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), os.path.join(d, "t.json"), log=lambda *a: None)
+
+    def test_configured_rules_change_the_test_split(self):
+        with tempfile.TemporaryDirectory() as d:
+            fx.make_repo(d)
+            conf = cfg.parse('[tests]\ninclude = ["App/**"]\n', "x")
+            data = an.analyse(d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), os.path.join(d, "t.json"),
+                              config=conf, log=lambda *a: None)
+            self.assertEqual(data["commits"][0]["test_lines"], {"Swift": fx.SWIFT_ROW_1})
+            self.assertEqual(data["summary"]["head_snapshot"]["tests"]["Swift"], fx.HEAD_SWIFT)
+
+    def test_configured_agents_are_used(self):
+        # The polyglot fixture's last commit credits "Jules", which no built-in
+        # rule knows: unattributed by default, attributed once config names it.
+        with tempfile.TemporaryDirectory() as d:
+            fx.make_polyglot_repo(d)
+            args = (d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), os.path.join(d, "t.json"))
+            plain = an.analyse(*args, log=lambda *a: None)
+            self.assertIsNone(plain["commits"][3]["agent"])
+            conf = cfg.parse('[agents]\nextra = [{ match = "Jules", name = "Jules" }]\n', "x")
+            data = an.analyse(*args, config=conf, log=lambda *a: None)
+            self.assertEqual(data["commits"][3]["agent"], "Jules")
+            self.assertIn("Jules", data["first_appearances"])
+
+    def test_branch_snapshot_and_test_share_follow_the_requested_ref(self):
+        # A `docs` branch, not merged, adds a Python test file; main stays
+        # checked out with an untracked docs/ directory of the same name, which
+        # cloc would take for the ref if it were given the bare branch name.
+        with tempfile.TemporaryDirectory() as d:
+            fx.make_repo(d)
+            fx._git(d, "checkout", "-q", "-b", "docs")
+            fx._write(d, "tests/test_x.py", "def test_x():\n    assert True\n")
+            fx._git(d, "add", ".")
+            fx._git(d, "commit", "-q", "-m", "Python test", date="2025-01-07T10:00:00+00:00")
+            fx._git(d, "checkout", "-q", "main")
+            fx._write(d, "docs/decoy.md", "# decoy\n")
+            fx._write(d, "main/decoy.md", "# decoy\n")
+            args = (d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), os.path.join(d, "t.json"))
+            lines = []
+            on_docs = an.analyse(*args, branch="docs", log=lines.append)
+            self.assertEqual(on_docs["summary"]["total_commits"], 5)
+            self.assertEqual(on_docs["summary"]["head_snapshot"]["tests"]["Python"]["code"], 2)
+            self.assertEqual({l: v for l, v in on_docs["summary"]["reconciliation"].items() if any(v.values())}, {})
+            self.assertTrue(any(l.startswith("  Test code at docs:") for l in lines), lines)
+            on_main = an.analyse(*args, log=lambda *a: None)
+            self.assertEqual(on_main["summary"]["total_commits"], 4)
+            self.assertNotIn("Python", on_main["summary"]["head_snapshot"]["all"])
+            self.assertEqual(on_main["summary"]["head_snapshot"]["all"]["Swift"], fx.HEAD_SWIFT)
+
+    def test_shallow_clone_is_warned_about(self):
+        with tempfile.TemporaryDirectory() as d:
+            src = os.path.join(d, "src")
+            os.makedirs(src)
+            fx.make_repo(src)
+            shallow = os.path.join(d, "shallow")
+            subprocess.run(["git", "clone", "-q", "--depth", "1", "file://" + src, shallow], check=True, capture_output=True)
+            lines = []
+            an.analyse(shallow, os.path.join(d, "o.json"), os.path.join(d, "c.json"), os.path.join(d, "t.json"), log=lines.append)
+            self.assertTrue(any("shallow" in l.lower() and "WARNING" in l for l in lines), lines)
+
+    def test_explicit_branch(self):
+        with tempfile.TemporaryDirectory() as d:
+            fx.make_repo(d)
+            data = an.analyse(d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), os.path.join(d, "t.json"),
+                              branch="feature", log=lambda *a: None)
+            self.assertEqual(data["summary"]["total_commits"], 3)
+
+    def test_run_summary_reports_the_test_share_at_head(self):
+        with tempfile.TemporaryDirectory() as d:
+            fx.make_repo(d)
+            lines = []
+            an.analyse(d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), os.path.join(d, "t.json"), log=lines.append)
+            share = [l for l in lines if "Test code at main" in l]
+            self.assertEqual(len(share), 1)
+            self.assertIn(f"{fx.HEAD_TEST_SWIFT['code']:,} of {fx.HEAD_SWIFT['code'] + fx.HEAD_MARKDOWN['code']:,}", share[0])
+
+
 class TestMissingCloc(unittest.TestCase):
     def test_raises_before_touching_git(self):
         real = shutil.which
         shutil.which = lambda name: None
         try:
             with self.assertRaises(an.cl.ClocMissing):
-                an.analyse("/definitely/not/a/repo", "/dev/null")
+                an.analyse("/definitely/not/a/repo", "/dev/null", "/dev/null", "/dev/null")
         finally:
             shutil.which = real
 
