@@ -15,8 +15,8 @@ import re
 import subprocess
 import sys
 
-import cloc_lines as cl
-import token_usage as tu
+from clocwork import cloc as cl
+from clocwork import tokens as tu
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_REPO = os.path.join(SCRIPT_DIR, "..", "MyApp")

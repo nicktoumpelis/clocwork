@@ -12,3 +12,8 @@ first_pass.pid
 !CLAUDE.md
 !.claude/
 .claude/settings.local.json
+
+# Packaging
+*.egg-info/
+build/
+dist/

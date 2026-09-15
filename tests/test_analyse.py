@@ -4,7 +4,7 @@ import shutil
 import tempfile
 import unittest
 
-import analyse_all_commits as an
+from clocwork import analyse as an
 from tests import repo_fixture as fx
 
 HAVE_CLOC = shutil.which("cloc") is not None

@@ -1,6 +1,6 @@
 import unittest
 
-import generate_html as gh
+from clocwork import render as gh
 
 DATA = {
     "languages": ["Swift", "Markdown"],

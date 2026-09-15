@@ -3,7 +3,7 @@ import os
 import tempfile
 import unittest
 
-import token_usage as tu
+from clocwork import tokens as tu
 
 
 def turn(msg_id, date, model="claude-opus-5", output=10, cache_read=1000):

@@ -1,7 +1,7 @@
 import json
 import unittest
 
-import cloc_lines as cl
+from clocwork import cloc as cl
 
 EXT_TEXT = """swift           Swift
 md              Markdown
