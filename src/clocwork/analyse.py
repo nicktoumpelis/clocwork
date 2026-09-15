@@ -11,6 +11,7 @@ rename are still in this history, so the analysed range spans both names.
 
 import json
 import os
+import re
 import subprocess
 import sys
 
