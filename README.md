@@ -23,7 +23,7 @@ The output is one `index.html` (its charts load Chart.js and its plugins from a 
 From a clone, no install step:
 
 ```bash
-git clone git@github.com:nicktoumpelis/clocwork.git
+git clone https://github.com/nicktoumpelis/clocwork.git
 cd ~/code/foo && ~/code/clocwork/clocwork
 ```
 
@@ -204,9 +204,6 @@ from tests import repo_fixture as fx
 d = tempfile.mkdtemp(); r = os.path.join(d, "poly"); os.makedirs(r); fx.make_polyglot_repo(r); print(r)')
 ./clocwork "$R" --no-open --cache-dir /tmp/clocwork-cache
 ```
-
-The design record is under `docs/superpowers/specs/`. The branch, review and
-merge process this repository follows is in `CLAUDE.md`.
 
 ## Licence
 
