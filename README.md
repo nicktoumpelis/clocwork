@@ -34,8 +34,9 @@ pip install -e ~/code/clocwork      # or: pipx install ~/code/clocwork
 cd ~/code/foo && clocwork
 ```
 
-The first run over a long history measures every commit with `cloc`, which
-takes about a second per hundred commits on a small repository and about an
+The first run over a long history measures every commit with `cloc`: about
+half a minute per hundred commits on a small repository (289 commits of
+[spf13/cast](https://github.com/spf13/cast) took 82 seconds), and about an
 hour on a repository with a few thousand large commits. Results are cached, so
 later runs take seconds. `--max-commits N` caps one run and a later run
 continues from where it stopped.
