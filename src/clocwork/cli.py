@@ -30,6 +30,13 @@ def non_negative(text):
     return value
 
 
+def positive(text):
+    value = int(text)
+    if value < 1:
+        raise argparse.ArgumentTypeError(f"must be 1 or more, not {value}")
+    return value
+
+
 def build_parser():
     p = argparse.ArgumentParser(
         prog="clocwork",
@@ -52,6 +59,8 @@ def build_parser():
     run.add_argument("-o", "--output", metavar="DIR", help=workspace_help)
     run.add_argument("--branch", metavar="REF", help="ref to analyse (default: the checked-out branch)")
     run.add_argument("--max-commits", type=non_negative, metavar="N", help="measure at most N uncached commits this run")
+    run.add_argument("-j", "--jobs", type=positive, metavar="N",
+                     help="cloc processes to run at once (default: one per CPU core)")
     run.add_argument("--no-tokens", action="store_true", help="skip the transcript scan")
     run.add_argument("--cache-dir", metavar="DIR",
                      help="cache location (default: $XDG_CACHE_HOME/clocwork, else ~/.cache/clocwork; wins over both)")
@@ -68,8 +77,9 @@ def parse_args(argv):
     if not argv or (argv[0] not in COMMANDS and argv[0] not in ("-h", "--help", "--version")):
         argv.insert(0, "run")
     args = build_parser().parse_args(argv)
-    for name, default in (("repo", None), ("branch", None), ("max_commits", None), ("no_tokens", False),
-                          ("cache_dir", None), ("config", None), ("locale", None), ("no_open", False)):
+    for name, default in (("repo", None), ("branch", None), ("max_commits", None), ("jobs", None),
+                          ("no_tokens", False), ("cache_dir", None), ("config", None), ("locale", None),
+                          ("no_open", False)):
         if not hasattr(args, name):
             setattr(args, name, default)
     return args
@@ -133,7 +143,8 @@ def cmd_run(args, log, projects_dir):
         tokens.archive(repo, archive, projects_dir=projects_dir, log=log)
     log("Step 2/3: Analysing commit history...")
     analyse.analyse(repo, os.path.join(ws, "full_commit_data.json"), paths.cache_path(repo, args.cache_dir),
-                    archive, config=conf, branch=args.branch, max_commits=args.max_commits, log=log)
+                    archive, config=conf, branch=args.branch, max_commits=args.max_commits,
+                    jobs=args.jobs or os.cpu_count() or 1, log=log)
     log("Step 3/3: Rendering the dashboard...")
     name = conf.title or ident["repo_name"]
     html = render.render_workspace(ws, title=f"{name} - Full Commit History", repo_name=name,

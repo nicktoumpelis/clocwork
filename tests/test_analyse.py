@@ -110,6 +110,21 @@ class TestAnalyse(unittest.TestCase):
             self.assertEqual([c["status"] for c in data["commits"]], ["ok", "pending", "pending", "merge"])
             self.assertEqual(data["summary"]["pending_commits"], 2)
 
+    def test_jobs_reach_the_measuring_pass(self):
+        seen = {}
+        original = an.cl.measure_commits
+
+        def spy(*a, **k):
+            seen.update(k)
+            return original(*a, **k)
+
+        an.cl.measure_commits = spy
+        try:
+            an.analyse(self.tmp.name, self.out, self.cache, self.archive, jobs=3, log=lambda *a: None)
+        finally:
+            an.cl.measure_commits = original
+        self.assertEqual(seen["jobs"], 3)
+
     def test_every_commit_carries_a_tokens_figure(self):
         # Zero when nothing is attributed, so the page can rely on the key.
         self.assertTrue(all(isinstance(c["tokens"], int) for c in self.data["commits"]))

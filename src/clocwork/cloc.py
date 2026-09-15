@@ -12,6 +12,7 @@ Matrix row layout, used everywhere downstream:
     [codeAdded, codeRemoved, commentAdded, commentRemoved, blankAdded, blankRemoved]
 """
 
+import concurrent.futures
 import csv
 import io
 import json
@@ -51,7 +52,9 @@ def _add_counts(matrix, lang, offset, counts):
 
 
 def _prune(matrix):
-    return {lang: row for lang, row in matrix.items() if any(row)}
+    # Sorted by language: cloc lists files in Perl hash order, which changes
+    # from one run to the next, and the workspace file must not churn with it.
+    return {lang: row for lang, row in sorted(matrix.items()) if any(row)}
 
 
 def _type_counts(counts):
@@ -226,8 +229,18 @@ class Cache:
 MeasureResult = namedtuple("MeasureResult", "measured failed pending")
 
 
+def _measure_one(differ, repo, commit):
+    """Run the differ for one commit. A cloc failure comes back as a value
+    rather than an exception, so it is reported and skipped like any other
+    result instead of ending the pass."""
+    try:
+        return differ(repo, commit["parent"] or EMPTY_TREE, commit["hash"]), None
+    except ClocError as e:
+        return None, e
+
+
 def measure_commits(repo, commits, cache, table, rules, max_commits=None, flush_every=50,
-                    differ=None, log=print, clock=time.monotonic):
+                    differ=None, log=print, clock=time.monotonic, jobs=1):
     """Measure every non-merge commit not already in the cache.
 
     commits: [{"hash", "parent", "is_merge"}] in history order.
@@ -236,6 +249,12 @@ def measure_commits(repo, commits, cache, table, rules, max_commits=None, flush_
     with this run's table and rules on the way out. Failures are logged and
     not cached so a later run retries them. When max_commits is set, uncached
     commits beyond the cap are left pending.
+
+    `jobs` cloc processes run at once. Each is a subprocess a worker thread
+    only waits on, so threads suffice and nothing needs pickling; the cache,
+    the results and the log are touched by this thread alone. However the
+    pass ends, the queue is cancelled and every measured commit, including
+    those that finish while the queue is being dropped, is flushed.
     """
     differ = differ or diff_commit
     measured, failed, pending = {}, [], []
@@ -243,8 +262,6 @@ def measure_commits(repo, commits, cache, table, rules, max_commits=None, flush_
     if max_commits is not None:
         todo = todo[:max_commits]
     todo_hashes = {c["hash"] for c in todo}
-    started = clock()
-    done = 0
 
     for c in commits:
         if c["is_merge"]:
@@ -252,16 +269,18 @@ def measure_commits(repo, commits, cache, table, rules, max_commits=None, flush_
         cached = cache.get(c["hash"])
         if cached is not None:
             measured[c["hash"]] = classify_rows(cached, table, rules)
-            continue
-        if c["hash"] not in todo_hashes:
+        elif c["hash"] not in todo_hashes:
             pending.append(c["hash"])
-            continue
-        try:
-            rows = differ(repo, c["parent"] or EMPTY_TREE, c["hash"])
-        except ClocError as e:
+
+    started = clock()
+    done = 0
+
+    def record(c, rows, error):
+        nonlocal done
+        if error is not None:
             failed.append(c["hash"])
-            log(f"  cloc failed on {c['hash'][:7]}: {e}")
-            continue
+            log(f"  cloc failed on {c['hash'][:7]}: {error}")
+            return
         cache.put(c["hash"], rows)
         measured[c["hash"]] = classify_rows(rows, table, rules)
         done += 1
@@ -271,6 +290,30 @@ def measure_commits(repo, commits, cache, table, rules, max_commits=None, flush_
             remaining = (len(todo) - done) * (elapsed / done)
             log(f"  measured {done}/{len(todo)} new commits, {elapsed:.0f}s elapsed, ~{remaining:.0f}s remaining")
 
-    if cache.dirty:
-        cache.save()
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=jobs)
+    futures, outstanding = {}, set()
+    try:
+        futures = {pool.submit(_measure_one, differ, repo, c): c for c in todo}
+        outstanding = set(futures)
+        for future in concurrent.futures.as_completed(futures):
+            outstanding.discard(future)
+            record(futures[future], *future.result())
+    finally:
+        # However the pass ended: keep what is recorded before joining the
+        # in-flight jobs, because a second Ctrl-C during that join must not
+        # lose it; drop the queue; then keep whatever the join finished.
+        try:
+            if cache.dirty:
+                cache.save()
+        finally:
+            pool.shutdown(cancel_futures=True)
+        for future in outstanding:
+            if future.done() and not future.cancelled() and future.exception() is None:
+                rows, error = future.result()
+                if error is None:      # a cloc killed by the same Ctrl-C is noise, and the next run retries it
+                    record(futures[future], rows, None)
+        if cache.dirty:
+            cache.save()
+    order = {c["hash"]: i for i, c in enumerate(todo)}
+    failed.sort(key=order.__getitem__)       # history order, whatever order they finished in
     return MeasureResult(measured, failed, pending)

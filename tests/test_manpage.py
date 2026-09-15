@@ -87,7 +87,8 @@ class TestRender(unittest.TestCase):
                                        "\\-\\-no\\-open", "\\-o, \\-\\-output DIR"])    # run's declaration order
         run, tokens, render = (self.section(n) for n in ("run", "tokens", "render"))
         run_tags = re.findall(r"^\.TP\n\.[BI] (.+)$", run, re.M)
-        self.assertEqual(run_tags, ["REPO", "\\-\\-branch REF", "\\-\\-max\\-commits N", "\\-\\-no\\-tokens", "\\-\\-cache\\-dir DIR"])
+        self.assertEqual(run_tags, ["REPO", "\\-\\-branch REF", "\\-\\-max\\-commits N", "\\-j, \\-\\-jobs N",
+                                    "\\-\\-no\\-tokens", "\\-\\-cache\\-dir DIR"])
         self.assertEqual(re.findall(r"^\.TP\n\.[BI] (.+)$", tokens, re.M), ["REPO"])
         self.assertIn(".B \\-o, \\-\\-output DIR\nthe workspace to render", render)
 
