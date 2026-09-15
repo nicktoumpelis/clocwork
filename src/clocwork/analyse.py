@@ -1,34 +1,28 @@
 #!/usr/bin/env python3
-"""Analyse every commit in one repository's history: lines per language and type via cloc, AI agent detection.
+"""Analyse every commit in a repository's history: lines per language and type
+via cloc, AI agent detection, and token usage from the transcript archive.
 
-Usage:
-    python3 analyse_all_commits.py [path-to-repo]
-
-If no path is given, defaults to the sibling 'MyApp' directory. The repository
-was renamed once (from 'OldApp'); commits from before the
-rename are still in this history, so the analysed range spans both names.
+The repository, the output path, the cache, the archive and the classification
+rules are all inputs; nothing here knows which repository it is measuring.
 """
 
 import json
 import os
 import subprocess
-import sys
 
 from clocwork import cloc as cl
 from clocwork import paths
-from clocwork.agents import DEFAULT_AGENTS
-from clocwork.classify import DEFAULT_RULES
 from clocwork import tokens as tu
-
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_REPO = os.path.join(SCRIPT_DIR, "..", "MyApp")
-OUTPUT_FILE = os.path.join(SCRIPT_DIR, "full_commit_data.json")
-CACHE_FILE = os.path.join(SCRIPT_DIR, "cloc_cache.json")
-ARCHIVE_FILE = os.path.join(SCRIPT_DIR, "token_usage.json")
+from clocwork.agents import DEFAULT_AGENTS
+from clocwork.config import Config
 
 # Merge commits carry no code of their own, so they are filed under a
 # catch-all category rather than being attributed to a human or an AI agent.
 MISC = "Misc"
+
+
+class NoCommits(RuntimeError):
+    pass
 
 
 def is_merge_commit(commit):
@@ -39,6 +33,10 @@ def is_merge_commit(commit):
 def git(repo, *args):
     result = subprocess.run(["git"] + list(args), capture_output=True, text=True, cwd=repo)
     return result.stdout
+
+
+def is_shallow(repo):
+    return git(repo, "rev-parse", "--is-shallow-repository").strip() == "true"
 
 
 def parse_log(repo, branch, agents=DEFAULT_AGENTS):
@@ -284,20 +282,30 @@ def tokens_by_commit(per_day, results):
     return attributed
 
 
-def analyse(repo_dir, output_path, cache_path=None, archive_path=None, max_commits=None, log=print, rules=DEFAULT_RULES):
-    cl.require_cloc()
-    if not os.path.isdir(os.path.join(repo_dir, ".git")):
-        raise SystemExit(f"Error: {repo_dir} is not a git repository")
-    cache_path = cache_path or os.path.join(os.path.dirname(output_path), "cloc_cache.json")
-    archive_path = archive_path or os.path.join(os.path.dirname(output_path), "token_usage.json")
+def analyse(repo_dir, output_path, cache_path, archive_path, *, config=None, branch=None,
+            max_commits=None, log=print):
+    """Analyse `repo_dir` into `output_path` (full_commit_data.json).
 
-    branch = git(repo_dir, "rev-parse", "--abbrev-ref", "HEAD").strip()
+    `cache_path` is the per-file cloc cache, `archive_path` the token archive
+    (read only; absent is normal). `config` supplies the test rules and agent
+    table; `branch` defaults to the checked-out branch.
+    """
+    cl.require_cloc()
+    repo_dir = paths.find_repo(repo_dir)
+    config = config or Config()
+    rules, agents = config.rules, config.agents
+
+    branch = branch or git(repo_dir, "rev-parse", "--abbrev-ref", "HEAD").strip()
     log(f"Analysing repo: {repo_dir} (branch: {branch})")
     log("Step 1: Extracting full commit history...")
-    commits = parse_log(repo_dir, branch)
+    commits = parse_log(repo_dir, branch, agents)
+    if not commits:
+        raise NoCommits(f"{repo_dir} has no commits on {branch}")
     log(f"  Parsed {len(commits)} commits")
+    if is_shallow(repo_dir):
+        log("  WARNING: shallow clone; diffs against absent parents will be wrong")
 
-    log("Step 2: Measuring lines per commit with cloc (cached in cloc_cache.json)...")
+    log(f"Step 2: Measuring lines per commit with cloc (cache: {cache_path})...")
     show_ext_table = cl.load_extension_table()
     learned = cl.learn_extensions(repo_dir, "HEAD")
     table = cl.merge_language_tables(show_ext_table, learned)
@@ -407,14 +415,18 @@ def analyse(repo_dir, output_path, cache_path=None, archive_path=None, max_commi
     if s["unmeasured_commits"]:
         log(f"  WARNING: {s['unmeasured_commits']} commits could not be measured by cloc")
     if s["pending_commits"]:
-        log(f"  NOTE: {s['pending_commits']} commits not yet measured (CLOC_MAX_COMMITS cap); rerun to continue")
+        log(f"  NOTE: {s['pending_commits']} commits not yet measured (--max-commits cap); rerun to continue")
     t = s["tokens"]
     if t["measured_total"]:
         log(f"  Tokens: {t['lifetime_total']:,} lifetime "
             f"({t['measured_total']:,} measured over {t['measured_days']} days, "
             f"{t['estimated_total']:,} estimated at {t['ratio']:,.0f} per AI line)")
     else:
-        log("  Tokens: no archive yet; run token_usage.py first")
+        log("  Tokens: none (no Claude Code transcript archive for this repository)")
+    head_tests = sum(v["code"] for v in by_file_tests.values())
+    head_all = sum(v["code"] for v in by_file_all.values())
+    log(f"  Test code at HEAD: {head_tests:,} of {head_all:,} code lines ({head_tests / head_all:.1%})"
+        if head_all else "  Test code at HEAD: none")
     log("  Lines at HEAD (cloc snapshot) and drift of running totals:")
     for lang in languages:
         snap = by_lang.get(lang, {t: 0 for t in cl.TYPES})
@@ -427,21 +439,3 @@ def analyse(repo_dir, output_path, cache_path=None, archive_path=None, max_commi
     for agent, info in sorted(first_appearances.items(), key=lambda x: x[1]["index"]):
         log(f"    {agent}: {info['date']} ({info['hash']})")
     return output
-
-
-def main():
-    repo = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else DEFAULT_REPO)
-    if not os.path.isdir(os.path.join(repo, ".git")):
-        print(f"Error: {repo} is not a git repository")
-        sys.exit(1)
-    max_commits = os.environ.get("CLOC_MAX_COMMITS")
-    try:
-        analyse(repo, OUTPUT_FILE, CACHE_FILE, ARCHIVE_FILE,
-                max_commits=int(max_commits) if max_commits else None)
-    except cl.ClocMissing as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
-
-
-if __name__ == "__main__":
-    main()
