@@ -42,20 +42,65 @@ def _synopsis(name, sub):
     return f".B clocwork {name}\n" + (" ".join(words) + "\n" if words else "")
 
 
-def _options(sub):
-    """Positionals first, then options, each in declaration order."""
+def _key(action):
+    """What makes two options the same option: flags and help text."""
+    return tuple(action.option_strings), action.help
+
+
+def _entry(action, note=""):
+    """One .TP entry. `note` is a sentence appended to the help; the help gets
+    a full stop first unless it already ends with one."""
+    metavar = action.metavar or action.dest.upper()
+    text = action.help or ""
+    if note and text.strip():
+        text = text.rstrip() + ("" if text.rstrip().endswith(".") else ".") + " " + note
+    elif note:
+        text = note
+    if action.option_strings:
+        flags = ", ".join(escape(o) for o in action.option_strings)
+        if action.nargs != 0:                 # takes a value; store_true has nargs 0
+            flags += " " + escape(metavar)
+        return f".TP\n.B {flags}\n{escape(text)}\n"
+    return f".TP\n.I {escape(metavar)}\n{escape(text)}\n"
+
+
+def _shared(subs):
+    """Options that more than one command takes, in first-seen order,
+    each with the commands that take it."""
+    seen = {}
+    for name, sub in subs.items():
+        for action in sub._actions:
+            if action.option_strings and "--help" not in action.option_strings:
+                seen.setdefault(_key(action), (action, []))[1].append(name)
+    return {key: pair for key, pair in seen.items() if len(pair[1]) > 1}
+
+
+def _shared_options(subs):
+    """The OPTIONS section: each shared option once, naming its commands
+    unless every command takes it."""
+    out = []
+    for action, names in _shared(subs).values():
+        if len(names) == len(subs):
+            note = ""
+        else:
+            listed = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+            note = f"Taken by {listed}."
+        out.append(_entry(action, note))
+    return "".join(out).rstrip("\n")
+
+
+def _options(sub, shared=()):
+    """A command's own entries: positionals first, then the options no other
+    command shares, each in declaration order."""
     positionals, options = [], []
     for action in sub._actions:
         if "--help" in action.option_strings:
             continue
-        metavar = action.metavar or action.dest.upper()
         if action.option_strings:
-            flags = ", ".join(escape(o) for o in action.option_strings)
-            if action.nargs != 0:                 # takes a value; store_true has nargs 0
-                flags += " " + escape(metavar)
-            options.append(f".TP\n.B {flags}\n{escape(action.help or '')}\n")
+            if _key(action) not in shared:
+                options.append(_entry(action))
         else:
-            positionals.append(f".TP\n.I {escape(metavar)}\n{escape(action.help or '')}\n")
+            positionals.append(_entry(action))
     return "".join(positionals + options)
 
 
@@ -80,9 +125,13 @@ def render(parser=None, version=__version__, date=None):
                  "exist for the repository, what the work cost in tokens.\n.PP\n"
                  "A first argument that is not a command is taken as\n.IR REPO ,\nso\n.B clocwork ~/code/foo\nworks; "
                  "the default is the current directory, and any directory inside the repository will do.")
+    lines.append(".SH OPTIONS\nOptions more than one command takes. Each command's own options follow it below.\n"
+                 + _shared_options(subs))
+    shared = _shared(subs)
     commands = [".SH COMMANDS"]
     for name, sub in subs.items():
-        commands.append((f".SS {name}\n" + _synopsis(name, sub) + ".PP\n" + escape(_help_of(parser, name)) + "\n" + _options(sub)).rstrip("\n"))
+        commands.append((f".SS {name}\n" + _synopsis(name, sub) + ".PP\n" + escape(_help_of(parser, name)) + "\n"
+                         + _options(sub, shared)).rstrip("\n"))
     lines.append("\n".join(commands))
     lines.append(".SH ENVIRONMENT\n"
                  ".TP\n.B CLOCWORK_LOCALE\nA BCP 47 tag such as\n.BR en\\-SE .\n"

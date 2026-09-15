@@ -28,6 +28,23 @@ A first argument that is not a command is taken as
 so
 .B clocwork ~/code/foo
 works; the default is the current directory, and any directory inside the repository will do.
+.SH OPTIONS
+Options more than one command takes. Each command's own options follow it below.
+.TP
+.B \-q, \-\-quiet
+print nothing but errors
+.TP
+.B \-\-config PATH
+explicit clocwork.toml. Taken by run and render.
+.TP
+.B \-\-locale TAG
+region locale for the page (default: $CLOCWORK_LOCALE, else the machine's region). Taken by run and render.
+.TP
+.B \-\-no\-open
+do not open the dashboard in a browser. Taken by run and render.
+.TP
+.B \-o, \-\-output DIR
+workspace directory (default: <repo\-parent>/<repo\-name>\-stats). Taken by run and tokens.
 .SH COMMANDS
 .SS run
 .B clocwork run
@@ -37,21 +54,6 @@ analyse, archive tokens and render (the default)
 .TP
 .I REPO
 repository or any directory inside it (default: cwd)
-.TP
-.B \-q, \-\-quiet
-print nothing but errors
-.TP
-.B \-\-config PATH
-explicit clocwork.toml
-.TP
-.B \-\-locale TAG
-region locale for the page (default: $CLOCWORK_LOCALE, else the machine's region)
-.TP
-.B \-\-no\-open
-do not open the dashboard in a browser
-.TP
-.B \-o, \-\-output DIR
-workspace directory (default: <repo\-parent>/<repo\-name>\-stats)
 .TP
 .B \-\-branch REF
 ref to analyse (default: the checked\-out branch)
@@ -72,29 +74,11 @@ archive Claude Code transcripts only
 .TP
 .I REPO
 repository or any directory inside it (default: cwd)
-.TP
-.B \-q, \-\-quiet
-print nothing but errors
-.TP
-.B \-o, \-\-output DIR
-workspace directory (default: <repo\-parent>/<repo\-name>\-stats)
 .SS render
 .B clocwork render
 [\-q] [\-\-config PATH] [\-\-locale TAG] [\-\-no\-open] \-o DIR
 .PP
 re\-render the dashboard from existing workspace data
-.TP
-.B \-q, \-\-quiet
-print nothing but errors
-.TP
-.B \-\-config PATH
-explicit clocwork.toml
-.TP
-.B \-\-locale TAG
-region locale for the page (default: $CLOCWORK_LOCALE, else the machine's region)
-.TP
-.B \-\-no\-open
-do not open the dashboard in a browser
 .TP
 .B \-o, \-\-output DIR
 the workspace to render
