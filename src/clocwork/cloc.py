@@ -309,7 +309,9 @@ def measure_commits(repo, commits, cache, table, rules, max_commits=None, flush_
             pool.shutdown(cancel_futures=True)
         for future in outstanding:
             if future.done() and not future.cancelled() and future.exception() is None:
-                record(futures[future], *future.result())
+                rows, error = future.result()
+                if error is None:      # a cloc killed by the same Ctrl-C is noise, and the next run retries it
+                    record(futures[future], rows, None)
         if cache.dirty:
             cache.save()
     order = {c["hash"]: i for i, c in enumerate(todo)}

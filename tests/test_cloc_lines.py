@@ -108,6 +108,7 @@ class TestParseSnapshots(unittest.TestCase):
         self.assertEqual(tests, {"Swift": {"code": 2, "comment": 1, "blank": 0}})
 
 
+import concurrent.futures
 import os
 import shutil
 import tempfile
@@ -302,6 +303,52 @@ class TestMeasureCommits(unittest.TestCase):
             cl.measure_commits("/nowhere", commits, self.cache, self.TABLE, cf.DEFAULT_RULES,
                                differ=differ, log=lambda *a: None, jobs=2)
         self.assertIsNotNone(cl.Cache(self.cache.path).get("slow"))      # not thrown away, not re-measured next run
+
+    def test_a_job_failing_during_the_shutdown_is_not_reported(self):
+        # On a terminal Ctrl-C the in-flight cloc processes die with the run.
+        # Their failures are noise while the user is aborting, and the next
+        # run retries them, so the shutdown keeps results and says nothing.
+        commits = [{"hash": "dying", "parent": None, "is_merge": False},
+                   {"hash": "boom", "parent": None, "is_merge": False}]
+        lines = []
+
+        def differ(repo, parent, commit):
+            if commit == "boom":
+                raise KeyboardInterrupt
+            time.sleep(0.1)
+            raise cl.ClocError("cloc exited with -2")
+
+        with self.assertRaises(KeyboardInterrupt):
+            cl.measure_commits("/nowhere", commits, self.cache, self.TABLE, cf.DEFAULT_RULES,
+                               differ=differ, log=lines.append, jobs=2)
+        self.assertEqual([line for line in lines if "failed" in line], [])
+
+    def test_a_second_interrupt_during_the_join_keeps_what_was_recorded(self):
+        # The join waits for in-flight cloc runs; a second Ctrl-C there ends
+        # the finally block early, so the save has to come before the join.
+        commits = [{"hash": "c00", "parent": None, "is_merge": False},
+                   {"hash": "boom", "parent": None, "is_merge": False}]
+
+        def differ(repo, parent, commit):
+            if commit == "boom":
+                time.sleep(0.05)          # so c00 is recorded before this lands
+                raise KeyboardInterrupt
+            return {"added": {"a.swift": {"code": 1, "comment": 0, "blank": 0}}, "removed": {}}
+
+        original = concurrent.futures.ThreadPoolExecutor.shutdown
+
+        def interrupted_shutdown(pool, *args, **kwargs):
+            original(pool, *args, **kwargs)
+            raise KeyboardInterrupt       # the second Ctrl-C, landing while the pool joins its workers
+
+        concurrent.futures.ThreadPoolExecutor.shutdown = interrupted_shutdown
+        try:
+            with self.assertRaises(KeyboardInterrupt):
+                cl.measure_commits("/nowhere", commits, self.cache, self.TABLE, cf.DEFAULT_RULES,
+                                   differ=differ, log=lambda *a: None, jobs=1)
+        finally:
+            concurrent.futures.ThreadPoolExecutor.shutdown = original
+        self.assertIsNotNone(cl.Cache(self.cache.path).get("c00"))
 
 
 @unittest.skipUnless(HAVE_CLOC, "cloc not installed")
