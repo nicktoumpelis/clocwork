@@ -5,7 +5,7 @@
 The page is committed rather than built at install time because pip has no
 portable way to install a manual page; a clone reads it with
 `man ./man/clocwork.1`, and a package manager formula can install the file
-(the release spec's Homebrew channel does). A test regenerates the page and
+(the release spec's Homebrew channel will). A test regenerates the page and
 compares it with the committed one, so a change to the help text or the
 version that is not followed by the command above fails the suite.
 Everything a parser knows - commands, options, defaults - comes from the
@@ -74,7 +74,7 @@ def render(parser=None, version=__version__, date=None):
                  ".BR cloc (1)\n"
                  "in git diff mode and cached per file, so a first run over a long history is slow and every later run takes seconds; "
                  "merge commits carry no code of their own and are listed but not measured. The result is one\n.I index.html\n"
-                 "(its charts load Chart.js from a CDN) plus a\n.I commit_bodies.js\nsidecar, "
+                 "(its charts load Chart.js and its plugins from a CDN) plus a\n.I commit_bodies.js\nsidecar, "
                  "written to a workspace next to the repository, never inside it: lines per language and type at every commit, "
                  "which commits an AI agent co\\-authored and when each model first appeared, and, when Claude Code transcripts "
                  "exist for the repository, what the work cost in tokens.\n.PP\n"

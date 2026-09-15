@@ -8,7 +8,7 @@ tokens, dollars and electricity. Every commit is measured with
 `cloc --git --diff`, cached per file, and reconciled against a `cloc` snapshot
 of HEAD so drift is visible rather than silent.
 
-The output is one `index.html` (its charts load Chart.js from a CDN) plus a
+The output is one `index.html` (its charts load Chart.js and its plugins from a CDN) plus a
 `commit_bodies.js` sidecar for the full commit messages, written to a
 **workspace** next to the repository, never inside it.
 
