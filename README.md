@@ -80,6 +80,7 @@ Options (`clocwork run --help`):
 ```
 
 `tokens` and `render` take the first five; `--version` prints the version.
+The same reference is a manual page: `man ./man/clocwork.1` from a clone.
 
 The page formats every number, date and unit for a region locale. The
 generator records it, because browsers expose only the language list: the
@@ -184,6 +185,13 @@ node tests/dashboard/run_all.js                   # the page, in a fake DOM unde
 The dashboard suite renders a synthetic workspace (`tests/dashboard/fixture.py`)
 through `./clocwork render`. Set `CLOCWORK_DASH_WORKSPACE=<dir>` to run the
 same checks over any rendered workspace, a real one included.
+
+`man/clocwork.1` is generated from the argparse parsers, and a test checks the
+committed page is current. After changing any help text, regenerate it:
+
+```bash
+PYTHONPATH=src python3 -m clocwork.manpage > man/clocwork.1
+```
 
 To exercise the command end to end against a throwaway repository with Go,
 Python, JavaScript and Java test conventions:

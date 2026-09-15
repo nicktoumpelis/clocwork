@@ -1,0 +1,160 @@
+.TH CLOCWORK 1 "2026-09-15" "clocwork 0.1.0" "User Commands"
+.SH NAME
+clocwork \- lines per language, AI co\-authored commits and token cost over a repository's history
+.SH SYNOPSIS
+.B clocwork
+[\fIOPTIONS\fR] [\fIREPO\fR]
+.br
+.B clocwork tokens
+[\-o DIR] [\-\-config PATH] [\-\-locale TAG] [\-\-no\-open] [\-q] [REPO]
+.br
+.B clocwork render
+[\-o DIR] [\-\-config PATH] [\-\-locale TAG] [\-\-no\-open] [\-q]
+.br
+.B clocwork \-\-version
+.SH DESCRIPTION
+Lines per language, AI co\-authored commits and token cost over a repository's history.
+.PP
+Every commit reachable from the analysed ref is measured with
+.BR cloc (1)
+in git diff mode and cached per file, so a first run over a long history is slow and every later run takes seconds. The result is a self\-contained
+.I index.html
+written to a workspace next to the repository, never inside it: lines per language and type at every commit, which commits an AI agent co\-authored and when each model first appeared, and, when Claude Code transcripts exist for the repository, what the work cost in tokens.
+.PP
+A first argument that is not a command is taken as
+.IR REPO ,
+so
+.B clocwork ~/code/foo
+works; the default is the current directory, and any directory inside the repository will do.
+.SH COMMANDS
+.SS run
+.B clocwork run
+[\-o DIR] [\-\-config PATH] [\-\-locale TAG] [\-\-no\-open] [\-q] [\-\-branch REF] [\-\-max\-commits N] [\-\-no\-tokens] [\-\-cache\-dir DIR] [REPO]
+.PP
+analyse, archive tokens and render (the default)
+.TP
+.I REPO
+repository or any directory inside it (default: cwd)
+.TP
+.B \-o, \-\-output DIR
+workspace directory (default: <repo\-parent>/<repo\-name>\-stats)
+.TP
+.B \-\-config PATH
+explicit clocwork.toml
+.TP
+.B \-\-locale TAG
+region locale for the page (default: $CLOCWORK_LOCALE, else the machine's region)
+.TP
+.B \-\-no\-open
+do not open the dashboard in a browser
+.TP
+.B \-q, \-\-quiet
+print nothing but errors
+.TP
+.B \-\-branch REF
+ref to analyse (default: the checked\-out branch)
+.TP
+.B \-\-max\-commits N
+measure at most N uncached commits this run
+.TP
+.B \-\-no\-tokens
+skip the transcript scan
+.TP
+.B \-\-cache\-dir DIR
+cache location (default: $XDG_CACHE_HOME/clocwork, else ~/.cache/clocwork)
+.SS tokens
+.B clocwork tokens
+[\-o DIR] [\-\-config PATH] [\-\-locale TAG] [\-\-no\-open] [\-q] [REPO]
+.PP
+archive Claude Code transcripts only
+.TP
+.I REPO
+repository or any directory inside it (default: cwd)
+.TP
+.B \-o, \-\-output DIR
+workspace directory (default: <repo\-parent>/<repo\-name>\-stats)
+.TP
+.B \-\-config PATH
+explicit clocwork.toml
+.TP
+.B \-\-locale TAG
+region locale for the page (default: $CLOCWORK_LOCALE, else the machine's region)
+.TP
+.B \-\-no\-open
+do not open the dashboard in a browser
+.TP
+.B \-q, \-\-quiet
+print nothing but errors
+.SS render
+.B clocwork render
+[\-o DIR] [\-\-config PATH] [\-\-locale TAG] [\-\-no\-open] [\-q]
+.PP
+re\-render the dashboard from existing workspace data
+.TP
+.B \-o, \-\-output DIR
+workspace directory (default: <repo\-parent>/<repo\-name>\-stats)
+.TP
+.B \-\-config PATH
+explicit clocwork.toml
+.TP
+.B \-\-locale TAG
+region locale for the page (default: $CLOCWORK_LOCALE, else the machine's region)
+.TP
+.B \-\-no\-open
+do not open the dashboard in a browser
+.TP
+.B \-q, \-\-quiet
+print nothing but errors
+.SH ENVIRONMENT
+.TP
+.B CLOCWORK_LOCALE
+A BCP 47 tag such as
+.BR en\-SE .
+The region locale the page formats numbers, dates and units with. Wins over the machine's setting;
+.B \-\-locale
+wins over both.
+.TP
+.B XDG_CACHE_HOME
+When set, the cloc cache lives under
+.IR $XDG_CACHE_HOME/clocwork/ ;
+otherwise under
+.IR ~/.cache/clocwork/ .
+.SH FILES
+.TP
+.I <repo\-parent>/<repo\-name>\-stats/
+The workspace: a sibling of the repository, overridden with
+.BR \-o .
+.TP
+.I clocwork.json
+Which repository the workspace belongs to. A run against another repository is refused rather than overwriting the workspace.
+.TP
+.I clocwork.toml
+Optional configuration: page title, test\-path rules, extra agents. Also read from
+.I .clocwork.toml
+in the repository, and from
+.BR \-\-config .
+.TP
+.I token_usage.json
+The per\-day token archive scanned from Claude Code transcripts. It cannot be regenerated once the transcripts expire; no run shrinks it.
+.TP
+.I full_commit_data.json
+The analysis the page is rendered from.
+.TP
+.I index.html
+and
+.I commit_bodies.js
+The dashboard and its sidecar of full commit messages.
+.TP
+.I ~/.cache/clocwork/<name>\-<hash>/cloc_cache.json
+Per\-file cloc results keyed by commit, so a changed test rule or language table re\-reads the cache instead of re\-running cloc.
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 2
+An error the command reported: cloc missing, no git repository, a repository with no commits, a workspace belonging to another repository, invalid configuration, or an unreadable or unwritable file.
+.SH SEE ALSO
+.BR cloc (1),
+.BR git (1),
+.BR git\-log (1)
