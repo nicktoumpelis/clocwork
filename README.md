@@ -205,9 +205,6 @@ d = tempfile.mkdtemp(); r = os.path.join(d, "poly"); os.makedirs(r); fx.make_pol
 ./clocwork "$R" --no-open --cache-dir /tmp/clocwork-cache
 ```
 
-The design record is under `docs/superpowers/specs/`. The branch, review and
-merge process this repository follows is in `CLAUDE.md`.
-
 ## Licence
 
 MIT.
