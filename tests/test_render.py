@@ -101,6 +101,11 @@ class TestAnnotations(unittest.TestCase):
         fa = {"Claude Opus 4.6": {"date": "2026-02-05", "index": 9}, "Copilot": {"date": "2026-01-01", "index": 2}}
         self.assertEqual(gh.annotations(fa), [["2026-01-01", "Copilot", 0], ["2026-02-05", "Opus 4.6", 1]])
 
+    def test_same_day_appearances_share_a_line(self):
+        fa = {"Claude Opus 4.6 (1M)": {"date": "2026-03-14", "index": 5}, "Claude Sonnet 4.6": {"date": "2026-03-14", "index": 7},
+              "Copilot": {"date": "2026-04-01", "index": 9}}
+        self.assertEqual(gh.annotations(fa), [["2026-03-14", "Opus 4.6 (1M) + Sonnet 4.6", 0], ["2026-04-01", "Copilot", 1]])
+
     def test_empty(self):
         self.assertEqual(gh.annotations({}), [])
 

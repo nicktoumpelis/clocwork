@@ -115,11 +115,16 @@ def build_embedded(data, generated, locale):
 def annotations(first_appearances):
     """[[date, label, colourIndex], ...] in order of first appearance.
 
-    Labels drop the leading "Claude " so "Claude Opus 4.6" reads "Opus 4.6",
-    as the hand-written annotations did; other agents keep their name.
+    Labels drop the leading "Claude " so "Claude Opus 4.6" reads "Opus 4.6";
+    other agents keep their name. Agents that first appear on the same day
+    share one line with their labels joined, as the hand-written annotations
+    did, because two lines on one date draw on top of each other.
     """
     ordered = sorted(first_appearances.items(), key=lambda kv: kv[1]["index"])
-    return [[info["date"], agent.removeprefix("Claude "), i] for i, (agent, info) in enumerate(ordered)]
+    by_date = {}
+    for agent, info in ordered:
+        by_date.setdefault(info["date"], []).append(agent.removeprefix("Claude "))
+    return [[date, " + ".join(labels), i] for i, (date, labels) in enumerate(by_date.items())]
 
 
 def template():

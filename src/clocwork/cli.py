@@ -81,7 +81,7 @@ def cmd_render(args, log):
         raise paths.WorkspaceMismatch(f"{ws} is not a clocwork workspace (no {paths.IDENTITY_FILE})")
     conf = config.load(args.config, ws, None)
     name = conf.title or ident["repo_name"]
-    html = render.render_workspace(ws, title=name, repo_name=name,
+    html = render.render_workspace(ws, title=f"{name} - Full Commit History", repo_name=name,
                                    locale=args.locale or render.detect_locale(), log=log)
     _open(html, args.no_open)
 
@@ -112,7 +112,7 @@ def cmd_run(args, log, projects_dir):
                     archive, config=conf, branch=args.branch, max_commits=args.max_commits, log=log)
     log("Step 3/3: Rendering the dashboard...")
     name = conf.title or ident["repo_name"]
-    html = render.render_workspace(ws, title=name, repo_name=name,
+    html = render.render_workspace(ws, title=f"{name} - Full Commit History", repo_name=name,
                                    locale=args.locale or render.detect_locale(), log=log)
     log(f"Open: {html}")
     _open(html, args.no_open)

@@ -85,7 +85,7 @@ class TestEndToEnd(unittest.TestCase):
             f.write('title = "Poly Project"\n')
         self.assertEqual(self.run_cli(self.repo, "--cache-dir", self.cache)[0], 0)
         with open(os.path.join(self.ws, "index.html")) as f:
-            self.assertIn("<title>Poly Project</title>", f.read())
+            self.assertIn("<title>Poly Project - Full Commit History</title>", f.read())
 
     def test_tokens_without_transcripts_is_not_an_error(self):
         self.assertEqual(self.run_cli("tokens", self.repo), (0, ""))
