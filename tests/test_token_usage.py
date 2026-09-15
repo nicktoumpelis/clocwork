@@ -3,6 +3,7 @@ import os
 import tempfile
 import unittest
 
+from clocwork import paths
 from clocwork import tokens as tu
 
 
@@ -32,17 +33,6 @@ def write_transcripts(directory, files):
             f.write("\n".join(lines) + "\n")
 
 
-class TestEncodeRepoPath(unittest.TestCase):
-    def test_spaces_and_tildes_become_hyphens(self):
-        self.assertEqual(
-            tu.encode_repo_path("/Users/nick/Library/Mobile Documents/com~apple~CloudDocs/MyApp"),
-            "-Users-nick-Library-Mobile-Documents-com-apple-CloudDocs-MyApp",
-        )
-
-    def test_leading_slash_becomes_a_hyphen(self):
-        self.assertEqual(tu.encode_repo_path("/tmp/Repo"), "-tmp-Repo")
-
-
 class TestTranscriptDir(unittest.TestCase):
     def test_returns_none_when_absent(self):
         with tempfile.TemporaryDirectory() as d:
@@ -50,7 +40,7 @@ class TestTranscriptDir(unittest.TestCase):
 
     def test_returns_directory_when_present(self):
         with tempfile.TemporaryDirectory() as d:
-            want = os.path.join(d, tu.encode_repo_path("/tmp/Repo"))
+            want = os.path.join(d, paths.claude_project_dir("/tmp/Repo"))
             os.makedirs(want)
             self.assertEqual(tu.transcript_dir("/tmp/Repo", projects_dir=d), want)
 
@@ -152,7 +142,7 @@ class TestArchiveRoundTrip(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             projects = os.path.join(d, "projects")
             repo = os.path.join(d, "Repo")
-            write_transcripts(os.path.join(projects, tu.encode_repo_path(repo)),
+            write_transcripts(os.path.join(projects, paths.claude_project_dir(repo)),
                               {"a.jsonl": [turn("m1", "2026-08-06", output=7)]})
             path = os.path.join(d, "token_usage.json")
             tu.save(path, {"2026-07-01": {"turns": 1, "models": {"claude-opus-5": {

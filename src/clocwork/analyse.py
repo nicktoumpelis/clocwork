@@ -11,11 +11,11 @@ rename are still in this history, so the analysed range spans both names.
 
 import json
 import os
-import re
 import subprocess
 import sys
 
 from clocwork import cloc as cl
+from clocwork import paths
 from clocwork.agents import DEFAULT_AGENTS
 from clocwork import tokens as tu
 
@@ -38,13 +38,6 @@ def is_merge_commit(commit):
 def git(repo, *args):
     result = subprocess.run(["git"] + list(args), capture_output=True, text=True, cwd=repo)
     return result.stdout
-
-
-def github_url(repo):
-    """Return the https URL of the origin remote if it is on GitHub, else None."""
-    remote = git(repo, "remote", "get-url", "origin").strip()
-    m = re.match(r"(?:git@github\.com:|https://github\.com/)([^/]+/[^/]+?)(?:\.git)?/?$", remote)
-    return f"https://github.com/{m.group(1)}" if m else None
 
 
 def parse_log(repo, branch, agents=DEFAULT_AGENTS):
@@ -393,7 +386,7 @@ def analyse(repo_dir, output_path, cache_path=None, archive_path=None, max_commi
             "misc_commits": sum(1 for r in results if r["agent"] == MISC),
             "first_date": results[0]["date"],
             "last_date": results[-1]["date"],
-            "repo_url": github_url(repo_dir),
+            "repo_url": paths.remote_url(repo_dir),
             "head_snapshot": {"all": by_file_all, "tests": by_file_tests},
             "running_totals": {"all": running_all, "tests": running_tests},
             "reconciliation": reconciliation,

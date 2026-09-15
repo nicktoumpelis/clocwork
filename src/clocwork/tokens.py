@@ -15,10 +15,11 @@ without deduplication over-counts by more than 2x.
 
 import json
 import os
-import re
 import sys
 import tempfile
 from collections import namedtuple
+
+from clocwork.paths import claude_project_dir
 
 COUNTERS = ("input", "output", "cache_read", "cache_write")
 
@@ -35,15 +36,9 @@ PROJECTS_DIR = os.path.expanduser("~/.claude/projects")
 ScanResult = namedtuple("ScanResult", "days malformed")
 
 
-def encode_repo_path(repo_path):
-    """Claude Code's directory name for a repository: the absolute path with
-    every non-alphanumeric character replaced by a hyphen, one for one."""
-    return re.sub(r"[^a-zA-Z0-9]", "-", os.path.abspath(repo_path))
-
-
 def transcript_dir(repo_path, projects_dir=PROJECTS_DIR):
     """The transcript directory for a repository, or None when it does not exist."""
-    directory = os.path.join(projects_dir, encode_repo_path(repo_path))
+    directory = os.path.join(projects_dir, claude_project_dir(repo_path))
     return directory if os.path.isdir(directory) else None
 
 
@@ -156,7 +151,7 @@ def archive(repo_path, archive_path, projects_dir=PROJECTS_DIR, log=print):
 
     directory = transcript_dir(repo_path, projects_dir)
     if directory is None:
-        log(f"  No transcripts at {os.path.join(projects_dir, encode_repo_path(repo_path))}")
+        log(f"  No transcripts at {os.path.join(projects_dir, claude_project_dir(repo_path))}")
         log(f"  Archive left unchanged: {was_days} days, {was_total:,} tokens")
         return days
 
