@@ -114,7 +114,8 @@ def parse_snapshot_by_file(obj, table, rules=DEFAULT_RULES):
 
 def require_cloc():
     if shutil.which("cloc") is None:
-        raise ClocMissing("cloc is not installed or not on PATH. Install it with: brew install cloc")
+        raise ClocMissing("cloc is not installed or not on PATH. Install it with: brew install cloc (macOS), "
+                          "apt install cloc (Debian/Ubuntu), or see https://github.com/AlDanial/cloc")
 
 
 def run_cloc(args, cwd):
