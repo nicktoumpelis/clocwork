@@ -6,20 +6,22 @@ clocwork \- lines per language, AI co\-authored commits and token cost over a re
 [\fIOPTIONS\fR] [\fIREPO\fR]
 .br
 .B clocwork tokens
-[\-o DIR] [\-\-config PATH] [\-\-locale TAG] [\-\-no\-open] [\-q] [REPO]
+[\-q] [\-o DIR] [REPO]
 .br
 .B clocwork render
-[\-o DIR] [\-\-config PATH] [\-\-locale TAG] [\-\-no\-open] [\-q]
+[\-q] [\-\-config PATH] [\-\-locale TAG] [\-\-no\-open] \-o DIR
 .br
 .B clocwork \-\-version
 .SH DESCRIPTION
 Lines per language, AI co\-authored commits and token cost over a repository's history.
 .PP
-Every commit reachable from the analysed ref is measured with
+Every non\-merge commit reachable from the analysed ref is measured with
 .BR cloc (1)
-in git diff mode and cached per file, so a first run over a long history is slow and every later run takes seconds. The result is a self\-contained
+in git diff mode and cached per file, so a first run over a long history is slow and every later run takes seconds; merge commits carry no code of their own and are listed but not measured. The result is one
 .I index.html
-written to a workspace next to the repository, never inside it: lines per language and type at every commit, which commits an AI agent co\-authored and when each model first appeared, and, when Claude Code transcripts exist for the repository, what the work cost in tokens.
+(its charts load Chart.js from a CDN) plus a
+.I commit_bodies.js
+sidecar, written to a workspace next to the repository, never inside it: lines per language and type at every commit, which commits an AI agent co\-authored and when each model first appeared, and, when Claude Code transcripts exist for the repository, what the work cost in tokens.
 .PP
 A first argument that is not a command is taken as
 .IR REPO ,
@@ -29,15 +31,15 @@ works; the default is the current directory, and any directory inside the reposi
 .SH COMMANDS
 .SS run
 .B clocwork run
-[\-o DIR] [\-\-config PATH] [\-\-locale TAG] [\-\-no\-open] [\-q] [\-\-branch REF] [\-\-max\-commits N] [\-\-no\-tokens] [\-\-cache\-dir DIR] [REPO]
+[\-q] [\-\-config PATH] [\-\-locale TAG] [\-\-no\-open] [\-o DIR] [\-\-branch REF] [\-\-max\-commits N] [\-\-no\-tokens] [\-\-cache\-dir DIR] [REPO]
 .PP
 analyse, archive tokens and render (the default)
 .TP
 .I REPO
 repository or any directory inside it (default: cwd)
 .TP
-.B \-o, \-\-output DIR
-workspace directory (default: <repo\-parent>/<repo\-name>\-stats)
+.B \-q, \-\-quiet
+print nothing but errors
 .TP
 .B \-\-config PATH
 explicit clocwork.toml
@@ -48,8 +50,8 @@ region locale for the page (default: $CLOCWORK_LOCALE, else the machine's region
 .B \-\-no\-open
 do not open the dashboard in a browser
 .TP
-.B \-q, \-\-quiet
-print nothing but errors
+.B \-o, \-\-output DIR
+workspace directory (default: <repo\-parent>/<repo\-name>\-stats)
 .TP
 .B \-\-branch REF
 ref to analyse (default: the checked\-out branch)
@@ -61,38 +63,29 @@ measure at most N uncached commits this run
 skip the transcript scan
 .TP
 .B \-\-cache\-dir DIR
-cache location (default: $XDG_CACHE_HOME/clocwork, else ~/.cache/clocwork)
+cache location (default: $XDG_CACHE_HOME/clocwork, else ~/.cache/clocwork; wins over both)
 .SS tokens
 .B clocwork tokens
-[\-o DIR] [\-\-config PATH] [\-\-locale TAG] [\-\-no\-open] [\-q] [REPO]
+[\-q] [\-o DIR] [REPO]
 .PP
 archive Claude Code transcripts only
 .TP
 .I REPO
 repository or any directory inside it (default: cwd)
 .TP
-.B \-o, \-\-output DIR
-workspace directory (default: <repo\-parent>/<repo\-name>\-stats)
-.TP
-.B \-\-config PATH
-explicit clocwork.toml
-.TP
-.B \-\-locale TAG
-region locale for the page (default: $CLOCWORK_LOCALE, else the machine's region)
-.TP
-.B \-\-no\-open
-do not open the dashboard in a browser
-.TP
 .B \-q, \-\-quiet
 print nothing but errors
+.TP
+.B \-o, \-\-output DIR
+workspace directory (default: <repo\-parent>/<repo\-name>\-stats)
 .SS render
 .B clocwork render
-[\-o DIR] [\-\-config PATH] [\-\-locale TAG] [\-\-no\-open] [\-q]
+[\-q] [\-\-config PATH] [\-\-locale TAG] [\-\-no\-open] \-o DIR
 .PP
 re\-render the dashboard from existing workspace data
 .TP
-.B \-o, \-\-output DIR
-workspace directory (default: <repo\-parent>/<repo\-name>\-stats)
+.B \-q, \-\-quiet
+print nothing but errors
 .TP
 .B \-\-config PATH
 explicit clocwork.toml
@@ -103,8 +96,8 @@ region locale for the page (default: $CLOCWORK_LOCALE, else the machine's region
 .B \-\-no\-open
 do not open the dashboard in a browser
 .TP
-.B \-q, \-\-quiet
-print nothing but errors
+.B \-o, \-\-output DIR
+the workspace to render
 .SH ENVIRONMENT
 .TP
 .B CLOCWORK_LOCALE
@@ -119,6 +112,10 @@ When set, the cloc cache lives under
 .IR $XDG_CACHE_HOME/clocwork/ ;
 otherwise under
 .IR ~/.cache/clocwork/ .
+.B \-\-cache\-dir
+wins over both. Only
+.B run
+uses the cache.
 .SH FILES
 .TP
 .I <repo\-parent>/<repo\-name>\-stats/
@@ -152,7 +149,7 @@ Per\-file cloc results keyed by commit, so a changed test rule or language table
 Success.
 .TP
 .B 2
-An error the command reported: cloc missing, no git repository, a repository with no commits, a workspace belonging to another repository, invalid configuration, or an unreadable or unwritable file. A usage error also exits 2, with the usage line on standard error.
+An error the command reported: cloc missing or failing, no git repository, a repository with no commits, a workspace belonging to another repository, invalid configuration, or an unreadable, unwritable or corrupt file. A usage error also exits 2, with the usage line on standard error.
 .SH SEE ALSO
 .BR cloc (1),
 .BR git (1),

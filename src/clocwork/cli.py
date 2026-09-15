@@ -35,25 +35,31 @@ def build_parser():
         prog="clocwork",
         description="Lines per language, AI co-authored commits and token cost over a repository's history.")
     p.add_argument("--version", action="version", version=f"clocwork {__version__}")
-    common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("-o", "--output", metavar="DIR",
-                        help="workspace directory (default: <repo-parent>/<repo-name>-stats)")
-    common.add_argument("--config", metavar="PATH", help="explicit clocwork.toml")
-    common.add_argument("--locale", metavar="TAG",
-                        help="region locale for the page (default: $CLOCWORK_LOCALE, else the machine's region)")
-    common.add_argument("--no-open", action="store_true", help="do not open the dashboard in a browser")
-    common.add_argument("-q", "--quiet", action="store_true", help="print nothing but errors")
+    # Each command accepts only the options it acts on, so --help and the
+    # manual page cannot promise an option that is silently ignored.
+    quiet = argparse.ArgumentParser(add_help=False)
+    quiet.add_argument("-q", "--quiet", action="store_true", help="print nothing but errors")
+    page = argparse.ArgumentParser(add_help=False)
+    page.add_argument("--config", metavar="PATH", help="explicit clocwork.toml")
+    page.add_argument("--locale", metavar="TAG",
+                      help="region locale for the page (default: $CLOCWORK_LOCALE, else the machine's region)")
+    page.add_argument("--no-open", action="store_true", help="do not open the dashboard in a browser")
+    workspace_help = "workspace directory (default: <repo-parent>/<repo-name>-stats)"
+    repo_help = "repository or any directory inside it (default: cwd)"
     sub = p.add_subparsers(dest="command", metavar="COMMAND")
-    run = sub.add_parser("run", parents=[common], help="analyse, archive tokens and render (the default)")
-    run.add_argument("repo", nargs="?", metavar="REPO", help="repository or any directory inside it (default: cwd)")
+    run = sub.add_parser("run", parents=[quiet, page], help="analyse, archive tokens and render (the default)")
+    run.add_argument("repo", nargs="?", metavar="REPO", help=repo_help)
+    run.add_argument("-o", "--output", metavar="DIR", help=workspace_help)
     run.add_argument("--branch", metavar="REF", help="ref to analyse (default: the checked-out branch)")
     run.add_argument("--max-commits", type=non_negative, metavar="N", help="measure at most N uncached commits this run")
     run.add_argument("--no-tokens", action="store_true", help="skip the transcript scan")
     run.add_argument("--cache-dir", metavar="DIR",
-                        help="cache location (default: $XDG_CACHE_HOME/clocwork, else ~/.cache/clocwork)")
-    tok = sub.add_parser("tokens", parents=[common], help="archive Claude Code transcripts only")
-    tok.add_argument("repo", nargs="?", metavar="REPO", help="repository or any directory inside it (default: cwd)")
-    sub.add_parser("render", parents=[common], help="re-render the dashboard from existing workspace data")
+                     help="cache location (default: $XDG_CACHE_HOME/clocwork, else ~/.cache/clocwork; wins over both)")
+    tok = sub.add_parser("tokens", parents=[quiet], help="archive Claude Code transcripts only")
+    tok.add_argument("repo", nargs="?", metavar="REPO", help=repo_help)
+    tok.add_argument("-o", "--output", metavar="DIR", help=workspace_help)
+    ren = sub.add_parser("render", parents=[quiet, page], help="re-render the dashboard from existing workspace data")
+    ren.add_argument("-o", "--output", metavar="DIR", required=True, help="the workspace to render")
     return p
 
 
@@ -62,8 +68,8 @@ def parse_args(argv):
     if not argv or (argv[0] not in COMMANDS and argv[0] not in ("-h", "--help", "--version")):
         argv.insert(0, "run")
     args = build_parser().parse_args(argv)
-    for name, default in (("repo", None), ("branch", None), ("max_commits", None),
-                          ("no_tokens", False), ("cache_dir", None)):
+    for name, default in (("repo", None), ("branch", None), ("max_commits", None), ("no_tokens", False),
+                          ("cache_dir", None), ("config", None), ("locale", None), ("no_open", False)):
         if not hasattr(args, name):
             setattr(args, name, default)
     return args
@@ -93,8 +99,6 @@ def _workspace_for(args, repo):
 
 
 def cmd_render(args, log):
-    if not args.output:
-        raise paths.WorkspaceMismatch("render needs -o DIR: the workspace to render")
     ws = os.path.abspath(args.output)
     ident = paths.read_identity(ws)
     if ident is None:

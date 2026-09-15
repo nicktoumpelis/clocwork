@@ -1,12 +1,13 @@
 """The clocwork(1) manual page, generated from the argparse parsers.
 
-    python3 -m clocwork.manpage > man/clocwork.1
+    PYTHONPATH=src python3 -m clocwork.manpage > man/clocwork.1
 
 The page is committed rather than built at install time because pip has no
 portable way to install a manual page; a clone reads it with
-`man ./man/clocwork.1`, and the Homebrew formula will install it. A test
-regenerates the page and compares it with the committed one, so a change to
-the help text that is not followed by the command above fails the suite.
+`man ./man/clocwork.1`, and a package manager formula can install the file
+(the release spec's Homebrew channel does). A test regenerates the page and
+compares it with the committed one, so a change to the help text or the
+version that is not followed by the command above fails the suite.
 Everything a parser knows - commands, options, defaults - comes from the
 parser; the sections argparse cannot know (ENVIRONMENT, FILES, EXIT STATUS)
 are written here, next to the code they describe.
@@ -69,10 +70,11 @@ def render(parser=None, version=__version__, date=None):
         [_synopsis(name, sub).rstrip("\n") for name, sub in subs.items() if name != "run"] +
         [".B clocwork \\-\\-version"]))
     lines.append(".SH DESCRIPTION\n" + escape(parser.description) + "\n.PP\n"
-                 "Every commit reachable from the analysed ref is measured with\n"
+                 "Every non\\-merge commit reachable from the analysed ref is measured with\n"
                  ".BR cloc (1)\n"
-                 "in git diff mode and cached per file, so a first run over a long history is slow and every later run takes seconds. "
-                 "The result is a self\\-contained\n.I index.html\n"
+                 "in git diff mode and cached per file, so a first run over a long history is slow and every later run takes seconds; "
+                 "merge commits carry no code of their own and are listed but not measured. The result is one\n.I index.html\n"
+                 "(its charts load Chart.js from a CDN) plus a\n.I commit_bodies.js\nsidecar, "
                  "written to a workspace next to the repository, never inside it: lines per language and type at every commit, "
                  "which commits an AI agent co\\-authored and when each model first appeared, and, when Claude Code transcripts "
                  "exist for the repository, what the work cost in tokens.\n.PP\n"
@@ -86,7 +88,8 @@ def render(parser=None, version=__version__, date=None):
                  ".TP\n.B CLOCWORK_LOCALE\nA BCP 47 tag such as\n.BR en\\-SE .\n"
                  "The region locale the page formats numbers, dates and units with. Wins over the machine's setting;\n"
                  ".B \\-\\-locale\nwins over both.\n"
-                 ".TP\n.B XDG_CACHE_HOME\nWhen set, the cloc cache lives under\n.IR $XDG_CACHE_HOME/clocwork/ ;\notherwise under\n.IR ~/.cache/clocwork/ .")
+                 ".TP\n.B XDG_CACHE_HOME\nWhen set, the cloc cache lives under\n.IR $XDG_CACHE_HOME/clocwork/ ;\notherwise under\n.IR ~/.cache/clocwork/ .\n"
+                 ".B \\-\\-cache\\-dir\nwins over both. Only\n.B run\nuses the cache.")
     lines.append(".SH FILES\n"
                  ".TP\n.I <repo\\-parent>/<repo\\-name>\\-stats/\nThe workspace: a sibling of the repository, overridden with\n.BR \\-o .\n"
                  ".TP\n.I clocwork.json\nWhich repository the workspace belongs to. A run against another repository is refused rather than overwriting the workspace.\n"
@@ -97,8 +100,8 @@ def render(parser=None, version=__version__, date=None):
                  ".TP\n.IR index.html \", \" commit_bodies.js\nThe dashboard and its sidecar of full commit messages.\n"
                  ".TP\n.I ~/.cache/clocwork/<name>\\-<hash>/cloc_cache.json\nPer\\-file cloc results keyed by commit, so a changed test rule or language table re\\-reads the cache instead of re\\-running cloc.")
     lines.append(".SH EXIT STATUS\n.TP\n.B 0\nSuccess.\n"
-                 f".TP\n.B {EXIT_ERROR}\nAn error the command reported: cloc missing, no git repository, a repository with no commits, "
-                 "a workspace belonging to another repository, invalid configuration, or an unreadable or unwritable file. "
+                 f".TP\n.B {EXIT_ERROR}\nAn error the command reported: cloc missing or failing, no git repository, a repository with no commits, "
+                 "a workspace belonging to another repository, invalid configuration, or an unreadable, unwritable or corrupt file. "
                  "A usage error also exits 2, with the usage line on standard error.")
     lines.append(".SH SEE ALSO\n.BR cloc (1),\n.BR git (1),\n.BR git\\-log (1)")
     return "\n".join(lines) + "\n"
