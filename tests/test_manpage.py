@@ -80,8 +80,10 @@ class TestRender(unittest.TestCase):
         options = self.sh_section("OPTIONS")
         self.assertRegex(options, r"\.B \\-q, \\-\\-quiet\nprint nothing but errors\n")     # all commands: no note
         self.assertIn("explicit clocwork.toml. Taken by run and render.", options)
-        self.assertIn("(default: <repo\\-parent>/<repo\\-name>\\-stats) Taken by run and tokens.", options)
-        self.assertIn("Taken by run and tokens.", options)                              # the optional -o
+        self.assertIn("(default: <repo\\-parent>/<repo\\-name>\\-stats). Taken by run and tokens.", options)
+        option_tags = re.findall(r"^\.TP\n\.B (.+)$", options, re.M)
+        self.assertEqual(option_tags, ["\\-q, \\-\\-quiet", "\\-\\-config PATH", "\\-\\-locale TAG",
+                                       "\\-\\-no\\-open", "\\-o, \\-\\-output DIR"])    # run's declaration order
         run, tokens, render = (self.section(n) for n in ("run", "tokens", "render"))
         run_tags = re.findall(r"^\.TP\n\.[BI] (.+)$", run, re.M)
         self.assertEqual(run_tags, ["REPO", "\\-\\-branch REF", "\\-\\-max\\-commits N", "\\-\\-no\\-tokens", "\\-\\-cache\\-dir DIR"])
@@ -122,6 +124,15 @@ class TestRender(unittest.TestCase):
         for tag in re.findall(r"\.TP\n(.+)\n(.+)\n", self.page):
             self.assertFalse(tag[1].startswith((".I ", ".IR ", ".B ", ".BR ")), tag)
         self.assertIn('.IR index.html ", " commit_bodies.js\n', self.page)
+
+    def test_note_is_a_sentence_even_without_help(self):
+        import argparse
+        p = argparse.ArgumentParser(prog="x")
+        p.add_argument("--nohelp")
+        p.add_argument("--paren", help="ends with a bracket (like this)")
+        nohelp, paren = p._actions[1], p._actions[2]
+        self.assertEqual(manpage._entry(nohelp, "Taken by a, b and c."), ".TP\n.B \\-\\-nohelp NOHELP\nTaken by a, b and c.\n")
+        self.assertIn("(like this). Taken by a.", manpage._entry(paren, "Taken by a."))
 
     def test_options_fall_back_to_the_dest_and_keep_positional_order(self):
         import argparse

@@ -48,13 +48,20 @@ def _key(action):
 
 
 def _entry(action, note=""):
+    """One .TP entry. `note` is a sentence appended to the help; the help gets
+    a full stop first unless it already ends with one."""
     metavar = action.metavar or action.dest.upper()
+    text = action.help or ""
+    if note and text.strip():
+        text = text.rstrip() + ("" if text.rstrip().endswith(".") else ".") + " " + note
+    elif note:
+        text = note
     if action.option_strings:
         flags = ", ".join(escape(o) for o in action.option_strings)
         if action.nargs != 0:                 # takes a value; store_true has nargs 0
             flags += " " + escape(metavar)
-        return f".TP\n.B {flags}\n{escape(action.help or '')}{note}\n"
-    return f".TP\n.I {escape(metavar)}\n{escape(action.help or '')}\n"
+        return f".TP\n.B {flags}\n{escape(text)}\n"
+    return f".TP\n.I {escape(metavar)}\n{escape(text)}\n"
 
 
 def _shared(subs):
@@ -76,8 +83,8 @@ def _shared_options(subs):
         if len(names) == len(subs):
             note = ""
         else:
-            stop = "" if (action.help or "").rstrip().endswith((".", ")")) else "."
-            note = f"{stop} Taken by " + " and ".join(names) + "."
+            listed = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+            note = f"Taken by {listed}."
         out.append(_entry(action, note))
     return "".join(out).rstrip("\n")
 
