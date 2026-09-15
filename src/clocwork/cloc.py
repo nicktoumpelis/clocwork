@@ -16,18 +16,14 @@ import csv
 import io
 import json
 import os
-import re
 import shutil
 import subprocess
 import time
 from collections import namedtuple
 
-TYPES = ("code", "comment", "blank")
-OTHER = "Other"
+from clocwork.classify import DEFAULT_RULES, language_for, parse_extension_table
 
-# A file is test code when any directory on its path is "Tests" or ends in
-# "Tests" (WinterTests, WinterUITests). The filename itself is not considered.
-TEST_SEGMENT = re.compile(r"^\w*Tests$")
+TYPES = ("code", "comment", "blank")
 
 # git's well-known empty tree, used as the parent of the root commit.
 EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
@@ -45,34 +41,6 @@ def empty_row():
     return [0, 0, 0, 0, 0, 0]
 
 
-def is_test_path(path):
-    parts = path.replace("\\", "/").split("/")
-    return any(TEST_SEGMENT.match(seg) for seg in parts[:-1])
-
-
-def parse_extension_table(text):
-    """Parse `cloc --show-ext` output into {extension: language}.
-
-    Language names are kept whole: "C/C++ Header" is one language, and an
-    ambiguous entry such as "MATLAB/Mathematica/Objective-C/MUMPS/Mercury" is
-    reported verbatim so the HEAD mapping check can flag it if it ever appears.
-    """
-    table = {}
-    for line in text.splitlines():
-        parts = line.split(None, 1)
-        if len(parts) == 2:
-            table[parts[0].lower()] = parts[1].strip()
-    return table
-
-
-def language_for(path, table):
-    name = path.rsplit("/", 1)[-1]
-    if "." not in name or name.startswith(".") and name.count(".") == 1:
-        return OTHER
-    ext = name.rsplit(".", 1)[-1].lower()
-    return table.get(ext, OTHER)
-
-
 _SKIP_KEYS = ("header", "SUM", "nFiles")
 
 
@@ -86,7 +54,7 @@ def _prune(matrix):
     return {lang: row for lang, row in matrix.items() if any(row)}
 
 
-def parse_diff_json(obj, table):
+def parse_diff_json(obj, table, rules=DEFAULT_RULES):
     """Sum a `cloc --git --diff --by-file --json` result into per-language matrices.
 
     Returns (lines, test_lines). "modified" lines are changed in place and do
@@ -99,7 +67,7 @@ def parse_diff_json(obj, table):
                 continue
             lang = language_for(path, table)
             _add_counts(lines, lang, offset, counts)
-            if is_test_path(path):
+            if rules.is_test(path):
                 _add_counts(test_lines, lang, offset, counts)
     return _prune(lines), _prune(test_lines)
 
@@ -120,7 +88,7 @@ def parse_snapshot_by_language(obj):
             if k not in _SKIP_KEYS and isinstance(v, dict)}
 
 
-def parse_snapshot_by_file(obj, table):
+def parse_snapshot_by_file(obj, table, rules=DEFAULT_RULES):
     """Parse `cloc --git --by-file --json <rev>` into (all_files, test_files)."""
     all_files, test_files = {}, {}
     for path, counts in obj.items():
@@ -129,7 +97,7 @@ def parse_snapshot_by_file(obj, table):
         lang = language_for(path, table)
         tc = _type_counts(counts)
         _accumulate(all_files, lang, tc)
-        if is_test_path(path):
+        if rules.is_test(path):
             _accumulate(test_files, lang, tc)
     return all_files, test_files
 
@@ -201,9 +169,9 @@ def diff_commit(repo, parent, commit, table):
     return parse_diff_json(run_cloc(["--git", "--diff", "--by-file", parent or EMPTY_TREE, commit], repo), table)
 
 
-def snapshot(repo, rev, table):
+def snapshot(repo, rev, table, rules=DEFAULT_RULES):
     by_lang = parse_snapshot_by_language(run_cloc(["--git", rev], repo))
-    all_files, tests = parse_snapshot_by_file(run_cloc(["--git", "--by-file", rev], repo), table)
+    all_files, tests = parse_snapshot_by_file(run_cloc(["--git", "--by-file", rev], repo), table, rules)
     return by_lang, all_files, tests
 
 
