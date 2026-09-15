@@ -56,7 +56,8 @@ class TestRender(unittest.TestCase):
             self.assertTrue(any(t.startswith(tag) for t in option_tags), (tag, option_tags))
             self.assertIn(manpage.escape(help.split("(")[0].strip()), options)
             # Which commands take it is stated unless every command does.
-            note = f"Taken by {' and '.join(names)}."
+            listed = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+            note = f"Taken by {listed}."
             self.assertEqual(note in options, len(names) < len(subs), (tag, note))
         for name, sub in subs.items():
             body = self.section(name)
