@@ -11,11 +11,11 @@ rename are still in this history, so the analysed range spans both names.
 
 import json
 import os
-import re
 import subprocess
 import sys
 
 from clocwork import cloc as cl
+from clocwork.agents import DEFAULT_AGENTS
 from clocwork import tokens as tu
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -23,40 +23,6 @@ DEFAULT_REPO = os.path.join(SCRIPT_DIR, "..", "MyApp")
 OUTPUT_FILE = os.path.join(SCRIPT_DIR, "full_commit_data.json")
 CACHE_FILE = os.path.join(SCRIPT_DIR, "cloc_cache.json")
 ARCHIVE_FILE = os.path.join(SCRIPT_DIR, "token_usage.json")
-
-# AI agent detection.
-#
-# Attribution is read from "Co-Authored-By:" trailer lines only, so a human
-# commit that merely mentions CLAUDE.md or a claude-* branch name is not
-# counted as AI-assisted.
-#
-# Model names are parsed generically rather than listed one by one, so any
-# Claude model - past, present, or future - is recognised without a code
-# change. Two naming schemes are handled:
-#
-#   family-first (Claude 4+):  "Claude Opus 4.6", "Claude Fable 5.1",
-#                              "Claude Opus 5 (1M context)"
-#   version-first (Claude 3.x): "Claude 3.5 Sonnet", "Claude 3 Opus"
-#
-# Both normalise to "Claude <Family> <version>", with " (1M)" appended for the
-# 1M-context variants, so the dashboard sees one consistent naming scheme.
-# The version is captured greedily, which is what keeps "Fable 5.1" from being
-# read as "Fable 5".
-CLAUDE_FAMILIES = r"(?:Fable|Opus|Sonnet|Haiku|Mythos)"
-CLAUDE_VERSION = r"\d+(?:\.\d+)?"
-CLAUDE_CONTEXT = r"(?:\s*\((\d+[KM]) context\))?"
-
-MODEL_FAMILY_FIRST = re.compile(
-    rf"Claude\s+({CLAUDE_FAMILIES})\s+({CLAUDE_VERSION}){CLAUDE_CONTEXT}",
-    re.IGNORECASE,
-)
-MODEL_VERSION_FIRST = re.compile(
-    rf"Claude\s+({CLAUDE_VERSION})\s+({CLAUDE_FAMILIES}){CLAUDE_CONTEXT}",
-    re.IGNORECASE,
-)
-COAUTHOR_TRAILER = re.compile(r"^\s*Co-Authored-By:\s*(.+)$", re.IGNORECASE | re.MULTILINE)
-
-UNKNOWN_CLAUDE = "Claude (unknown version)"
 
 # Merge commits carry no code of their own, so they are filed under a
 # catch-all category rather than being attributed to a human or an AI agent.
@@ -66,26 +32,6 @@ MISC = "Misc"
 def is_merge_commit(commit):
     """Merges carry no code of their own: any multi-parent commit, plus GitHub PR merges by subject."""
     return len(commit.get("parents", [])) > 1 or commit["message"].startswith("Merge pull request")
-
-
-def normalise_model(family, version, context):
-    name = f"Claude {family.capitalize()} {version}"
-    if context:
-        name += f" ({context.upper()})"
-    return name
-
-
-def parse_claude_model(text):
-    """Return the normalised Claude model name found in a co-author trailer, or None."""
-    m = MODEL_FAMILY_FIRST.search(text)
-    if m:
-        return normalise_model(m.group(1), m.group(2), m.group(3))
-    m = MODEL_VERSION_FIRST.search(text)
-    if m:
-        return normalise_model(m.group(2), m.group(1), m.group(3))
-    if re.search(r"\bClaude\b", text, re.IGNORECASE):
-        return UNKNOWN_CLAUDE
-    return None
 
 
 def git(repo, *args):
@@ -100,22 +46,7 @@ def github_url(repo):
     return f"https://github.com/{m.group(1)}" if m else None
 
 
-def detect_agent(body):
-    """Detect the AI agent credited in a commit body via its Co-Authored-By trailers.
-
-    The first Claude trailer wins, matching the previous first-match behaviour
-    for commits that credit more than one model.
-    """
-    if not body:
-        return None
-    for trailer in COAUTHOR_TRAILER.findall(body):
-        model = parse_claude_model(trailer)
-        if model:
-            return model
-    return None
-
-
-def parse_log(repo, branch):
+def parse_log(repo, branch, agents=DEFAULT_AGENTS):
     """Return every commit reachable from branch, oldest first, with parents, body, numstat and agent."""
     raw = git(repo, "log", branch, "--reverse",
               "--format=COMMIT_START%n%H%n%P%n%aI%n%s%n%b%nCOMMIT_BODY_END", "--numstat")
@@ -127,7 +58,7 @@ def parse_log(repo, branch):
 
     def finish(c):
         c["body"] = "\n".join(body_lines)
-        c["agent"] = detect_agent(c["body"])
+        c["agent"] = agents.detect(c["body"])
         commits.append(c)
 
     for line in raw.splitlines():
