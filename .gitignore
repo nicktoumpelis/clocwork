@@ -1,6 +1,4 @@
 __pycache__/
-first_pass.log
-first_pass.pid
 
 # iCloud Drive sync duplicates ("token_usage 2.py"). This repo lives in
 # Mobile Documents, so a sync race can drop a numbered copy of any file
