@@ -9,7 +9,9 @@ const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
-let WORKSPACE = null;
+// CLOCWORK_DASH_WORKSPACE points the suite at an already rendered workspace
+// (a real one, say) instead of the synthetic fixture.
+let WORKSPACE = process.env.CLOCWORK_DASH_WORKSPACE || null;
 function workspace() {
   if (WORKSPACE) return WORKSPACE;
   const root = path.resolve(__dirname, '..', '..');
