@@ -6,3 +6,9 @@ first_pass.pid
 # Mobile Documents, so a sync race can drop a numbered copy of any file
 # beside the original; nine of them were committed once already.
 * [0-9].*
+
+# Claude Code: the parent directory's global ignore has "*claude*", so
+# un-ignore the project config here and keep local settings private.
+!CLAUDE.md
+!.claude/
+.claude/settings.local.json
