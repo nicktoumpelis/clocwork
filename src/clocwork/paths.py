@@ -18,9 +18,9 @@ from datetime import datetime, timezone
 IDENTITY_FILE = "clocwork.json"
 
 _HOSTS = ("github.com", "gitlab.com", "bitbucket.org")
-_REMOTE = re.compile(
-    r"^(?:git@(?P<h1>[^:]+):|https?://(?:[^@/]+@)?(?P<h2>[^/]+)/|ssh://git@(?P<h3>[^/]+)/)"
-    r"(?P<path>[^/]+/[^/]+?)(?:\.git)?/?$")
+# scp-like (git@host:path) and URL (scheme://[user@]host[:port]/path) remotes.
+_SCP = re.compile(r"^(?:[^@/]+@)?(?P<host>[^:/]+):(?P<path>[^/].*)$")
+_URL = re.compile(r"^(?:https?|ssh|git)://(?:[^@/]+@)?(?P<host>[^/:]+)(?::\d+)?/(?P<path>.+)$")
 
 
 class NotARepository(RuntimeError):
@@ -79,28 +79,43 @@ def cache_path(repo, override=None, env=os.environ):
     return os.path.join(cache_root(override, env), cache_key(repo), "cloc_cache.json")
 
 
-def remote_url(repo):
-    """The https URL of origin when it is on a known host, else None.
+def parse_remote(remote):
+    """(host, path) from a git remote in scp or URL form, or None.
 
-    Commit links are omitted rather than broken when the host is unknown.
+    The host is lower-cased and a trailing .git or slash is dropped, so the
+    same repository reached two ways compares equal. GitLab subgroup paths
+    are kept whole.
     """
-    code, remote = _git(repo, "remote", "get-url", "origin")
-    if code != 0 or not remote:
-        return None
-    m = _REMOTE.match(remote)
+    m = _URL.match(remote) or _SCP.match(remote)
     if not m:
         return None
-    host = m.group("h1") or m.group("h2") or m.group("h3")
-    if host not in _HOSTS:
+    path = m.group("path").rstrip("/").removesuffix(".git").rstrip("/")
+    if not path:
         return None
-    return f"https://{host}/{m.group('path')}"
+    return m.group("host").lower(), path
+
+
+def remote_key(repo):
+    """host/path of origin for any host, or None: the identity of a repository."""
+    code, remote = _git(repo, "remote", "get-url", "origin")
+    parsed = parse_remote(remote) if code == 0 and remote else None
+    return f"{parsed[0]}/{parsed[1]}" if parsed else None
+
+
+def remote_url(repo):
+    """The https URL of origin when it is on a host whose commit URLs the
+    page knows, else None: commit links are omitted rather than broken."""
+    key = remote_key(repo)
+    if key and key.split("/", 1)[0] in _HOSTS:
+        return "https://" + key
+    return None
 
 
 def identity(repo, version):
     repo = os.path.realpath(repo)
     return {
         "version": version,
-        "repo_remote": remote_url(repo),
+        "repo_remote": remote_url(repo) or remote_key(repo),
         "repo_path": repo,
         "repo_name": os.path.basename(repo),
         "generated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -111,13 +126,23 @@ def read_identity(workspace):
     path = os.path.join(workspace, IDENTITY_FILE)
     if not os.path.exists(path):
         return None
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        with open(path, encoding="utf-8") as f:
+            ident = json.load(f)
+    except ValueError as e:
+        raise WorkspaceMismatch(f"{path} is not valid JSON ({e}); fix or remove it") from None
+    if not isinstance(ident, dict) or not isinstance(ident.get("repo_name"), str):
+        raise WorkspaceMismatch(f"{path} does not name a repository (no repo_name); fix or remove it")
+    return ident
+
+
+def _norm_remote(value):
+    return re.sub(r"^https?://", "", value).lower() if value else None
 
 
 def _same(existing, current):
     if existing.get("repo_remote") and current["repo_remote"]:
-        return existing["repo_remote"] == current["repo_remote"]
+        return _norm_remote(existing["repo_remote"]) == _norm_remote(current["repo_remote"])
     return existing.get("repo_path") == current["repo_path"]
 
 

@@ -14,8 +14,6 @@ BUILTIN_DIRS = ("test", "tests", "spec", "specs", "__tests__", "testdata")
 # Directory segments matched case-sensitively: the capitalised Xcode and JVM
 # forms (Tests, WinterUITests, AppTest).
 _CAPITALISED_DIR = re.compile(r"^\w+Tests?$")
-# Directory runs that mark JVM build layouts.
-_LAYOUT_RUNS = (("src", "test"), ("src", "androidTest"), ("src", "integrationTest"))
 
 # Filename patterns, as (regex over the filename, extensions or None for any).
 BUILTIN_FILES = (
@@ -82,12 +80,11 @@ def _builtin_is_test(parts):
     dirs, name = parts[:-1], parts[-1]
     if any(d.lower() in BUILTIN_DIRS for d in dirs):
         return True
+    # JVM layouts (src/test/, src/androidTest/, src/integrationTest/) need
+    # no rule of their own: "test" is a built-in word and the camel-cased
+    # forms match _CAPITALISED_DIR.
     if any(_CAPITALISED_DIR.match(d) for d in dirs):
         return True
-    for run in _LAYOUT_RUNS:
-        for i in range(len(dirs) - len(run) + 1):
-            if tuple(dirs[i:i + len(run)]) == run:
-                return True
     ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
     for regex, exts in BUILTIN_FILES:
         if (exts is None or ext in exts) and regex.search(name):

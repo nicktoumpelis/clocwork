@@ -160,13 +160,38 @@ class TestInputs(unittest.TestCase):
             self.assertEqual(data["summary"]["head_snapshot"]["tests"]["Swift"], fx.HEAD_SWIFT)
 
     def test_configured_agents_are_used(self):
+        # The polyglot fixture's last commit credits "Jules", which no built-in
+        # rule knows: unattributed by default, attributed once config names it.
+        with tempfile.TemporaryDirectory() as d:
+            fx.make_polyglot_repo(d)
+            args = (d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), os.path.join(d, "t.json"))
+            plain = an.analyse(*args, log=lambda *a: None)
+            self.assertIsNone(plain["commits"][3]["agent"])
+            conf = cfg.parse('[agents]\nextra = [{ match = "Jules", name = "Jules" }]\n', "x")
+            data = an.analyse(*args, config=conf, log=lambda *a: None)
+            self.assertEqual(data["commits"][3]["agent"], "Jules")
+            self.assertIn("Jules", data["first_appearances"])
+
+    def test_branch_snapshot_and_test_share_follow_the_requested_ref(self):
+        # main is checked out; the feature branch has one more Markdown file.
         with tempfile.TemporaryDirectory() as d:
             fx.make_repo(d)
-            conf = cfg.parse('[agents]\nextra = [{ match = "Opus", name = "Renamed" }]\n', "x")
             data = an.analyse(d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), os.path.join(d, "t.json"),
-                              config=conf, log=lambda *a: None)
-            # Claude parsing still wins over the vendor table for a Claude trailer.
-            self.assertEqual(data["commits"][1]["agent"], "Claude Opus 4.6")
+                              branch="feature", log=lambda *a: None)
+            head = data["summary"]["head_snapshot"]["all"]
+            self.assertEqual(head["Markdown"]["code"], fx.HEAD_MARKDOWN["code"])   # Notes.md is on feature
+            self.assertEqual({l: v for l, v in data["summary"]["reconciliation"].items() if any(v.values())}, {})
+
+    def test_shallow_clone_is_warned_about(self):
+        with tempfile.TemporaryDirectory() as d:
+            src = os.path.join(d, "src")
+            os.makedirs(src)
+            fx.make_repo(src)
+            shallow = os.path.join(d, "shallow")
+            subprocess.run(["git", "clone", "-q", "--depth", "1", "file://" + src, shallow], check=True, capture_output=True)
+            lines = []
+            an.analyse(shallow, os.path.join(d, "o.json"), os.path.join(d, "c.json"), os.path.join(d, "t.json"), log=lines.append)
+            self.assertTrue(any("shallow" in l.lower() and "WARNING" in l for l in lines), lines)
 
     def test_explicit_branch(self):
         with tempfile.TemporaryDirectory() as d:
@@ -180,7 +205,7 @@ class TestInputs(unittest.TestCase):
             fx.make_repo(d)
             lines = []
             an.analyse(d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), os.path.join(d, "t.json"), log=lines.append)
-            share = [l for l in lines if "Test code at HEAD" in l]
+            share = [l for l in lines if "Test code at main" in l]
             self.assertEqual(len(share), 1)
             self.assertIn(f"{fx.HEAD_TEST_SWIFT['code']:,} of {fx.HEAD_SWIFT['code'] + fx.HEAD_MARKDOWN['code']:,}", share[0])
 

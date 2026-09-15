@@ -65,18 +65,27 @@ iterated on without re-analysing.
 Options (`clocwork run --help`):
 
 ```
-  -o, --output DIR  workspace directory (default: <repo-parent>/<repo-name>-stats)
+  -o, --output DIR  workspace directory (default: <repo-parent>/<repo-
+                    name>-stats)
   --config PATH     explicit clocwork.toml
-  --locale TAG      region locale for the page (default: the machine's)
+  --locale TAG      region locale for the page (default: $CLOCWORK_LOCALE,
+                    else the machine's region)
   --no-open         do not open the dashboard in a browser
   -q, --quiet       print nothing but errors
   --branch REF      ref to analyse (default: the checked-out branch)
   --max-commits N   measure at most N uncached commits this run
   --no-tokens       skip the transcript scan
-  --cache-dir DIR   cache location (default: ~/.cache/clocwork)
+  --cache-dir DIR   cache location (default: $XDG_CACHE_HOME/clocwork, else
+                    ~/.cache/clocwork)
 ```
 
 `tokens` and `render` take the first five; `--version` prints the version.
+
+The page formats every number, date and unit for a region locale. The
+generator records it, because browsers expose only the language list: the
+`CLOCWORK_LOCALE` environment variable wins (a BCP 47 tag such as `en-SE`),
+then the macOS Language & Region setting, then `LC_ALL`, `LC_NUMERIC` and
+`LANG`; `--locale` overrides all of them for one run.
 
 ## The workspace
 
@@ -127,7 +136,9 @@ replace = false                         # true drops the built-ins entirely
 extra = [{ match = "Jules", name = "Jules" }]   # substring of a Co-Authored-By trailer, reported name
 ```
 
-Globs: `**` matches across directories, `*` within one, `?` one character.
+Globs match the whole path from the repository root: `**` matches across
+directories, `*` within one, `?` one character. `*.py` therefore matches only
+top-level files; `**/*.py` matches at any depth.
 
 ### What counts as test code
 

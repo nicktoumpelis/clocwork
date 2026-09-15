@@ -15,7 +15,6 @@ without deduplication over-counts by more than 2x.
 
 import json
 import os
-import sys
 import tempfile
 from collections import namedtuple
 
@@ -92,10 +91,6 @@ def scan(directory):
 
 VERSION = 1
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-ARCHIVE_FILE = os.path.join(SCRIPT_DIR, "token_usage.json")
-DEFAULT_REPO = os.path.join(SCRIPT_DIR, "..", "MyApp")
-
 
 def day_total(day):
     """Every token recorded for one day, across models and counters."""
@@ -167,11 +162,3 @@ def archive(repo_path, archive_path, projects_dir=PROJECTS_DIR, log=print):
         log(f"  NOTE: skipped {result.malformed} unparseable lines")
     return days
 
-
-def main():
-    repo = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else DEFAULT_REPO)
-    archive(repo, ARCHIVE_FILE)
-
-
-if __name__ == "__main__":
-    main()

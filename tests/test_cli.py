@@ -33,6 +33,11 @@ class TestParseArgs(unittest.TestCase):
         self.assertEqual((a.branch, a.max_commits, a.cache_dir, a.config, a.locale, a.quiet),
                          ("dev", 5, "/c", "/f.toml", "en-SE", True))
 
+    def test_negative_max_commits_is_rejected(self):
+        with self.assertRaises(SystemExit):
+            with redirect_stderr(io.StringIO()):
+                cli.parse_args(["--max-commits", "-1"])
+
     def test_run_only_options_default_on_other_commands(self):
         a = cli.parse_args(["render", "-o", "/ws"])
         self.assertEqual((a.branch, a.max_commits, a.no_tokens, a.cache_dir), (None, None, False, None))
@@ -98,6 +103,12 @@ class TestEndToEnd(unittest.TestCase):
         shutil.rmtree(self.repo)
         self.assertEqual(self.run_cli("render", "-o", self.ws), (0, ""))
         self.assertTrue(os.path.exists(os.path.join(self.ws, "index.html")))
+
+    def test_render_before_any_analysis_is_an_error_not_a_traceback(self):
+        self.assertEqual(self.run_cli("tokens", self.repo), (0, ""))     # identity file, no data yet
+        code, err = self.run_cli("render", "-o", self.ws)
+        self.assertEqual(code, 2)
+        self.assertIn("full_commit_data.json", err)
 
     def test_render_refuses_a_directory_that_is_not_a_workspace(self):
         code, err = self.run_cli("render", "-o", self.root)

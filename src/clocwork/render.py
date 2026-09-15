@@ -70,7 +70,7 @@ def detect_locale(env=os.environ, platform=sys.platform, apple=read_default):
     """The region locale the page should format with, or None.
 
     Browsers expose only the language list, never the OS region, so the machine
-    generating the page records it. An explicit CLOC_LOCALE wins; then the macOS
+    generating the page records it. An explicit CLOCWORK_LOCALE wins; then the macOS
     region setting, with the measurement-system setting carried as a -u-ms-
     extension when it has been set explicitly; then the POSIX locale variables."""
     explicit = bcp47(env.get("CLOCWORK_LOCALE"))
@@ -143,7 +143,11 @@ def render_page(data, *, title, repo_name, generated, locale):
 
 def render_workspace(workspace, *, title, repo_name, locale, log=print):
     """Write index.html and commit_bodies.js from the workspace's full_commit_data.json."""
-    with open(os.path.join(workspace, "full_commit_data.json"), encoding="utf-8") as f:
+    data_path = os.path.join(workspace, "full_commit_data.json")
+    if not os.path.exists(data_path):
+        raise FileNotFoundError(
+            f"{workspace} has no full_commit_data.json to render; run `clocwork REPO -o {workspace}` first")
+    with open(data_path, encoding="utf-8") as f:
         data = json.load(f)
     today = datetime.now().strftime("%Y-%m-%d")
     page = render_page(data, title=title, repo_name=repo_name, generated=today, locale=locale)

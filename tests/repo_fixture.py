@@ -114,4 +114,9 @@ def make_polyglot_repo(root):
     _git(root, "add", ".")
     _git(root, "commit", "-q", "-m", "Java\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
          date="2025-02-03T10:00:00+00:00")
+    _write(root, "docs/notes.md", "# Notes\n")
+    _git(root, "add", ".")
+    # An agent no built-in rule knows: attributed only when [agents].extra names it.
+    _git(root, "commit", "-q", "-m", "Notes\n\nCo-Authored-By: Jules <jules@google.com>",
+         date="2025-02-04T10:00:00+00:00")
     return _git(root, "log", "--reverse", "--format=%H", "main").splitlines()

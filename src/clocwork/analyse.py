@@ -7,7 +7,6 @@ rules are all inputs; nothing here knows which repository it is measuring.
 """
 
 import json
-import os
 import subprocess
 
 from clocwork import cloc as cl
@@ -42,7 +41,7 @@ def is_shallow(repo):
 def parse_log(repo, branch, agents=DEFAULT_AGENTS):
     """Return every commit reachable from branch, oldest first, with parents, body, numstat and agent."""
     raw = git(repo, "log", branch, "--reverse",
-              "--format=COMMIT_START%n%H%n%P%n%aI%n%s%n%b%nCOMMIT_BODY_END", "--numstat")
+              "--format=COMMIT_START%n%H%n%P%n%aI%n%s%n%b%nCOMMIT_BODY_END", "--numstat", "--")
     commits = []
     current = None
     in_body = False
@@ -307,19 +306,19 @@ def analyse(repo_dir, output_path, cache_path, archive_path, *, config=None, bra
 
     log(f"Step 2: Measuring lines per commit with cloc (cache: {cache_path})...")
     show_ext_table = cl.load_extension_table()
-    learned = cl.learn_extensions(repo_dir, "HEAD")
+    learned = cl.learn_extensions(repo_dir, branch)
     table = cl.merge_language_tables(show_ext_table, learned)
     new_extensions = sorted(ext for ext in learned if ext not in show_ext_table)
     if new_extensions:
-        log(f"  learned {len(new_extensions)} extensions from HEAD: {', '.join(new_extensions)}")
+        log(f"  learned {len(new_extensions)} extensions from {branch}: {', '.join(new_extensions)}")
     cache = cl.Cache(cache_path)
     measure_input = [{"hash": c["hash"], "parent": c["parents"][0] if c["parents"] else None,
                       "is_merge": is_merge_commit(c)} for c in commits]
     log(f"  {sum(1 for m in measure_input if not m['is_merge'] and cache.get(m['hash']) is None)} commits not yet cached")
     measured = cl.measure_commits(repo_dir, measure_input, cache, table, rules, max_commits=max_commits, log=log)
 
-    log("Step 3: Snapshot of HEAD for reconciliation...")
-    by_lang, by_file_all, by_file_tests = cl.snapshot(repo_dir, "HEAD", table, rules)
+    log(f"Step 3: Snapshot of {branch} for reconciliation...")
+    by_lang, by_file_all, by_file_tests = cl.snapshot(repo_dir, branch, table, rules)
 
     log("Step 4: Building per-commit records and running totals...")
     running_all, running_tests = {}, {}
@@ -425,8 +424,8 @@ def analyse(repo_dir, output_path, cache_path, archive_path, *, config=None, bra
         log("  Tokens: none (no Claude Code transcript archive for this repository)")
     head_tests = sum(v["code"] for v in by_file_tests.values())
     head_all = sum(v["code"] for v in by_file_all.values())
-    log(f"  Test code at HEAD: {head_tests:,} of {head_all:,} code lines ({head_tests / head_all:.1%})"
-        if head_all else "  Test code at HEAD: none")
+    log(f"  Test code at {branch}: {head_tests:,} of {head_all:,} code lines ({head_tests / head_all:.1%})"
+        if head_all else f"  Test code at {branch}: none")
     log("  Lines at HEAD (cloc snapshot) and drift of running totals:")
     for lang in languages:
         snap = by_lang.get(lang, {t: 0 for t in cl.TYPES})

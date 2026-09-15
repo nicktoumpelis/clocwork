@@ -43,10 +43,17 @@ class TestWorkspaceAndCache(unittest.TestCase):
         self.assertEqual(k, paths.cache_key("/code/myapp"))
         self.assertNotEqual(k, paths.cache_key("/other/myapp"))
 
-    def test_cache_key_is_not_the_claude_encoding(self):
+    def test_cache_key_does_not_depend_on_the_claude_encoding(self):
         # If the cache were keyed by Claude Code's scheme, an upstream change to
         # that scheme would relocate every cache directory.
-        self.assertNotEqual(paths.cache_key("/code/myapp"), paths.claude_project_dir("/code/myapp"))
+        before = paths.cache_key("/code/myapp")
+        original = paths.claude_project_dir
+        paths.claude_project_dir = lambda repo: "changed-upstream-" + original(repo)
+        try:
+            self.assertEqual(paths.cache_key("/code/myapp"), before)
+        finally:
+            paths.claude_project_dir = original
+        self.assertNotIn(original("/code/myapp"), before)
 
     def test_claude_project_dir(self):
         self.assertEqual(paths.claude_project_dir("/Users/nick/Library/Mobile Documents/com~apple~CloudDocs/MyApp"),
@@ -79,10 +86,23 @@ class TestRemoteUrl(unittest.TestCase):
     def test_gitlab_and_bitbucket(self):
         self.check("git@gitlab.com:x/y.git", "https://gitlab.com/x/y")
         self.check("https://bitbucket.org/x/y.git", "https://bitbucket.org/x/y")
+        self.check("https://gitlab.com/group/sub/repo.git", "https://gitlab.com/group/sub/repo")
+
+    def test_host_case_user_prefix_and_port(self):
+        self.check("https://GitHub.com/x/y", "https://github.com/x/y")
+        self.check("https://user:token@github.com/x/y.git", "https://github.com/x/y")
+        self.check("ssh://github.com:22/x/y.git", "https://github.com/x/y")
 
     def test_unknown_host_and_no_remote(self):
         self.check("git@example.com:x/y.git", None)
         self.check(None, None)
+
+    def test_parse_remote_forms(self):
+        self.assertEqual(paths.parse_remote("git@example.com:x/y.git"), ("example.com", "x/y"))
+        self.assertEqual(paths.parse_remote("ssh://git@example.com/x/y"), ("example.com", "x/y"))
+        self.assertEqual(paths.parse_remote("https://example.com/x/y/"), ("example.com", "x/y"))
+        self.assertIsNone(paths.parse_remote("not a remote"))
+        self.assertIsNone(paths.parse_remote("/local/path"))
 
 
 class TestIdentity(unittest.TestCase):
@@ -139,6 +159,30 @@ class TestIdentity(unittest.TestCase):
     def test_read_identity_of_a_plain_directory_is_none(self):
         os.makedirs(self.ws)
         self.assertIsNone(paths.read_identity(self.ws))
+
+    def test_unknown_host_still_guards_by_remote(self):
+        # A self-hosted remote gets no commit links but still an identity, so a
+        # second checkout of the same repository is recognised.
+        git(self.repo, "remote", "set-url", "origin", "git@git.example.com:team/repo.git")
+        ident = paths.check_identity(self.ws, self.repo, "0.1.0")
+        self.assertEqual(ident["repo_remote"], "git.example.com/team/repo")
+        clone = self.other_repo("clone", "https://git.example.com/team/repo")
+        paths.check_identity(self.ws, clone, "0.1.0")   # no raise
+        other = self.other_repo("other", "https://git.example.com/team/other")
+        with self.assertRaises(paths.WorkspaceMismatch):
+            paths.check_identity(self.ws, other, "0.1.0")
+
+    def test_corrupt_or_incomplete_identity_is_an_error_not_a_traceback(self):
+        os.makedirs(self.ws)
+        path = os.path.join(self.ws, paths.IDENTITY_FILE)
+        with open(path, "w") as f:
+            f.write("{not json")
+        with self.assertRaises(paths.WorkspaceMismatch):
+            paths.read_identity(self.ws)
+        with open(path, "w") as f:
+            f.write('{"version": "0.1.0"}')
+        with self.assertRaises(paths.WorkspaceMismatch):
+            paths.check_identity(self.ws, self.repo, "0.1.0")
 
 
 if __name__ == "__main__":

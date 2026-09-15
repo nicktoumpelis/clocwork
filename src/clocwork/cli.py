@@ -13,6 +13,7 @@ within Claude Code's roughly 30-day retention window.
 
 import argparse
 import os
+import pathlib
 import sys
 import webbrowser
 
@@ -20,6 +21,13 @@ from clocwork import __version__, analyse, cloc, config, paths, render, tokens
 
 COMMANDS = ("run", "tokens", "render")
 EXIT_ERROR = 2
+
+
+def non_negative(text):
+    value = int(text)
+    if value < 0:
+        raise argparse.ArgumentTypeError(f"must be 0 or more, not {value}")
+    return value
 
 
 def build_parser():
@@ -31,16 +39,18 @@ def build_parser():
     common.add_argument("-o", "--output", metavar="DIR",
                         help="workspace directory (default: <repo-parent>/<repo-name>-stats)")
     common.add_argument("--config", metavar="PATH", help="explicit clocwork.toml")
-    common.add_argument("--locale", metavar="TAG", help="region locale for the page (default: the machine's)")
+    common.add_argument("--locale", metavar="TAG",
+                        help="region locale for the page (default: $CLOCWORK_LOCALE, else the machine's region)")
     common.add_argument("--no-open", action="store_true", help="do not open the dashboard in a browser")
     common.add_argument("-q", "--quiet", action="store_true", help="print nothing but errors")
     sub = p.add_subparsers(dest="command", metavar="COMMAND")
     run = sub.add_parser("run", parents=[common], help="analyse, archive tokens and render (the default)")
     run.add_argument("repo", nargs="?", metavar="REPO", help="repository or any directory inside it (default: cwd)")
     run.add_argument("--branch", metavar="REF", help="ref to analyse (default: the checked-out branch)")
-    run.add_argument("--max-commits", type=int, metavar="N", help="measure at most N uncached commits this run")
+    run.add_argument("--max-commits", type=non_negative, metavar="N", help="measure at most N uncached commits this run")
     run.add_argument("--no-tokens", action="store_true", help="skip the transcript scan")
-    run.add_argument("--cache-dir", metavar="DIR", help="cache location (default: ~/.cache/clocwork)")
+    run.add_argument("--cache-dir", metavar="DIR",
+                        help="cache location (default: $XDG_CACHE_HOME/clocwork, else ~/.cache/clocwork)")
     tok = sub.add_parser("tokens", parents=[common], help="archive Claude Code transcripts only")
     tok.add_argument("repo", nargs="?", metavar="REPO", help="repository or any directory inside it (default: cwd)")
     sub.add_parser("render", parents=[common], help="re-render the dashboard from existing workspace data")
@@ -75,7 +85,7 @@ def _log(quiet):
 
 def _open(path, no_open):
     if not no_open:
-        webbrowser.open("file://" + os.path.abspath(path))
+        webbrowser.open(pathlib.Path(path).resolve().as_uri())
 
 
 def _workspace_for(args, repo):
@@ -139,7 +149,7 @@ def main(argv=None, projects_dir=tokens.PROJECTS_DIR):
         else:
             cmd_run(args, log, projects_dir)
     except (cloc.ClocMissing, cloc.ClocError, paths.NotARepository, paths.WorkspaceMismatch,
-            config.ConfigError, analyse.NoCommits) as e:
+            config.ConfigError, analyse.NoCommits, OSError) as e:
         print(f"clocwork: {e}", file=sys.stderr)
         return EXIT_ERROR
     return 0

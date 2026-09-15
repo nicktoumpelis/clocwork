@@ -18,6 +18,8 @@ function workspace() {
   WORKSPACE = fs.mkdtempSync(path.join(os.tmpdir(), 'clocwork-dash-'));
   execFileSync('python3', [path.join(__dirname, 'fixture.py'), WORKSPACE], { stdio: 'inherit' });
   execFileSync(path.join(root, 'clocwork'), ['render', '-o', WORKSPACE, '--no-open', '-q'], { stdio: 'inherit' });
+  const rendered = WORKSPACE;
+  process.on('exit', () => { try { fs.rmSync(rendered, { recursive: true, force: true }); } catch (e) { /* best effort */ } });
   return WORKSPACE;
 }
 
