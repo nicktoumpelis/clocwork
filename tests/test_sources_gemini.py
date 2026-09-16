@@ -194,6 +194,13 @@ class TestRules(unittest.TestCase):
         self.write("child.jsonl", [meta(self.repo, "s2", kind="subagent"), reply("m2")], "s1")
         self.assertEqual(self.turns(), 2)
 
+    def test_a_reply_without_an_id_is_not_counted(self):
+        # An id is what makes a rewritten message count once; an empty one
+        # cannot, and would otherwise merge every such reply into one.
+        self.write("s.jsonl", [meta(self.repo), reply("m1"), reply(""), dict(reply(""), tokens=dict(reply("")["tokens"], output=99))])
+        day = self.scan().days["2026-09-01"]
+        self.assertEqual((day["turns"], tu.source_total(day)), (1, 110))
+
     def test_only_replies_count(self):
         asked = dict(question("u1"), tokens={"input": 5, "output": 5})
         self.write("s.jsonl", [meta(self.repo), asked, reply("m1")])

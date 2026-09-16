@@ -148,7 +148,7 @@ def scan(repo, homes):
         for m in messages:
             # Later writes of a message carry the same tokens or ones that
             # arrived late; a write without tokens never replaces one with.
-            if m.get("type") == "gemini" and isinstance(m.get("id"), str) and isinstance(m.get("tokens"), dict):
+            if m.get("type") == "gemini" and tokens.text(m.get("id")) and isinstance(m.get("tokens"), dict):
                 latest[m["id"]] = m
     if not found and not skipped:
         return None
