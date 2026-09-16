@@ -26,6 +26,19 @@ to a **workspace** next to the repository, never inside it.
 
 ## Installing
 
+With [Homebrew](https://brew.sh), which also installs cloc and the manual
+page:
+
+```bash
+brew install nicktoumpelis/tap/clocwork
+```
+
+Naming the tap trusts the formula; the
+[tap's README](https://github.com/nicktoumpelis/homebrew-tap#installing)
+covers a bare `brew install clocwork` and a `Brewfile`.
+
+From PyPI:
+
 ```bash
 pipx install clocwork          # or: pip install clocwork
 ```
