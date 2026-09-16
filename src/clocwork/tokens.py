@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Token usage measured from Claude Code transcripts.
+"""The token archive: per-day, per-model totals that outlive the agent logs
+they were measured from.
 
-Claude Code writes one JSONL transcript per session under
-~/.claude/projects/<encoded-repo-path>/ and keeps them for about 30 days. This
-module turns those files into per-day, per-model token totals so they can be
-archived before they expire, because once a transcript is gone the tokens it
-recorded cannot be recovered from anywhere.
+Coding agents keep their logs for a limited time (Claude Code for about 30
+days), and once a log is gone the tokens it recorded cannot be recovered from
+anywhere. Each run scans the sources in clocwork.sources and merges what they
+find into token_usage.json, which no code path may shrink.
 
-Resumed and forked sessions replay earlier turns verbatim into the new
-transcript, so every assistant turn is deduplicated by its message id. On
-one repository's history that replay accounts for 22,069 of 40,398 turns: summing
-without deduplication over-counts by more than 2x.
+Every source reduces its provider's usage fields to the same four disjoint
+counters. Providers disagree about whether cached tokens are part of the
+prompt count; additive() and inclusive() are the two readings, so the archive
+never counts a token twice.
 """
 
 import json
@@ -18,27 +18,11 @@ import os
 import tempfile
 from collections import namedtuple
 
-from clocwork.paths import claude_project_dir
-
 COUNTERS = ("input", "output", "cache_read", "cache_write")
 
-# Claude Code's usage field names, mapped to the shorter ones used in the archive.
-USAGE_FIELDS = {
-    "input_tokens": "input",
-    "output_tokens": "output",
-    "cache_read_input_tokens": "cache_read",
-    "cache_creation_input_tokens": "cache_write",
-}
-
-PROJECTS_DIR = os.path.expanduser("~/.claude/projects")
-
-ScanResult = namedtuple("ScanResult", "days malformed")
-
-
-def transcript_dir(repo_path, projects_dir=PROJECTS_DIR):
-    """The transcript directory for a repository, or None when it does not exist."""
-    directory = os.path.join(projects_dir, claude_project_dir(repo_path))
-    return directory if os.path.isdir(directory) else None
+# days: {date: {"turns", "models"}}; malformed: lines that did not parse;
+# skipped: files that could not be read at all.
+ScanResult = namedtuple("ScanResult", "days malformed skipped", defaults=(0,))
 
 
 def empty_counts():
@@ -68,50 +52,6 @@ def record(days, date, model, counts):
     totals = day["models"].setdefault(model or "unknown", empty_counts())
     for k in COUNTERS:
         totals[k] += counts[k]
-
-
-def scan(directory):
-    """Per-day, per-model token totals for every transcript in `directory`."""
-    days = {}
-    seen = set()
-    malformed = 0
-
-    for name in sorted(os.listdir(directory)):
-        if not name.endswith(".jsonl"):
-            continue
-        with open(os.path.join(directory, name), errors="replace") as f:
-            for line in f:
-                # Cheap prefilter: most lines are user turns, tool results and
-                # attachments. Parsing only the candidates keeps a full scan of
-                # a ~1 GB directory under two seconds.
-                if '"usage"' not in line:
-                    continue
-                try:
-                    rec = json.loads(line)
-                except ValueError:
-                    malformed += 1
-                    continue
-                if rec.get("type") != "assistant":
-                    continue
-                msg = rec.get("message") or {}
-                usage = msg.get("usage")
-                if not usage:
-                    continue
-                key = msg.get("id") or rec.get("requestId") or rec.get("uuid")
-                if key is not None:
-                    if key in seen:
-                        continue            # a replayed turn from a resumed session
-                    seen.add(key)
-                date = (rec.get("timestamp") or "")[:10]
-                if not date:
-                    continue
-                day = days.setdefault(date, {"turns": 0, "models": {}})
-                day["turns"] += 1
-                counts = day["models"].setdefault(msg.get("model") or "unknown", empty_counts())
-                for field, counter in USAGE_FIELDS.items():
-                    counts[counter] += usage.get(field) or 0
-
-    return ScanResult(days, malformed)
 
 
 VERSION = 1
@@ -166,25 +106,41 @@ def save(path, days):
     os.chmod(path, 0o644)
 
 
-def archive(repo_path, archive_path, projects_dir=PROJECTS_DIR, log=print):
-    """Scan a repository's transcripts and merge them into its archive."""
+def archive(repo_path, archive_path, sources, homes=None, log=print):
+    """Scan every source's logs for a repository and merge them into its archive.
+
+    `homes` maps a source key to the directories to read in place of the
+    source's own defaults; that is how the tests point a source at a fixture.
+    The archive is written only when some source found a store for the
+    repository, so a machine with no logs never creates or touches one.
+    """
     days = load(archive_path)
     was_days, was_total = len(days), sum(day_total(d) for d in days.values())
 
-    directory = transcript_dir(repo_path, projects_dir)
-    if directory is None:
-        log(f"  No transcripts at {os.path.join(projects_dir, claude_project_dir(repo_path))}")
+    scanned, found, missing = {}, False, []
+    for source in sources:
+        where = (homes or {}).get(source.KEY) or source.default_homes(os.environ)
+        result = source.scan(repo_path, where)
+        if result is None:
+            missing.append(f"{source.LABEL} ({', '.join(where)})")
+            continue
+        found = True
+        for date, day in result.days.items():
+            scanned[date] = day
+        log(f"  Scanned {len(result.days)} days of {source.LABEL} logs")
+        if result.malformed:
+            log(f"  NOTE: skipped {result.malformed} unparseable {source.LABEL} lines")
+        if result.skipped:
+            log(f"  NOTE: could not read {result.skipped} {source.LABEL} files")
+    if missing:
+        log(f"  No logs for this repository from {'; '.join(missing)}")
+    if not found:
         log(f"  Archive left unchanged: {was_days} days, {was_total:,} tokens")
         return days
 
-    result = scan(directory)
-    days = merge(days, result.days)
+    days = merge(days, scanned)
     save(archive_path, days)
-
     total = sum(day_total(d) for d in days.values())
-    log(f"  Scanned {len(result.days)} days of transcripts from {directory}")
     log(f"  Archive now {len(days)} days, {total:,} tokens "
         f"(+{len(days) - was_days} days, +{total - was_total:,} tokens)")
-    if result.malformed:
-        log(f"  NOTE: skipped {result.malformed} unparseable lines")
     return days

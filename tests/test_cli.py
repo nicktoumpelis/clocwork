@@ -86,7 +86,7 @@ class TestEndToEnd(unittest.TestCase):
         quiet = ["-q"] if args[0] == "tokens" else ["--no-open", "-q"]   # tokens has no page to open
         err = io.StringIO()
         with redirect_stderr(err):
-            code = cli.main(list(args) + quiet, projects_dir=self.projects)
+            code = cli.main(list(args) + quiet, homes={"claude-code": [self.projects]})
         return code, err.getvalue()
 
     def test_jobs_reach_the_analyser(self):
