@@ -32,6 +32,7 @@ try:
 except (OSError, IndexError, ValueError):
     GIT_VERSION = ()                # no git, or a version line this cannot read
 GIT_NO_LAZY_FETCH = GIT_VERSION >= (2, 44)
+GIT_SHA256 = GIT_VERSION >= (2, 29)
 
 
 def git_repo(path, remote=None):
@@ -180,8 +181,9 @@ class TestRules(unittest.TestCase):
     NEW = "git@github.com:me/new-name.git"
     OLD = "https://github.com/me/old-name.git"
 
-    def committed(self, remote):
+    def committed(self, remote, object_format="sha1"):
         """Make the repository a clone of `remote` with one commit, and return its hash."""
+        fx._git(os.path.dirname(self.repo), "init", "-q", f"--object-format={object_format}", self.repo)
         git_repo(self.repo, remote)
         fx._git(self.repo, "commit", "-q", "--allow-empty", "-m", "Start")
         return fx._git(self.repo, "rev-parse", "HEAD")
@@ -217,14 +219,25 @@ class TestRules(unittest.TestCase):
         self.session("rollout-e.jsonl", self.repo, dict(old, commit_hash="--help"))
         with mock.patch.object(subprocess, "run", wraps=subprocess.run) as run:
             self.assertEqual(self.day()["turns"], 3)
-        asked = [c for c in run.call_args_list if "cat-file" in c.args[0]]
-        self.assertEqual([c.args[0] for c in asked], [["git", "-C", self.repo, "cat-file", "-e", head + "^{commit}"]])
+        asked = [c for c in run.call_args_list if "rev-parse" in c.args[0] and c.args[0][-1].endswith("^{commit}")]
+        self.assertEqual([c.args[0] for c in asked],
+                         [["git", "-C", self.repo, "rev-parse", "--verify", "--quiet", head + "^{commit}"]])
         # Never a fetch or a prompt: no lazy fetch (git 2.44+), no transport
         # at all whatever the user's config allows (older git), no terminal
         # input, and git told not to ask.
         env = asked[0].kwargs["env"]
         self.assertEqual((env["GIT_NO_LAZY_FETCH"], env["GIT_ALLOW_PROTOCOL"], env["GIT_TERMINAL_PROMPT"]), ("1", "", "0"))
         self.assertIs(asked[0].kwargs["stdin"], subprocess.DEVNULL)
+
+    @unittest.skipUnless(GIT_SHA256, "SHA-256 repositories arrived in git 2.29")
+    def test_only_a_whole_hash_names_a_commit_in_a_sha256_repository(self):
+        # git reads a 40-digit value as an abbreviation of a 64-digit name.
+        head = self.committed(self.NEW, object_format="sha256")
+        self.assertEqual(len(head), 64)
+        self.session("rollout-a.jsonl", self.repo, {"repository_url": self.OLD, "commit_hash": head[:40]})
+        self.assertIsNone(self.scan())
+        self.session("rollout-b.jsonl", self.repo, {"repository_url": self.OLD, "commit_hash": head})
+        self.assertEqual(self.day()["turns"], 1)
 
     @unittest.skipUnless(GIT_NO_LAZY_FETCH, "GIT_NO_LAZY_FETCH arrived in git 2.44")
     def test_an_unknown_commit_in_a_partial_clone_is_not_fetched(self):
