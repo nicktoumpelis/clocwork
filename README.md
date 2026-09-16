@@ -173,13 +173,20 @@ rather than guessed at; `[agents].extra` names the rest.
 The token section appears when the workspace's token archive holds at least
 one day, which happens once Claude Code transcripts for the repository exist
 under `~/.claude/projects/` on a machine that ran the tool. Per-day totals
-are archived into
-`token_usage.json` with a keep-the-larger-record rule, days before the
-archive are estimated from the archive's tokens-per-line ratio, and the page
-prices the result at API list prices and estimates its electricity. For any
-repository not worked on with Claude Code on this machine, the section and
-the commit table's Tokens column are simply absent; that is the normal case,
-not an error.
+are archived into `token_usage.json` per agent, keeping the larger record for
+each day and agent; days before the archive are estimated from that agent's
+own tokens-per-line ratio, and the page prices the result at API list prices
+and estimates its electricity. For any repository not worked on with Claude
+Code on this machine, the section and the commit table's Tokens column are
+simply absent; that is the normal case, not an error.
+
+Tokens land only on the commits of the agent whose logs measured them.
+Claude Code is the only agent whose logs are read so far, so a commit
+credited to Copilot, Cursor, Codex, Devin or any other agent carries no token
+figure and is never priced at Claude Code's rate; when the repository has
+token data, the run summary counts those commits and names their agents. An
+archive written by an earlier version is read as Claude Code's and rewritten
+in the per-agent shape the next time a scan finds logs.
 
 ## Development
 
