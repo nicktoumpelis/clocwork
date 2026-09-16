@@ -24,6 +24,14 @@ COUNTERS = ("input", "output", "cache_read", "cache_write")
 # skipped: files that could not be read at all.
 ScanResult = namedtuple("ScanResult", "days malformed skipped", defaults=(0,))
 
+VERSION = 2
+# Version 1 archives predate sources and hold Claude Code transcripts only.
+LEGACY_SOURCE = "claude-code"
+
+
+class ArchiveError(RuntimeError):
+    pass
+
 
 def empty_counts():
     return {k: 0 for k in COUNTERS}
@@ -54,32 +62,40 @@ def record(days, date, model, counts):
         totals[k] += counts[k]
 
 
-VERSION = 1
+def source_total(entry):
+    """Every token in one source's record for one day."""
+    return sum(v for counts in entry["models"].values() for v in counts.values())
 
 
 def day_total(day):
-    """Every token recorded for one day, across models and counters."""
-    return sum(v for counts in day["models"].values() for v in counts.values())
+    """Every token recorded for one day, across sources, models and counters."""
+    return sum(source_total(entry) for entry in day.values())
 
 
 def merge(archive, scanned):
-    """Combine an archive with a fresh scan, keeping the larger record per day.
+    """Combine an archive with a fresh scan, keeping the larger record for
+    each (date, source).
 
-    A day's measurable total grows while work continues and shrinks once its
-    session files pass out of Claude Code's retention window, so neither policy
-    is safe alone: overwriting would let retention erase archived days, and
+    A record's measurable total grows while work continues and shrinks once
+    its logs pass out of the agent's retention window, so neither policy is
+    safe alone: overwriting would let retention erase archived days, and
     skipping would freeze the current day at whatever it held on the first run
-    of the morning. Keeping the larger record does both jobs.
+    of the morning. Keeping the larger record does both jobs. It is decided
+    per source because agents' logs expire independently: one day can hold a
+    shrinking Claude Code record beside a growing Codex one.
     """
-    merged = dict(archive)
+    merged = {date: dict(day) for date, day in archive.items()}
     for date, day in scanned.items():
-        if date not in merged or day_total(day) > day_total(merged[date]):
-            merged[date] = day
+        target = merged.setdefault(date, {})
+        for source, entry in day.items():
+            if source not in target or source_total(entry) > source_total(target[source]):
+                target[source] = entry
     return merged
 
 
 def load(path):
-    """The archived days, or {} when no archive exists yet."""
+    """The archived days, by date and then by source, or {} when no archive
+    exists yet. A version 1 archive is read as Claude Code's."""
     if not os.path.exists(path):
         return {}
     # Deliberately not try/except: a corrupt archive must raise here, not
@@ -87,7 +103,14 @@ def load(path):
     # swallowed error here would make save() write only the current scan's
     # ~30 days, permanently erasing every archived day older than that.
     with open(path) as f:
-        return json.load(f).get("days", {})
+        data = json.load(f)
+    version, days = data.get("version"), data.get("days", {})
+    if version == 1:
+        return {date: {LEGACY_SOURCE: day} for date, day in days.items()}
+    if version == VERSION:
+        return days
+    raise ArchiveError(f"{path} is a version {version} token archive; "
+                       f"this clocwork reads versions 1 and {VERSION}")
 
 
 def save(path, days):
@@ -126,7 +149,7 @@ def archive(repo_path, archive_path, sources, homes=None, log=print):
             continue
         found = True
         for date, day in result.days.items():
-            scanned[date] = day
+            scanned.setdefault(date, {})[source.KEY] = day
         log(f"  Scanned {len(result.days)} days of {source.LABEL} logs")
         if result.malformed:
             log(f"  NOTE: skipped {result.malformed} unparseable {source.LABEL} lines")

@@ -137,6 +137,14 @@ class TestEndToEnd(unittest.TestCase):
         self.assertTrue(os.path.exists(os.path.join(self.ws, "clocwork.json")))
         self.assertFalse(os.path.exists(os.path.join(self.ws, "token_usage.json")))
 
+    def test_an_archive_of_an_unknown_version_is_an_error_not_a_traceback(self):
+        os.makedirs(self.ws)
+        with open(os.path.join(self.ws, "token_usage.json"), "w") as f:
+            json.dump({"version": 99, "days": {}}, f)
+        code, err = self.run_cli("tokens", self.repo)
+        self.assertEqual(code, 2)
+        self.assertIn("version 99", err)
+
     def test_render_needs_no_repository(self):
         self.assertEqual(self.run_cli(self.repo, "--cache-dir", self.cache)[0], 0)
         os.remove(os.path.join(self.ws, "index.html"))

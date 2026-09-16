@@ -11,6 +11,7 @@ import subprocess
 
 from clocwork import cloc as cl
 from clocwork import paths
+from clocwork import sources as src
 from clocwork import tokens as tu
 from clocwork.agents import DEFAULT_AGENTS
 from clocwork.config import Config
@@ -91,21 +92,36 @@ def parse_log(repo, branch, agents=DEFAULT_AGENTS):
     return commits
 
 
+def churn_of(result):
+    """Lines added plus removed across every language and line type."""
+    return sum(sum(row) for row in result["lines"].values())
+
+
+def is_ai(result):
+    return bool(result["agent"]) and result["agent"] != MISC
+
+
 def churn_by_date(results):
-    """Lines added plus removed per date, and the AI-attributed share of them.
+    """Lines added plus removed per date, whoever wrote them.
 
     Merge commits carry no line matrices, so they contribute nothing here, as
     everywhere else in this project.
     """
     totals = {}
     for r in results:
-        if not r["date"]:
-            continue
-        entry = totals.setdefault(r["date"], {"churn": 0, "ai_churn": 0})
-        churn = sum(sum(row) for row in r["lines"].values())
-        entry["churn"] += churn
-        if r["agent"] and r["agent"] != MISC:
-            entry["ai_churn"] += churn
+        if r["date"]:
+            totals[r["date"]] = totals.get(r["date"], 0) + churn_of(r)
+    return totals
+
+
+def source_churn_by_date(results, source):
+    """Lines changed per date by the commits whose tokens `source` measures."""
+    totals = {}
+    if source is None:
+        return totals
+    for r in results:
+        if r["date"] and is_ai(r) and src.source_for(r["agent"]) is source:
+            totals[r["date"]] = totals.get(r["date"], 0) + churn_of(r)
     return totals
 
 
@@ -197,87 +213,156 @@ def cost_estimate(archive_days):
     return {"measured_usd": usd, "unpriced_tokens": unpriced}
 
 
-def token_summary(archive_days, results):
-    """Measured and estimated token usage per day.
+def source_keys(archive_days):
+    """Every source in the archive: the registry's order first, then any key
+    this version does not know, alphabetically."""
+    present = {key for day in archive_days.values() for key in day}
+    known = [s.KEY for s in src.SOURCES if s.KEY in present]
+    return known + sorted(present - set(known))
 
-    A date with an archive record is measured. A date with AI-attributed churn
-    and no record is estimated at the archive's tokens-per-line ratio. A date
-    with neither is left out entirely, which is what keeps the pre-2026 human
-    era off the chart rather than pricing it.
 
-    Classifying per date rather than against a cut-off means a gap inside the
-    archived range - a machine change, a run skipped for six weeks - needs no
-    special case.
+def source_summary(key, entries, churn):
+    """One source's measured and estimated tokens per day.
+
+    `entries` are the source's archived records by date and `churn` the lines
+    its agents changed by date. A date with a record is measured. A date with
+    no record but with such lines is estimated at the source's own
+    tokens-per-line ratio. Anything else is left out, which keeps human work,
+    and work by agents this source did not measure, unpriced.
     """
-    churn = churn_by_date(results)
-    measured_total = sum(tu.day_total(d) for d in archive_days.values())
-    covered_ai = sum(churn.get(date, {}).get("ai_churn", 0) for date in archive_days)
-    covered_all = sum(churn.get(date, {}).get("churn", 0) for date in archive_days)
-    ratio = measured_total / covered_ai if covered_ai else 0.0
+    module = src.by_key(key)
+    measured_total = sum(tu.source_total(e) for e in entries.values())
+    covered = sum(churn.get(date, 0) for date in entries)
+    ratio = measured_total / covered if covered else 0.0
 
     per_day, estimated_total = [], 0
-    for date in sorted(set(churn) | set(archive_days)):
-        if date in archive_days:
-            per_day.append([date, tu.day_total(archive_days[date]), "m"])
+    for date in sorted(set(churn) | set(entries)):
+        if date in entries:
+            per_day.append([date, tu.source_total(entries[date]), "m"])
             continue
-        ai = churn.get(date, {}).get("ai_churn", 0)
-        if not ai or not ratio:
+        if not churn[date] or not ratio:
             continue
-        tokens = round(ratio * ai)
+        tokens = round(ratio * churn[date])
         estimated_total += tokens
         per_day.append([date, tokens, "e"])
 
-    def counter(name):
-        return sum(m[name] for d in archive_days.values() for m in d["models"].values())
+    by_model = {}
+    for e in entries.values():
+        for model, counts in e["models"].items():
+            by_model[model] = by_model.get(model, 0) + sum(counts.values())
 
+    return {
+        "key": key,
+        "label": module.LABEL if module else key,
+        "measured_total": measured_total,
+        "measured_days": len(entries),
+        "estimated_total": estimated_total,
+        "ratio": ratio,
+        "coverage_start": min(entries) if entries else None,
+        "top_model": min(by_model, key=lambda m: (-by_model[m], m)) if by_model else None,
+        "per_day": per_day,
+    }
+
+
+def token_summary(archive_days, results):
+    """Measured and estimated token usage per day, per source and in total.
+
+    Each source is summarised on its own and the totals are sums over them. A
+    date is measured in the combined series only when every source that
+    contributed to it measured it: one estimated share makes the total an
+    estimate. Classifying per date rather than against a cut-off means a gap
+    inside the archived range - a machine change, a run skipped for six weeks -
+    needs no special case.
+    """
+    churn = churn_by_date(results)
+    keys = source_keys(archive_days)
+    entries = {key: {date: day[key] for date, day in archive_days.items() if key in day} for key in keys}
+    churns = {key: source_churn_by_date(results, src.by_key(key)) for key in keys}
+    sources = [source_summary(key, entries[key], churns[key]) for key in keys]
+
+    combined = {}
+    for s in sources:
+        for date, tokens, kind in s["per_day"]:
+            total, kinds = combined.get(date, (0, set()))
+            combined[date] = (total + tokens, kinds | {kind})
+    per_day = [[date, total, "m" if kinds == {"m"} else "e"] for date, (total, kinds) in sorted(combined.items())]
+
+    measured_total = sum(s["measured_total"] for s in sources)
+    estimated_total = sum(s["estimated_total"] for s in sources)
     lifetime_total = measured_total + estimated_total
-    counters = {name: counter(name) for name in WH_PER_1K}
-    energy_kwh, co2_kg = energy_estimate(counters, measured_total, lifetime_total)
-    # Like energy, the lifetime cost assumes the measured mix of models and
-    # counters held across the estimated era, so it follows the same ceiling.
-    cost = cost_estimate(archive_days)
-    lifetime_cost = cost["measured_usd"] * lifetime_total / measured_total if measured_total else 0.0
+    # The blended ratio covers only sources whose tokens land on lines, so it
+    # is the rate the estimates were made at, not diluted by the rest.
+    covered = {key: sum(churns[key].get(date, 0) for date in entries[key]) for key in keys}
+    rated = [s for s in sources if covered[s["key"]]]
+    covered_ai = sum(covered[s["key"]] for s in rated)
+    covered_all = sum(churn.get(date, 0) for date in archive_days)
+
+    counters = {name: 0 for name in WH_PER_1K}
+    energy_kwh = co2_kg = cost_usd = lifetime_cost = 0.0
+    unpriced = 0
+    for s in sources:
+        e = entries[s["key"]]
+        own = {name: sum(m[name] for d in e.values() for m in d["models"].values()) for name in WH_PER_1K}
+        for name, tokens in own.items():
+            counters[name] += tokens
+        ceiling = s["measured_total"] + s["estimated_total"]
+        kwh, kg = energy_estimate(own, s["measured_total"], ceiling)
+        energy_kwh += kwh
+        co2_kg += kg
+        # Like energy, the lifetime cost assumes the measured mix of models and
+        # counters held across the estimated era, so it follows the same ceiling.
+        cost = cost_estimate(e)
+        cost_usd += cost["measured_usd"]
+        unpriced += cost["unpriced_tokens"]
+        if s["measured_total"]:
+            lifetime_cost += cost["measured_usd"] * ceiling / s["measured_total"]
 
     return {
         "measured_total": measured_total,
         "measured_days": len(archive_days),
         "estimated_total": estimated_total,
         "lifetime_total": lifetime_total,
-        "ratio": ratio,
+        "ratio": sum(s["measured_total"] for s in rated) / covered_ai if covered_ai else 0.0,
         "energy_kwh": energy_kwh,
         "co2_kg": co2_kg,
-        "cost_usd": cost["measured_usd"],
+        "cost_usd": cost_usd,
         "lifetime_cost_usd": lifetime_cost,
-        "unpriced_tokens": cost["unpriced_tokens"],
-        "cache_read_share": counter("cache_read") / measured_total if measured_total else 0.0,
-        "output_per_line": round(counter("output") / covered_all) if covered_all else 0,
+        "unpriced_tokens": unpriced,
+        "cache_read_share": counters["cache_read"] / measured_total if measured_total else 0.0,
+        "output_per_line": round(counters["output"] / covered_all) if covered_all else 0,
         "coverage_start": min(archive_days) if archive_days else None,
         "per_day": per_day,
+        "sources": sources,
     }
 
 
-def tokens_by_commit(per_day, results):
-    """Each day's tokens attributed to that day's AI commits, keyed by commit index.
+def tokens_by_commit(sources, results):
+    """Each source's daily tokens attributed to its agents' commits, keyed by commit index.
 
-    The archive knows tokens per day, not per commit, so a day's total, measured
-    or estimated alike, is split across the AI-attributed commits of that day in
-    proportion to the lines each one changed: the same churn the estimator's
-    ratio is built on. Human and merge commits get nothing, and a day whose
-    tokens have no AI churn to land on stays unattributed rather than being
-    forced onto someone.
+    The archive knows tokens per day, not per commit, so a source's total for
+    a day, measured or estimated alike, is split across the commits its agents
+    made that day in proportion to the lines each one changed: the same churn
+    the source's ratio is built on. Human and merge commits, and commits by
+    agents the source did not measure, get nothing from it, and a day whose
+    tokens have no such commits to land on stays unattributed rather than
+    being forced onto someone.
     """
-    day_tokens = {date: tokens for date, tokens, _kind in per_day}
-    by_day = {}
-    for r in results:
-        if r["date"] in day_tokens and r["agent"] and r["agent"] != MISC:
-            churn = sum(sum(row) for row in r["lines"].values())
-            if churn:
-                by_day.setdefault(r["date"], []).append((r["index"], churn))
     attributed = {}
-    for date, commits in by_day.items():
-        total = sum(churn for _index, churn in commits)
-        for index, churn in commits:
-            attributed[index] = round(day_tokens[date] * churn / total)
+    for s in sources:
+        module = src.by_key(s["key"])
+        if module is None:
+            continue
+        day_tokens = {date: tokens for date, tokens, _kind in s["per_day"]}
+        by_day = {}
+        for r in results:
+            if r["date"] in day_tokens and is_ai(r) and src.source_for(r["agent"]) is module:
+                churn = churn_of(r)
+                if churn:
+                    by_day.setdefault(r["date"], []).append((r["index"], churn))
+        for date, commits in by_day.items():
+            total = sum(churn for _index, churn in commits)
+            for index, churn in commits:
+                attributed[index] = attributed.get(index, 0) + round(day_tokens[date] * churn / total)
     return attributed
 
 
@@ -387,7 +472,7 @@ def analyse(repo_dir, output_path, cache_path, archive_path, *, config=None, bra
             first_appearances[r["agent"]] = {"date": r["date"], "hash": r["hash"], "index": r["index"], "message": r["message"]}
 
     tokens = token_summary(tu.load(archive_path), results)
-    attributed = tokens_by_commit(tokens["per_day"], results)
+    attributed = tokens_by_commit(tokens["sources"], results)
     for r in results:
         r["tokens"] = attributed.get(r["index"], 0)
 
@@ -429,7 +514,7 @@ def analyse(repo_dir, output_path, cache_path, archive_path, *, config=None, bra
             f"({t['measured_total']:,} measured over {t['measured_days']} days, "
             f"{t['estimated_total']:,} estimated at {t['ratio']:,.0f} per AI line)")
     else:
-        log("  Tokens: none (no Claude Code transcript archive for this repository)")
+        log("  Tokens: none (no agent token archive for this repository)")
     head_tests = sum(v["code"] for v in by_file_tests.values())
     head_all = sum(v["code"] for v in by_file_all.values())
     log(f"  Test code at {branch}: {head_tests:,} of {head_all:,} code lines ({head_tests / head_all:.1%})"

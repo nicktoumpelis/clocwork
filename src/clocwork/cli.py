@@ -166,7 +166,7 @@ def main(argv=None, homes=None):
         else:
             cmd_run(args, log, homes)
     except (cloc.ClocMissing, cloc.ClocError, paths.NotARepository, paths.WorkspaceMismatch,
-            config.ConfigError, analyse.NoCommits, OSError) as e:
+            config.ConfigError, analyse.NoCommits, tokens.ArchiveError, OSError) as e:
         print(f"clocwork: {e}", file=sys.stderr)
         return EXIT_ERROR
     return 0
