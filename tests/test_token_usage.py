@@ -182,5 +182,40 @@ class TestArchiveRoundTrip(unittest.TestCase):
             self.assertEqual(tu.load(path), original)
 
 
+class TestCounters(unittest.TestCase):
+    """Every reader reduces its provider's fields to four disjoint counters."""
+
+    def test_additive_takes_counters_as_reported(self):
+        self.assertEqual(tu.additive(1, 2, 3, 4),
+                         {"input": 1, "output": 2, "cache_read": 3, "cache_write": 4})
+
+    def test_additive_treats_missing_values_as_zero(self):
+        self.assertEqual(tu.additive(None, 5),
+                         {"input": 0, "output": 5, "cache_read": 0, "cache_write": 0})
+
+    def test_inclusive_takes_cached_and_written_tokens_out_of_the_prompt(self):
+        # An OpenAI-style prompt of 1,000 tokens, 700 read from cache and 200 written to it.
+        self.assertEqual(tu.inclusive(prompt=1000, output=50, cached=700, cache_write=200),
+                         {"input": 100, "output": 50, "cache_read": 700, "cache_write": 200})
+
+    def test_an_inclusive_reading_sums_to_the_prompt_plus_the_output(self):
+        # Summing the four counters must not count a cached token twice.
+        self.assertEqual(sum(tu.inclusive(prompt=1000, output=50, cached=700, cache_write=200).values()), 1050)
+
+    def test_counters_never_go_negative(self):
+        self.assertEqual(tu.inclusive(prompt=10, cached=40)["input"], 0)
+        self.assertEqual(tu.additive(-3)["input"], 0)
+
+    def test_record_adds_a_turn_and_its_counters(self):
+        days = {}
+        tu.record(days, "2026-08-06", "m", tu.additive(1, 2, 3, 4))
+        tu.record(days, "2026-08-06", "m", tu.additive(1, 2, 3, 4))
+        tu.record(days, "2026-08-06", None, tu.additive(output=9))
+        self.assertEqual(days["2026-08-06"]["turns"], 3)
+        self.assertEqual(days["2026-08-06"]["models"]["m"],
+                         {"input": 2, "output": 4, "cache_read": 6, "cache_write": 8})
+        self.assertEqual(days["2026-08-06"]["models"]["unknown"]["output"], 9)
+
+
 if __name__ == "__main__":
     unittest.main()

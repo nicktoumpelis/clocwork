@@ -45,6 +45,31 @@ def empty_counts():
     return {k: 0 for k in COUNTERS}
 
 
+def additive(input=0, output=0, cache_read=0, cache_write=0):
+    """The four counters from a provider that reports cache reads and writes
+    beside the uncached input (Anthropic, Bedrock). Missing values are zero
+    and nothing goes below it."""
+    return {"input": max(0, input or 0), "output": max(0, output or 0),
+            "cache_read": max(0, cache_read or 0), "cache_write": max(0, cache_write or 0)}
+
+
+def inclusive(prompt=0, output=0, cached=0, cache_write=0):
+    """The four counters from a provider whose prompt count already contains
+    its cached and cache-written tokens (OpenAI and most compatible APIs).
+    Read as-is, such a prompt would count every cached token twice."""
+    uncached = (prompt or 0) - (cached or 0) - (cache_write or 0)
+    return additive(uncached, output, cached, cache_write)
+
+
+def record(days, date, model, counts):
+    """Add one model response to a scan's per-day, per-model totals."""
+    day = days.setdefault(date, {"turns": 0, "models": {}})
+    day["turns"] += 1
+    totals = day["models"].setdefault(model or "unknown", empty_counts())
+    for k in COUNTERS:
+        totals[k] += counts[k]
+
+
 def scan(directory):
     """Per-day, per-model token totals for every transcript in `directory`."""
     days = {}
