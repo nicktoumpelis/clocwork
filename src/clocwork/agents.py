@@ -47,6 +47,8 @@ VENDORS = (
     ("Codex", "Codex"),
     ("Devin", "Devin"),
     ("aider", "aider"),
+    # Gemini CLI adds no trailer of its own; this catches the one a person adds.
+    ("Gemini", "Gemini"),
 )
 
 
