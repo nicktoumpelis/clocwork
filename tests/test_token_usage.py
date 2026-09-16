@@ -109,6 +109,14 @@ class TestArchiveRoundTrip(unittest.TestCase):
         self.assertEqual(seen, [["/override"]])
         self.assertTrue(any("Absent Agent (/override)" in line for line in lines), lines)
 
+    def test_an_empty_home_override_reads_nothing_rather_than_the_defaults(self):
+        seen = []
+        source = types.SimpleNamespace(KEY="x", LABEL="X", default_homes=lambda env: ["/default"],
+                                       scan=lambda repo, homes: seen.append(homes))
+        with tempfile.TemporaryDirectory() as d:
+            tu.archive("/repo", os.path.join(d, "t.json"), [source], homes={"x": []}, log=lambda *a: None)
+        self.assertEqual(seen, [[]])
+
     def test_a_source_that_finds_its_store_but_no_usage_still_writes_the_archive(self):
         empty = types.SimpleNamespace(KEY="empty", LABEL="Empty", default_homes=lambda env: [],
                                       scan=lambda repo, homes: tu.ScanResult({}, 0))

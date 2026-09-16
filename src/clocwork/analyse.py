@@ -316,7 +316,7 @@ def token_summary(archive_days, results):
         unpriced += cost["unpriced_tokens"]
         if s["measured_total"]:
             lifetime_cost += cost["measured_usd"] * ceiling / s["measured_total"]
-    unmeasured, unmeasured_names = unmeasured_agents(results, set(keys))
+    unmeasured, unmeasured_names = unmeasured_agents(results, {s["key"] for s in rated})
 
     return {
         "measured_total": measured_total,
@@ -372,9 +372,12 @@ def tokens_by_commit(sources, results):
 def unmeasured_agents(results, measured_keys):
     """How many AI-attributed commits carry no token figure, and by whom.
 
-    That is every commit whose agent no source reads, and every commit whose
-    source found no logs for this repository. Known sources are named by their
-    label, so a history of Claude models reads as "Claude Code".
+    `measured_keys` are the sources whose logs cover some of their agents'
+    lines, which is what gives a source a rate to price its commits at. A
+    commit is unmeasured when its agent has no source, or its source is not
+    among those: no logs for this repository, or logs only for days its agents
+    changed nothing. Known sources are named by their label, so a history of
+    Claude models reads as "Claude Code".
     """
     count, names = 0, set()
     for r in results:
@@ -535,8 +538,8 @@ def analyse(repo_dir, output_path, cache_path, archive_path, *, config=None, bra
             f"({t['measured_total']:,} measured over {t['measured_days']} days, "
             f"{t['estimated_total']:,} estimated at {t['ratio']:,.0f} per AI line)")
         if t["unmeasured_agent_commits"]:
-            log(f"  No token logs for {t['unmeasured_agent_commits']} AI commits "
-                f"({', '.join(t['unmeasured_agents'])}); they carry no token figure")
+            log(f"  {t['unmeasured_agent_commits']} AI commits carry no token figure "
+                f"({', '.join(t['unmeasured_agents'])}): no token logs from their agent cover their work")
     else:
         log("  Tokens: none (no agent token archive for this repository)")
     head_tests = sum(v["code"] for v in by_file_tests.values())

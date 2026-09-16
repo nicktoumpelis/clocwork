@@ -142,10 +142,13 @@ def archive(repo_path, archive_path, sources, homes=None, log=print):
 
     scanned, found, missing = {}, False, []
     for source in sources:
-        where = (homes or {}).get(source.KEY) or source.default_homes(os.environ)
+        # An override is used even when empty: [] means read nothing.
+        where = (homes or {}).get(source.KEY)
+        if where is None:
+            where = source.default_homes(os.environ)
         result = source.scan(repo_path, where)
         if result is None:
-            missing.append(f"{source.LABEL} ({', '.join(where)})")
+            missing.append(f"{source.LABEL} ({', '.join(where) or 'no directories'})")
             continue
         found = True
         for date, day in result.days.items():

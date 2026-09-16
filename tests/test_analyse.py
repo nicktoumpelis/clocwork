@@ -194,7 +194,8 @@ class TestInputs(unittest.TestCase):
             data = an.analyse(d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), archive, log=lines.append)
             tokens = {c["agent"]: c["tokens"] for c in data["commits"] if c["agent"]}
             self.assertEqual((tokens["Claude Opus 4.6"], tokens["Copilot"], tokens["Cursor"]), (70, 0, 0))
-            self.assertIn("  No token logs for 2 AI commits (Copilot, Cursor); they carry no token figure", lines)
+            self.assertIn("  2 AI commits carry no token figure (Copilot, Cursor): "
+                          "no token logs from their agent cover their work", lines)
 
     def test_configured_agents_are_used(self):
         # The polyglot fixture's last commit credits "Jules", which no built-in
@@ -494,6 +495,15 @@ class TestPerSource(unittest.TestCase):
                    self.row(3, "2026-09-02", None, 9)]
         t = an.token_summary({}, results)
         self.assertEqual((t["unmeasured_agent_commits"], t["unmeasured_agents"]), (2, ["Claude Code"]))
+
+    def test_a_source_whose_logs_cover_none_of_its_commits_leaves_them_unmeasured(self):
+        # Claude Code has a record, but only for a day without a Claude
+        # commit, so it has no rate to estimate the Claude commit's day at.
+        archive = {"2026-08-10": {"claude-code": self.entry(100)}}
+        results = [self.row(0, "2026-08-01", "Claude Opus 5", 10), self.row(1, "2026-08-10", None, 5)]
+        t = an.token_summary(archive, results)
+        self.assertEqual(an.tokens_by_commit(t["sources"], results), {})
+        self.assertEqual((t["unmeasured_agent_commits"], t["unmeasured_agents"]), (1, ["Claude Code"]))
 
     def test_the_ratio_counts_only_the_sources_own_lines(self):
         self.assertEqual(an.token_summary(*self.probe())["ratio"], 20.0)   # not 1,000 over 100 lines
