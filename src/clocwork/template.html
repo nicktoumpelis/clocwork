@@ -565,7 +565,7 @@ function annotationObjects(list) {
 
 // Unpack compact data
 var LANGS = RAW.languages;
-var ROWS = RAW.commits;   // [idx, hash, date, msg, agent, isMerge, lines, testLines, tokens]; lines = [[langIdx, [codeAdd, codeRem, commentAdd, commentRem, blankAdd, blankRem]], ...]
+var ROWS = RAW.commits;   // [idx, hash, date, msg, agent, isMerge, lines, testLines, tokens, tokenKind]; lines = [[langIdx, [codeAdd, codeRem, commentAdd, commentRem, blankAdd, blankRem]], ...]
 var SUMMARY = RAW.summary;
 // Token data exist only when Claude Code transcripts were on the machine that
 // generated the workspace; a clone of someone else's repository never has any.

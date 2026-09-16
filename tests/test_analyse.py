@@ -133,6 +133,13 @@ class TestAnalyse(unittest.TestCase):
         # Zero when nothing is attributed, so the page can rely on the key.
         self.assertTrue(all(isinstance(c["tokens"], int) for c in self.data["commits"]))
 
+    def test_every_commit_carries_a_token_kind(self):
+        self.assertEqual({c["token_kind"] for c in self.data["commits"]}, {""})
+
+    def test_commit_records_have_the_dashboard_fixtures_keys(self):
+        from tests.test_fixture_shape import fixture
+        self.assertEqual(set(fixture.build()["commits"][0]), set(self.data["commits"][0]))
+
     def test_summary_carries_a_tokens_block(self):
         t = self.data["summary"]["tokens"]
         self.assertEqual(t["measured_total"], 0)      # no transcripts for the fixture repo
@@ -193,6 +200,8 @@ class TestInputs(unittest.TestCase):
             lines = []
             data = an.analyse(d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), archive, log=lines.append)
             tokens = {c["agent"]: c["tokens"] for c in data["commits"] if c["agent"]}
+            kinds = {c["agent"]: c["token_kind"] for c in data["commits"] if c["agent"]}
+            self.assertEqual((kinds["Claude Opus 4.6"], kinds["Copilot"], kinds["Cursor"]), ("m", "", ""))
             self.assertEqual((tokens["Claude Opus 4.6"], tokens["Copilot"], tokens["Cursor"]), (70, 0, 0))
             self.assertIn("  2 AI commits carry no token figure (Copilot, Cursor): "
                           "no token logs from their agent cover their work", lines)
@@ -588,6 +597,23 @@ class TestPerSource(unittest.TestCase):
             "key": "claude-code", "label": "Claude Code", "measured_total": 1010, "measured_days": 1,
             "estimated_total": 0, "ratio": 20.2, "coverage_start": "2026-09-01",
             "top_model": "claude-opus-5", "per_day": [["2026-09-01", 1010, "m"]]}])
+
+    def test_each_commit_takes_the_kind_of_its_own_sources_day(self):
+        fake = types.SimpleNamespace(KEY="fake", LABEL="Fake", AGENT=re.compile(r"^Cursor\b"))
+        archive = {"2026-08-01": {"fake": self.entry(300)},
+                   "2026-09-01": {"claude-code": self.entry(1000), "fake": self.entry(300)}}
+        results = [self.row(0, "2026-08-01", "Claude Opus 5", 50),    # estimated for Claude Code
+                   self.row(1, "2026-08-01", "Cursor", 10),           # measured for the other source
+                   self.row(2, "2026-09-01", "Claude Opus 5", 50),
+                   self.row(3, "2026-09-01", "Cursor", 10),
+                   self.row(4, "2026-09-01", None, 10)]
+        with mock.patch.object(src, "SOURCES", src.SOURCES + (fake,)):
+            t = an.token_summary(archive, results)
+            kinds = an.token_kinds(t["sources"], results)
+            split = an.tokens_by_commit(t["sources"], results)
+        self.assertEqual(t["per_day"][0], ["2026-08-01", 1300, "e"])      # the day's total is an estimate
+        self.assertEqual(kinds, {0: "e", 1: "m", 2: "m", 3: "m"})
+        self.assertEqual(split, {0: 1000, 1: 300, 2: 1000, 3: 300})
 
     def test_two_sources_on_one_day_each_split_across_their_own_commits(self):
         fake = types.SimpleNamespace(KEY="fake", LABEL="Fake", AGENT=re.compile(r"^Cursor\b"))

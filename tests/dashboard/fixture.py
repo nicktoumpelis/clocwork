@@ -69,7 +69,7 @@ def build(tokens=True):
             "message": f"Merge pull request #{i} from example/branch-{i}" if is_merge else f"Change {i}: adjust {WORDS[i % len(WORDS)]}",
             "body": f"Body of change {i}\n\nCo-Authored-By: {agent} <a@b>" if agent and not is_merge and i % 3 == 0 else "",
             "agent": agent, "is_merge": is_merge, "status": "merge" if is_merge else "ok",
-            "lines": lines, "test_lines": tests, "tokens": 0,
+            "lines": lines, "test_lines": tests, "tokens": 0, "token_kind": "",
         })
     first = {}
     for c in commits:
@@ -80,10 +80,11 @@ def build(tokens=True):
     per_day = [[d, 12_000_000 if i % 2 else 5_000_000, "m" if i >= cut else "e"] for i, d in enumerate(days)]
     measured = sum(t for _, t, k in per_day if k == "m")
     estimated = sum(t for _, t, k in per_day if k == "e")
-    day_tokens = {d: t for d, t, _ in per_day}
+    day_tokens = {d: (t, k) for d, t, k in per_day}
     for c in commits:
         if c["agent"] and c["agent"].startswith("Claude") and c["date"] in day_tokens:
-            c["tokens"] = day_tokens[c["date"]] // 3
+            tokens_of_day, kind = day_tokens[c["date"]]
+            c["tokens"], c["token_kind"] = tokens_of_day // 3, kind
     zero = {lang: {k: 0 for k in TYPES} for lang in LANGS}
     # HEAD holds 7 more Swift code lines than the history sums to, so the page's
     # reconciliation note has something to show (reconciliation = running - head).
@@ -99,6 +100,7 @@ def build(tokens=True):
     if not tokens:
         for c in commits:
             c["tokens"] = 0
+            c["token_kind"] = ""
     return {
         "languages": LANGS, "commits": commits, "first_appearances": first,
         "summary": {

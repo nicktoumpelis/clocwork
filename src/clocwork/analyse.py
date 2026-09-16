@@ -401,8 +401,8 @@ def token_summary(archive_days, results):
     }
 
 
-def tokens_by_commit(sources, results):
-    """Each source's daily tokens attributed to its agents' commits, keyed by commit index.
+def commit_shares(sources, results):
+    """(commit index, tokens, kind) for every share of a source's daily tokens.
 
     The archive knows tokens per day, not per commit, so a source's total for
     a day, measured or estimated alike, is split across the commits its agents
@@ -410,14 +410,13 @@ def tokens_by_commit(sources, results):
     the source's ratio is built on. Human and merge commits, and commits by
     agents the source did not measure, get nothing from it, and a day whose
     tokens have no such commits to land on stays unattributed rather than
-    being forced onto someone.
+    being forced onto someone. The kind is the source's own for that day.
     """
-    attributed = {}
     for s in sources:
         module = src.by_key(s["key"])
         if module is None:
             continue
-        day_tokens = {date: tokens for date, tokens, _kind in s["per_day"]}
+        day_tokens = {date: (tokens, kind) for date, tokens, kind in s["per_day"]}
         by_day = {}
         for r in results:
             if r["date"] in day_tokens and is_ai(r) and src.source_for(r["agent"]) is module:
@@ -426,9 +425,24 @@ def tokens_by_commit(sources, results):
                     by_day.setdefault(r["date"], []).append((r["index"], churn))
         for date, commits in by_day.items():
             total = sum(churn for _index, churn in commits)
+            tokens, kind = day_tokens[date]
             for index, churn in commits:
-                attributed[index] = attributed.get(index, 0) + round(day_tokens[date] * churn / total)
+                yield index, round(tokens * churn / total), kind
+
+
+def tokens_by_commit(sources, results):
+    """Each source's daily tokens attributed to its agents' commits, keyed by commit index."""
+    attributed = {}
+    for index, tokens, _kind in commit_shares(sources, results):
+        attributed[index] = attributed.get(index, 0) + tokens
     return attributed
+
+
+def token_kinds(sources, results):
+    """Whether each attributed commit's share was measured ('m') or estimated
+    ('e'). No agent name matches two sources, so a commit has one kind even
+    on a day whose combined total mixes both."""
+    return {index: kind for index, _tokens, kind in commit_shares(sources, results)}
 
 
 def unmeasured_agents(results, measured_keys):
@@ -559,8 +573,10 @@ def analyse(repo_dir, output_path, cache_path, archive_path, *, config=None, bra
 
     tokens = token_summary(tu.load(archive_path), results)
     attributed = tokens_by_commit(tokens["sources"], results)
+    kinds = token_kinds(tokens["sources"], results)
     for r in results:
         r["tokens"] = attributed.get(r["index"], 0)
+        r["token_kind"] = kinds.get(r["index"], "")
 
     output = {
         "languages": languages,
