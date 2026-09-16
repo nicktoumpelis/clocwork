@@ -218,11 +218,13 @@ class TestRules(unittest.TestCase):
         with mock.patch.object(subprocess, "run", wraps=subprocess.run) as run:
             self.assertEqual(self.day()["turns"], 3)
         asked = [c for c in run.call_args_list if "cat-file" in c.args[0]]
-        self.assertEqual([c.args[0] for c in asked],
-                         [["git", "-c", "protocol.allow=never", "-C", self.repo, "cat-file", "-e", head + "^{commit}"]])
-        # Never a credential prompt: no terminal input, and git told not to ask.
-        self.assertEqual((asked[0].kwargs["stdin"], asked[0].kwargs["env"]["GIT_TERMINAL_PROMPT"]),
-                         (subprocess.DEVNULL, "0"))
+        self.assertEqual([c.args[0] for c in asked], [["git", "-C", self.repo, "cat-file", "-e", head + "^{commit}"]])
+        # Never a fetch or a prompt: no lazy fetch (git 2.44+), no transport
+        # at all whatever the user's config allows (older git), no terminal
+        # input, and git told not to ask.
+        env = asked[0].kwargs["env"]
+        self.assertEqual((env["GIT_NO_LAZY_FETCH"], env["GIT_ALLOW_PROTOCOL"], env["GIT_TERMINAL_PROMPT"]), ("1", "", "0"))
+        self.assertIs(asked[0].kwargs["stdin"], subprocess.DEVNULL)
 
     @unittest.skipUnless(GIT_NO_LAZY_FETCH, "GIT_NO_LAZY_FETCH arrived in git 2.44")
     def test_an_unknown_commit_in_a_partial_clone_is_not_fetched(self):

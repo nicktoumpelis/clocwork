@@ -74,17 +74,18 @@ def commit_lookup(repo):
 
     The hashes asked about are mostly another repository's, so a partial
     clone must not fetch them from its remote, and nothing may wait on a
-    prompt. GIT_NO_LAZY_FETCH (git 2.44+) skips the fetch; before that,
-    protocol.allow=never makes it fail before connecting, so no ssh
-    passphrase or credential prompt can appear either.
+    prompt. GIT_NO_LAZY_FETCH (git 2.44+) skips the fetch. On older git an
+    empty GIT_ALLOW_PROTOCOL makes it fail before connecting, overriding any
+    protocol setting in the user's config, so no ssh passphrase or credential
+    prompt can appear either.
     """
     known = {}
-    env = dict(os.environ, GIT_NO_LAZY_FETCH="1", GIT_TERMINAL_PROMPT="0")
+    env = dict(os.environ, GIT_NO_LAZY_FETCH="1", GIT_ALLOW_PROTOCOL="", GIT_TERMINAL_PROMPT="0")
 
     def lookup(sha):
         if sha not in known:
             known[sha] = bool(COMMIT.fullmatch(sha)) and subprocess.run(
-                ["git", "-c", "protocol.allow=never", "-C", repo, "cat-file", "-e", sha + "^{commit}"],
+                ["git", "-C", repo, "cat-file", "-e", sha + "^{commit}"],
                 stdin=subprocess.DEVNULL, capture_output=True, env=env).returncode == 0
         return known[sha]
     return lookup
