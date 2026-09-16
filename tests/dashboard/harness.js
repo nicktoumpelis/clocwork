@@ -77,7 +77,7 @@ function load(opts) {
   // opts.variant picks a synthetic workspace: 'no-tokens' (also opts.tokens === false) or 'sources'.
   const ws = workspace(opts.variant || (opts.tokens === false ? 'no-tokens' : 'default'));
   const html = fs.readFileSync(path.join(ws, 'index.html'), 'utf8');
-  const scripts = []; const re = /<script\b[^>]*>([\s\S]*?)<\/script\s*>/gi; let m;
+  const scripts = []; const re = /<script\b[^>]*>([\s\S]*?)<\/script\b[^>]*>/gi; let m;
   while ((m = re.exec(html))) scripts.push(m[1]);
   let src = scripts.join('\n');
   // The blob may carry the region locale of the machine that generated it,
