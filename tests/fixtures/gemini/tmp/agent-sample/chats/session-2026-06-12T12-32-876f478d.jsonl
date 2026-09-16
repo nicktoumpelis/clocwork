@@ -1,0 +1,41 @@
+{"kind": "main", "lastUpdated": "2026-06-12T12:32:07.259Z", "projectHash": "d431f508902df3b0f44b4030606765012091560abb852149ee0aa5ba8dc9ba94", "sessionId": "876f478d-1913-44d3-abac-76425bbd6e27", "startTime": "2026-06-12T12:32:07.259Z"}
+{"$set": {"lastUpdated": "2026-06-12T12:32:07.259Z", "messages": [{"id": "d04923d38bb0f6017037e74183378ef4", "timestamp": "2026-06-12T12:32:07.259Z", "type": "user"}]}}
+{"id": "1f551e99-5fc6-4ced-878f-2b806906664a", "timestamp": "2026-06-12T12:32:17.599Z", "type": "user"}
+{"$set": {"lastUpdated": "2026-06-12T12:32:17.599Z"}}
+{"id": "2484a06a-c7e7-45ef-84f0-4aef78e298d1", "model": "gemini-2.5-pro", "timestamp": "2026-06-12T12:32:23.521Z", "tokens": {"cached": 0, "input": 11935, "output": 150, "thoughts": 270, "tool": 0, "total": 12355}, "type": "gemini"}
+{"$set": {"lastUpdated": "2026-06-12T12:32:23.521Z"}}
+{"id": "2484a06a-c7e7-45ef-84f0-4aef78e298d1", "model": "gemini-2.5-pro", "timestamp": "2026-06-12T12:32:23.521Z", "tokens": {"cached": 0, "input": 11935, "output": 150, "thoughts": 270, "tool": 0, "total": 12355}, "type": "gemini"}
+{"id": "0cecc863-1f17-4343-a745-3d63b6808b92", "timestamp": "2026-06-12T12:32:23.527Z", "type": "user"}
+{"$set": {"lastUpdated": "2026-06-12T12:32:23.527Z"}}
+{"id": "fc59b058-e707-4e6a-8b90-248cbf3e5cac", "model": "gemini-2.5-pro", "timestamp": "2026-06-12T12:32:26.992Z", "tokens": {"cached": 0, "input": 12517, "output": 54, "thoughts": 67, "tool": 0, "total": 12638}, "type": "gemini"}
+{"$set": {"lastUpdated": "2026-06-12T12:32:26.992Z"}}
+{"id": "fc59b058-e707-4e6a-8b90-248cbf3e5cac", "model": "gemini-2.5-pro", "timestamp": "2026-06-12T12:32:26.992Z", "tokens": {"cached": 0, "input": 12517, "output": 54, "thoughts": 67, "tool": 0, "total": 12638}, "type": "gemini"}
+{"id": "39f18121-9799-44e7-a839-e2e6ea7eb851", "timestamp": "2026-06-12T12:32:26.994Z", "type": "user"}
+{"$set": {"lastUpdated": "2026-06-12T12:32:26.994Z"}}
+{"id": "b350b002-a2e4-4563-bd4f-ae7b7b81ae2b", "model": "gemini-2.5-pro", "timestamp": "2026-06-12T12:32:29.353Z", "tokens": {"cached": 12139, "input": 12693, "output": 52, "thoughts": 13, "tool": 0, "total": 12758}, "type": "gemini"}
+{"$set": {"lastUpdated": "2026-06-12T12:32:29.353Z"}}
+{"id": "b350b002-a2e4-4563-bd4f-ae7b7b81ae2b", "model": "gemini-2.5-pro", "timestamp": "2026-06-12T12:32:29.353Z", "tokens": {"cached": 12139, "input": 12693, "output": 52, "thoughts": 13, "tool": 0, "total": 12758}, "type": "gemini"}
+{"id": "9338df3a-9db9-4253-86eb-9d6962ef43c3", "timestamp": "2026-06-12T12:32:29.356Z", "type": "user"}
+{"$set": {"lastUpdated": "2026-06-12T12:32:29.356Z"}}
+{"id": "0314b58e-72bd-419c-aaac-38de42cf03dc", "model": "gemini-2.5-pro", "timestamp": "2026-06-12T12:32:32.799Z", "tokens": {"cached": 12142, "input": 12811, "output": 54, "thoughts": 48, "tool": 0, "total": 12913}, "type": "gemini"}
+{"$set": {"lastUpdated": "2026-06-12T12:32:32.799Z"}}
+{"id": "0314b58e-72bd-419c-aaac-38de42cf03dc", "model": "gemini-2.5-pro", "timestamp": "2026-06-12T12:32:32.799Z", "tokens": {"cached": 12142, "input": 12811, "output": 54, "thoughts": 48, "tool": 0, "total": 12913}, "type": "gemini"}
+{"id": "68228b4c-de77-45bb-9f39-70cca244ab26", "timestamp": "2026-06-12T12:32:32.800Z", "type": "user"}
+{"$set": {"lastUpdated": "2026-06-12T12:32:32.800Z"}}
+{"id": "41a75fd0-f86c-491c-9e13-b9a7ef67548d", "model": "gemini-2.5-pro", "timestamp": "2026-06-12T12:32:35.396Z", "tokens": {"cached": 12144, "input": 12968, "output": 52, "thoughts": 14, "tool": 0, "total": 13034}, "type": "gemini"}
+{"$set": {"lastUpdated": "2026-06-12T12:32:35.397Z"}}
+{"id": "41a75fd0-f86c-491c-9e13-b9a7ef67548d", "model": "gemini-2.5-pro", "timestamp": "2026-06-12T12:32:35.396Z", "tokens": {"cached": 12144, "input": 12968, "output": 52, "thoughts": 14, "tool": 0, "total": 13034}, "type": "gemini"}
+{"id": "4b8d14a6-d424-447e-8694-97d5d08847b4", "timestamp": "2026-06-12T12:32:35.398Z", "type": "user"}
+{"$set": {"lastUpdated": "2026-06-12T12:32:35.399Z"}}
+{"id": "56db5624-8b7f-452f-9c7a-9d012361ef95", "model": "gemini-2.5-pro", "timestamp": "2026-06-12T12:32:38.109Z", "tokens": {"cached": 12146, "input": 13087, "output": 54, "thoughts": 20, "tool": 0, "total": 13161}, "type": "gemini"}
+{"$set": {"lastUpdated": "2026-06-12T12:32:38.109Z"}}
+{"id": "56db5624-8b7f-452f-9c7a-9d012361ef95", "model": "gemini-2.5-pro", "timestamp": "2026-06-12T12:32:38.109Z", "tokens": {"cached": 12146, "input": 13087, "output": 54, "thoughts": 20, "tool": 0, "total": 13161}, "type": "gemini"}
+{"id": "648bc97a-69f8-4986-b764-6f64bcbdbc9d", "timestamp": "2026-06-12T12:32:38.110Z", "type": "user"}
+{"$set": {"lastUpdated": "2026-06-12T12:32:38.110Z"}}
+{"id": "6de386d9-5923-45f2-a078-38c24c620a45", "model": "gemini-2.5-pro", "timestamp": "2026-06-12T12:32:40.818Z", "tokens": {"cached": 12149, "input": 13216, "output": 52, "thoughts": 13, "tool": 0, "total": 13281}, "type": "gemini"}
+{"$set": {"lastUpdated": "2026-06-12T12:32:40.818Z"}}
+{"id": "6de386d9-5923-45f2-a078-38c24c620a45", "model": "gemini-2.5-pro", "timestamp": "2026-06-12T12:32:40.818Z", "tokens": {"cached": 12149, "input": 13216, "output": 52, "thoughts": 13, "tool": 0, "total": 13281}, "type": "gemini"}
+{"id": "9574430a-adbe-4046-a61f-a145dc1663b8", "timestamp": "2026-06-12T12:32:40.821Z", "type": "user"}
+{"$set": {"lastUpdated": "2026-06-12T12:32:40.821Z"}}
+{"id": "3434bbb4-7e8c-471f-8cbc-3f8d09b229ab", "model": "gemini-2.5-pro", "timestamp": "2026-06-12T12:32:43.585Z", "tokens": {"cached": 0, "input": 13334, "output": 0, "thoughts": 23, "tool": 0, "total": 13357}, "type": "gemini"}
+{"$set": {"lastUpdated": "2026-06-12T12:32:43.585Z"}}
