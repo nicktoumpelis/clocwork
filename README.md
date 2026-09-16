@@ -183,11 +183,16 @@ archives per-day totals, per agent and model, into `token_usage.json`:
 
 A Codex session belongs to the repository when it records the same remote
 as the repository's `origin`, so sessions from any clone or worktree count.
-When the session records no remote, or `origin` is missing or not a URL
-clocwork recognises, the session belongs when it ran in the repository or a
-directory inside it. Gemini CLI identifies a session's project only by
-a hash of the directory it started in, so its sessions count when that is
-the repository's current path or a directory tracked at `HEAD` below it.
+A session that recorded another remote still belongs when it ran in the
+repository, or a directory inside it, from one of the repository's commits.
+A renamed or transferred repository keeps its sessions that way, and a
+different repository later cloned to the same path gets them only if it
+holds the commit they started from. When the session records no remote, or
+`origin` is missing or not a URL clocwork recognises, the session belongs
+when it ran in the repository or a directory inside it.
+Gemini CLI identifies a session's project only by a hash of the directory it
+started in, so its sessions count when that is the repository's current path
+or a directory tracked at `HEAD` below it.
 
 Only dates, model names, and token and turn counts reach the archive;
 prompts and replies are never kept. The archive keeps the larger record for

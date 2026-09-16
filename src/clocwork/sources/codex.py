@@ -23,6 +23,7 @@ a fork.
 import json
 import os
 import re
+import subprocess
 
 from clocwork import paths, tokens
 
@@ -45,6 +46,8 @@ READ_ERRORS = (OSError, EOFError, UnicodeError, TypeError, AttributeError) + ((z
 # Only these lines matter; messages, tool calls and other events are skipped
 # before they are parsed.
 WANTED = ('"turn_context"', '"token_usage_record"', '"token_count"')
+# A full commit hash, SHA-1 or SHA-256; git is asked about nothing else.
+COMMIT = re.compile(r"[0-9a-fA-F]{40}(?:[0-9a-fA-F]{24})?")
 UUID7 = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
 
@@ -63,19 +66,48 @@ def rollouts(homes):
     return sorted(found)
 
 
-def belongs(meta, repo_real, remote):
-    """Whether a session ran in the repository: the same remote when both
-    name one, as paths.check_identity decides, else a working directory at
-    or below the repository's."""
-    url = (meta.get("git") or {}).get("repository_url")
-    if remote and isinstance(url, str) and url:
-        parsed = paths.parse_remote(url)
-        return parsed is not None and f"{parsed[0]}/{parsed[1]}".lower() == remote.lower()
-    cwd = meta.get("cwd")
-    if not isinstance(cwd, str) or not cwd:
+def commit_lookup(repo):
+    """A test of whether a full hash names a commit in the repository,
+    asking git once per hash."""
+    known = {}
+
+    def lookup(sha):
+        if sha not in known:
+            known[sha] = bool(COMMIT.fullmatch(sha)) and subprocess.run(
+                ["git", "-C", repo, "cat-file", "-e", sha + "^{commit}"], capture_output=True).returncode == 0
+        return known[sha]
+    return lookup
+
+
+def ran_inside(meta, repo_real):
+    """Whether the session's working directory is the repository's or below it."""
+    cwd = tokens.text(meta.get("cwd"))
+    if cwd is None:
         return False
     real = os.path.realpath(cwd)
     return real == repo_real or real.startswith(repo_real.rstrip(os.sep) + os.sep)
+
+
+def belongs(meta, repo_real, remote, known_commit):
+    """Whether a session ran in the repository.
+
+    When both name a remote, the same remote decides, as
+    paths.check_identity does, so a session from any clone counts. A session
+    that recorded another remote still belongs when it ran in the
+    repository's directory from one of the repository's commits: the
+    repository was renamed or moved since, while a different repository
+    cloned to the same path shares none of its commits. Without two remotes
+    to compare, the working directory decides.
+    """
+    git = meta.get("git") or {}
+    url = tokens.text(git.get("repository_url"))
+    if remote and url:
+        parsed = paths.parse_remote(url)
+        if parsed is not None and f"{parsed[0]}/{parsed[1]}".lower() == remote.lower():
+            return True
+        commit = tokens.text(git.get("commit_hash"))
+        return commit is not None and ran_inside(meta, repo_real) and known_commit(commit)
+    return ran_inside(meta, repo_real)
 
 
 def counts(usage):
@@ -87,7 +119,7 @@ def uuid7(value):
     return value if isinstance(value, str) and UUID7.match(value) else None
 
 
-def read_session(lines, repo_real, remote):
+def read_session(lines, repo_real, remote, known_commit):
     """(session, malformed lines) for one rollout, or (None, n) when it is
     not the repository's or does not open with its session_meta.
 
@@ -108,7 +140,7 @@ def read_session(lines, repo_real, remote):
     if not isinstance(head, dict) or head.get("type") != "session_meta":
         return None, 1
     meta = head.get("payload") or {}
-    if not belongs(meta, repo_real, remote):
+    if not belongs(meta, repo_real, remote, known_commit):
         return None, 0
     session = {"id": tokens.text(meta.get("id")), "forked_from": tokens.text(meta.get("forked_from_id")),
                "records": [], "events": [], "before_records": None}
@@ -170,6 +202,7 @@ def scan(repo, homes):
     belongs to it and none was unreadable."""
     repo_real = os.path.realpath(repo)
     remote = paths.remote_key(repo) if os.path.isdir(repo) else None
+    known_commit = commit_lookup(repo)
     found, malformed, skipped = {}, 0, 0
     for path in rollouts(homes):
         compressed = path.endswith(".zst")
@@ -178,7 +211,7 @@ def scan(repo, homes):
             continue
         try:
             with (zstd.open if compressed else open)(path, "rt", encoding="utf-8", errors="replace") as f:
-                session, bad = read_session(iter(f), repo_real, remote)
+                session, bad = read_session(iter(f), repo_real, remote, known_commit)
         except READ_ERRORS:
             skipped += 1
             continue

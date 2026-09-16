@@ -9,6 +9,7 @@ from unittest import mock
 from clocwork import tokens as tu
 from clocwork.sources import codex
 from tests import agent_logs
+from tests import repo_fixture as fx
 
 # What the recordings hold, computed before reduction and without the
 # reader: each 0.130-0.149 session's final running total, and the sum of each
@@ -169,6 +170,49 @@ class TestRules(unittest.TestCase):
 
     def day(self):
         return self.scan().days["2026-09-01"]
+
+    NEW = "git@github.com:me/new-name.git"
+    OLD = "https://github.com/me/old-name.git"
+
+    def committed(self, remote):
+        """Make the repository a clone of `remote` with one commit, and return its hash."""
+        git_repo(self.repo, remote)
+        fx._git(self.repo, "commit", "-q", "--allow-empty", "-m", "Start")
+        return fx._git(self.repo, "rev-parse", "HEAD")
+
+    def session(self, name, cwd, git):
+        self.write(name, [meta(name, cwd, git=git), turn("t1", "gpt-5.5"), record(name, "t1", usage(10, 0, 1))])
+
+    def test_a_session_recorded_before_a_rename_matches_by_its_commit(self):
+        head = self.committed(self.NEW)
+        self.session("rollout-a.jsonl", self.repo, {"repository_url": self.OLD, "commit_hash": head})
+        self.session("rollout-b.jsonl", os.path.join(self.repo, "pkg"), {"repository_url": self.OLD, "commit_hash": head.upper()})
+        self.assertEqual(self.day()["turns"], 2)
+
+    def test_another_remotes_session_in_the_directory_needs_one_of_its_commits(self):
+        head = self.committed(self.NEW)
+        other = "https://github.com/someone/else.git"
+        self.session("rollout-a.jsonl", self.repo, {"repository_url": other, "commit_hash": "0" * 40})
+        self.session("rollout-b.jsonl", self.repo, {"repository_url": other})
+        self.session("rollout-c.jsonl", self.repo, {"repository_url": other, "commit_hash": head[:12]})
+        self.session("rollout-d.jsonl", self.repo, {"repository_url": other, "commit_hash": ["not", "a", "hash"]})
+        self.session("rollout-e.jsonl", self.repo + "-copy", {"repository_url": other, "commit_hash": head})
+        tree = fx._git(self.repo, "rev-parse", "HEAD^{tree}")
+        self.session("rollout-f.jsonl", self.repo, {"repository_url": other, "commit_hash": tree})
+        self.assertIsNone(self.scan())
+
+    def test_git_is_asked_once_per_commit_and_only_for_sessions_in_the_directory(self):
+        head = self.committed(self.NEW)
+        old = {"repository_url": self.OLD, "commit_hash": head}
+        self.session("rollout-a.jsonl", self.repo, old)
+        self.session("rollout-b.jsonl", self.repo, old)
+        self.session("rollout-c.jsonl", "/elsewhere", dict(old, commit_hash="1" * 40))
+        self.session("rollout-d.jsonl", self.repo, {"repository_url": self.NEW, "commit_hash": "2" * 40})
+        self.session("rollout-e.jsonl", self.repo, dict(old, commit_hash="--help"))
+        with mock.patch.object(subprocess, "run", wraps=subprocess.run) as run:
+            self.assertEqual(self.day()["turns"], 3)
+        asked = [c.args[0] for c in run.call_args_list if "cat-file" in c.args[0]]
+        self.assertEqual(asked, [["git", "-C", self.repo, "cat-file", "-e", head + "^{commit}"]])
 
     def test_the_prompt_count_includes_cached_and_written_tokens(self):
         self.write("rollout-a.jsonl", [meta("a", self.repo), turn("t1", "gpt-5.6-sol"),
