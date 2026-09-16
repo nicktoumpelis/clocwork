@@ -17,8 +17,9 @@ All notable changes to clocwork are recorded here. The format follows
 ### Fixed
 
 - On a GitHub or GitLab repository whose path contains `bitbucket.org`,
-  commit links used Bitbucket's `/commits/` form and led nowhere. The form
-  now follows the remote's host alone.
+  commit links used Bitbucket's `/commits/` form, which opens the history
+  from that commit rather than the commit. The form now follows the remote's
+  host alone.
 
 ## [0.1.0] - 2026-09-16
 
