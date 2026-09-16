@@ -11,8 +11,8 @@ const { execFileSync } = require('child_process');
 
 // CLOCWORK_DASH_WORKSPACE points the suite at an already rendered workspace
 // (a real one, say) instead of the synthetic fixture. It stands in for the
-// default variant only: a test that asks for the no-tokens variant always
-// gets the synthetic one, because a real workspace is whatever it is.
+// default variant only: a test that asks for another variant always gets the
+// synthetic one, because a real workspace is whatever it is.
 const WORKSPACES = {};   // variant -> rendered directory
 function workspace(variant) {
   variant = variant || 'default';
@@ -22,6 +22,7 @@ function workspace(variant) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'clocwork-dash-'));
   const args = [path.join(__dirname, 'fixture.py'), dir];
   if (variant === 'no-tokens') args.push('--no-tokens');
+  if (variant === 'sources') args.push('--sources');
   execFileSync('python3', args, { stdio: 'inherit' });
   execFileSync(path.join(root, 'clocwork'), ['render', '-o', dir, '--no-open', '-q'], { stdio: 'inherit' });
   process.on('exit', () => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { /* best effort */ } });
@@ -68,11 +69,13 @@ Chart.defaults = { font: {} };
 Chart.register = function () {};
 Chart.prototype.update = function () { this.updates++; };
 Chart.prototype.resetZoom = function () {};
+Chart.prototype.isDatasetVisible = function (i) { return !(this.hidden || {})[i]; };
+Chart.prototype.setDatasetVisibility = function (i, visible) { (this.hidden = this.hidden || {})[i] = !visible; };
 
 function load(opts) {
   opts = opts || {};
-  // opts.tokens === false loads the workspace of a repository with no token data.
-  const ws = workspace(opts.tokens === false ? 'no-tokens' : 'default');
+  // opts.variant picks a synthetic workspace: 'no-tokens' (also opts.tokens === false) or 'sources'.
+  const ws = workspace(opts.variant || (opts.tokens === false ? 'no-tokens' : 'default'));
   const html = fs.readFileSync(path.join(ws, 'index.html'), 'utf8');
   const scripts = []; const re = /<script>([\s\S]*?)<\/script>/g; let m;
   while ((m = re.exec(html))) scripts.push(m[1]);

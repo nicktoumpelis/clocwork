@@ -1,14 +1,14 @@
 """The clocwork command.
 
     clocwork [REPO]          analyse, archive tokens, render, open
-    clocwork tokens [REPO]   archive Claude Code transcripts only
+    clocwork tokens [REPO]   archive agent token logs only
     clocwork render -o DIR   re-render the dashboard from workspace data
 
 A first argument that is not a subcommand is the repository, so bare
 `clocwork` and `clocwork ~/code/foo` both work. `tokens` is separate because
 the two halves of the pipeline have opposite economics: the cloc pass is slow
-and fully regenerable, the transcript archive is cheap and irreplaceable
-within Claude Code's roughly 30-day retention window.
+and fully regenerable, the token archive is cheap and irreplaceable once an
+agent deletes the logs it was read from (Claude Code keeps about 30 days).
 """
 
 import argparse
@@ -61,10 +61,10 @@ def build_parser():
     run.add_argument("--max-commits", type=non_negative, metavar="N", help="measure at most N uncached commits this run")
     run.add_argument("-j", "--jobs", type=positive, metavar="N",
                      help="cloc processes to run at once (default: one per CPU core)")
-    run.add_argument("--no-tokens", action="store_true", help="skip the transcript scan")
+    run.add_argument("--no-tokens", action="store_true", help="skip the agent log scan")
     run.add_argument("--cache-dir", metavar="DIR",
                      help="cache location (default: $XDG_CACHE_HOME/clocwork, else ~/.cache/clocwork; wins over both)")
-    tok = sub.add_parser("tokens", parents=[quiet], help="archive Claude Code transcripts only")
+    tok = sub.add_parser("tokens", parents=[quiet], help="archive agent token logs only")
     tok.add_argument("repo", nargs="?", metavar="REPO", help=repo_help)
     tok.add_argument("-o", "--output", metavar="DIR", help=workspace_help)
     ren = sub.add_parser("render", parents=[quiet, page], help="re-render the dashboard from existing workspace data")
@@ -137,9 +137,9 @@ def cmd_run(args, log, homes):
         log(f"Config: {conf.source}")
     archive = os.path.join(ws, "token_usage.json")
     if args.no_tokens:
-        log("Step 1/3: Skipping the transcript scan (--no-tokens)")
+        log("Step 1/3: Skipping the agent log scan (--no-tokens)")
     else:
-        log("Step 1/3: Archiving token usage from Claude Code transcripts...")
+        log("Step 1/3: Archiving token usage from agent logs...")
         tokens.archive(repo, archive, sources.SOURCES, homes=homes, log=log)
     log("Step 2/3: Analysing commit history...")
     analyse.analyse(repo, os.path.join(ws, "full_commit_data.json"), paths.cache_path(repo, args.cache_dir),

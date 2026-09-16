@@ -4,6 +4,7 @@ const { load } = require('./harness');
 const { check, section, done } = require('./check');
 
 const { checkAbsent } = require('./tokens_absent');
+const { charted, checkSources } = require('./tokens_sources');
 
 const page = load();
 const { RAW, byId, charts } = page;
@@ -28,11 +29,14 @@ check(page.headers.some(h => h.getAttribute('data-sort') === 'tokens'), 'Tokens 
 
 section('token cards');
 check(byId('tokenStats').children.length === 7, 'seven token cards');
-check(/^~\d+B$/.test(cardValue('Tokens (lifetime est. ceiling)')), 'lifetime card is coarse, en-US compact: ' + cardValue('Tokens (lifetime est. ceiling)'));
+const compactWhole = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 0 });
+const compact3 = new Intl.NumberFormat('en-US', { notation: 'compact', maximumSignificantDigits: 3 });
+const lifetime = T.lifetime_total >= 1e9 ? compactWhole : compact3;
+check(cardValue('Tokens (lifetime est. ceiling)') === lifetime.formatRange(T.lifetime_total, T.lifetime_total),
+      'lifetime card is coarse, en-US compact: ' + cardValue('Tokens (lifetime est. ceiling)'));
 check(cardValue('Measured').indexOf('B') > 0 || cardValue('Measured').indexOf('M') > 0, 'measured card is abbreviated');
 check(cardValue('Cache Read') === enPct.format(T.cache_read_share), 'cache read share');
 check(cardValue('Output per Line') === en.format(T.output_per_line), 'output per line');
-check(byId('tokenNote').textContent.indexOf('30 days') > 0, 'note explains the retention window');
 
 section('clarifications and footprint');
 check(/re-read|context/i.test(cardNote('Cache Read') || ''), 'cache read card explains itself: ' + cardNote('Cache Read'));
@@ -55,21 +59,48 @@ check(cardValue('API Cost (est.)') === usd.formatRange(T.lifetime_cost_usd, T.li
 check((cardNote('API Cost (est.)') || '').indexOf(usdExact.format(T.cost_usd)) === 0 && /measured/.test(cardNote('API Cost (est.)') || ''), 'cost note leads with the measured window figure: ' + cardNote('API Cost (est.)'));
 check(/list price/i.test(byId('tokenNote').textContent), 'note explains the cost basis');
 
+section('text written from the data');
+const note = byId('tokenNote').textContent;
+const S = T.sources || [];
+const subtitle = byId('tokenChartSource').textContent;
+check(S.length > 0 && S.every(s => subtitle.indexOf(s.label) >= 0) && / \u00b7 earlier days estimated from lines changed$/.test(subtitle),
+      'subtitle names the measured agents: ' + subtitle);
+if (S.length === 1 && S[0].key === 'claude-code') {
+  check(subtitle === 'measured from Claude Code transcripts \u00b7 earlier days estimated from lines changed', 'one Claude Code source keeps the original subtitle');
+}
+check(note.indexOf('Opus 5 with a 1M context') < 0, 'the note assumes no particular repository\u2019s model');
+check(S.filter(s => s.top_model).every(s => note.indexOf('mostly ' + s.top_model) > 0), 'the note names each agent\u2019s main model');
+if (S.some(s => s.key === 'claude-code')) check(note.indexOf('about ' + en.format(30) + ' days') > 0, 'the note gives Claude Code\u2019s retention window');
+if (T.unmeasured_agent_commits) {
+  check(note.indexOf(en.format(T.unmeasured_agent_commits) + ' AI-attributed commit') >= 0 && T.unmeasured_agents.every(a => note.indexOf(a) >= 0),
+        'the note counts and names the agents whose commits carry no figure');
+} else {
+  check(note.indexOf('no token figure') < 0, 'no unmeasured sentence when every AI commit has a figure');
+}
+check(/prompt length/.test(note), 'the note says prices tiered by prompt length are taken at their base rate');
+
 section('token chart');
 const token = charts[charts.length - 1];
 check(charts.length === 6, 'token chart is the sixth chart');
-const estimated = token.data.datasets[0];
-const measured = token.data.datasets[1];
-check(estimated.label === 'Estimated' && measured.label === 'Measured', 'two labelled datasets');
-check(estimated.data.length === T.per_day.filter(r => r[2] === 'e').length, 'estimated points match the e rows');
-check(measured.data.length === T.per_day.filter(r => r[2] === 'm').length, 'measured points match the m rows');
-check(measured.data.every(p => typeof p.x === 'string' && typeof p.y === 'number'), 'measured points are {x,y}');
+if (charted(T).length > 1) {
+  checkSources(page, check, section);
+} else {
+  const estimated = token.data.datasets[0];
+  const measured = token.data.datasets[1];
+  check(token.data.datasets.length === 2 && estimated.label === 'Estimated' && measured.label === 'Measured', 'two labelled datasets');
+  check(estimated.data.length === T.per_day.filter(r => r[2] === 'e').length, 'estimated points match the e rows');
+  check(measured.data.length === T.per_day.filter(r => r[2] === 'm').length, 'measured points match the m rows');
+  check(measured.data.every(p => typeof p.x === 'string' && typeof p.y === 'number'), 'measured points are {x,y}');
+  check(measured.backgroundColor === 'rgba(88,166,255,0.6)' && token.options.scales.y.stacked !== true, 'one source keeps the unstacked blue bars');
+  check(token.options.interaction.mode === 'nearest' && token.options.interaction.axis === 'x' && token.options.interaction.intersect === false,
+        'the tooltip shows the date nearest the pointer, not a position or only a bar under it');
+}
 
 section('independent of the selection');
-const before = [cardValue('Tokens (lifetime est.)'), cardValue('Measured'), cardValue('Output per Line')];
+const before = [cardValue('Tokens (lifetime est. ceiling)'), cardValue('Measured'), cardValue('Output per Line')];
 const updatesBefore = token.updates;
 page.run('SEL.set({ lang: "' + RAW.languages[0] + '", type: "comment" })');
-const after = [cardValue('Tokens (lifetime est.)'), cardValue('Measured'), cardValue('Output per Line')];
+const after = [cardValue('Tokens (lifetime est. ceiling)'), cardValue('Measured'), cardValue('Output per Line')];
 check(before.join('|') === after.join('|'), 'token cards ignore the Language and Line type selection');
 check(token.updates === updatesBefore, 'token chart does not re-render on selection change');
 

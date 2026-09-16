@@ -121,8 +121,8 @@ def render(parser=None, version=__version__, date=None):
                  "merge commits carry no code of their own and are listed but not measured. The result is one\n.I index.html\n"
                  "(its charts load Chart.js and its plugins from a CDN) plus a\n.I commit_bodies.js\nsidecar, "
                  "written to a workspace next to the repository, never inside it: lines per language and type at every commit, "
-                 "which commits an AI agent co\\-authored and when each model first appeared, and, when Claude Code transcripts "
-                 "exist for the repository, what the work cost in tokens.\n.PP\n"
+                 "which commits an AI agent co\\-authored and when each model first appeared, and, when a coding agent's logs "
+                 "for the repository are on the machine (Claude Code, Codex CLI, Gemini CLI), what the work cost in tokens.\n.PP\n"
                  "A first argument that is not a command is taken as\n.IR REPO ,\nso\n.B clocwork ~/code/foo\nworks; "
                  "the default is the current directory, and any directory inside the repository will do.")
     lines.append(".SH OPTIONS\nOptions more than one command takes. Each command's own options follow it below.\n"
@@ -137,6 +137,8 @@ def render(parser=None, version=__version__, date=None):
                  ".TP\n.B CLOCWORK_LOCALE\nA BCP 47 tag such as\n.BR en\\-SE .\n"
                  "The region locale the page formats numbers, dates and units with. Wins over the machine's setting;\n"
                  ".B \\-\\-locale\nwins over both.\n"
+                 ".TP\n.B CODEX_HOME\nWhere Codex CLI keeps its sessions, read from its\n.I sessions/\nand\n.I archived_sessions/\ndirectories; the default is\n.IR ~/.codex .\n"
+                 ".TP\n.B GEMINI_CLI_HOME\nThe directory Gemini CLI uses in place of the home directory; its sessions are read from\n.I .gemini/tmp/\nand\n.I .cache/.gemini/tmp/\nbelow it.\n"
                  ".TP\n.B XDG_CACHE_HOME\nWhen set, the cloc cache lives under\n.IR $XDG_CACHE_HOME/clocwork/ ;\notherwise under\n.IR ~/.cache/clocwork/ .\n"
                  ".B \\-\\-cache\\-dir\nwins over both. Only\n.B run\nuses the cache.")
     lines.append(".SH FILES\n"
@@ -144,7 +146,7 @@ def render(parser=None, version=__version__, date=None):
                  ".TP\n.I clocwork.json\nWhich repository the workspace belongs to. A run against another repository is refused rather than overwriting the workspace.\n"
                  ".TP\n.I clocwork.toml\nOptional configuration: page title, test\\-path rules, extra agents. The first found wins:\n"
                  ".BR \\-\\-config ,\nthen this file in the workspace, then\n.I .clocwork.toml\nin the repository.\n"
-                 ".TP\n.I token_usage.json\nThe per\\-day token archive scanned from Claude Code transcripts. It cannot be regenerated once the transcripts expire; no run shrinks it.\n"
+                 ".TP\n.I token_usage.json\nThe per\\-day token archive, kept per agent, read from coding agents' logs. It cannot be regenerated once the logs expire; no run shrinks it.\n"
                  ".TP\n.I full_commit_data.json\nThe analysis the page is rendered from.\n"
                  ".TP\n.IR index.html \", \" commit_bodies.js\nThe dashboard and its sidecar of full commit messages.\n"
                  ".TP\n.I ~/.cache/clocwork/<name>\\-<hash>/cloc_cache.json\nPer\\-file cloc results keyed by commit, so a changed test rule or language table re\\-reads the cache instead of re\\-running cloc.")

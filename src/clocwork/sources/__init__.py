@@ -10,14 +10,17 @@ A source module provides:
     default_homes(env)  the directories the agent writes its logs to
     scan(repo, homes)   a tokens.ScanResult for the repository, or None when
                         no home holds logs for it
+    SKIPPED             optional: why scan() can count a file as unreadable
+                        (tokens.ScanResult.skipped), appended to that count
+                        in the log
 
 An agent name must match at most one source, or one commit's lines would be
 counted against two sources' tokens. source_for() takes the first match.
 """
 
-from clocwork.sources import claude_code
+from clocwork.sources import claude_code, codex, gemini
 
-SOURCES = (claude_code,)
+SOURCES = (claude_code, codex, gemini)
 
 
 def by_key(key):

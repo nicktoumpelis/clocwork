@@ -4,10 +4,11 @@ import os
 import shutil
 import tempfile
 import unittest
-from contextlib import redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 
-from clocwork import cli, sources
-from tests import repo_fixture as fx
+from clocwork import cli, sources, tokens
+from clocwork.sources import codex, gemini
+from tests import agent_logs, repo_fixture as fx
 
 HAVE_CLOC = shutil.which("cloc") is not None
 
@@ -59,6 +60,14 @@ class TestParseArgs(unittest.TestCase):
                 with self.assertRaises(SystemExit):
                     with redirect_stderr(io.StringIO()):
                         cli.parse_args(["--jobs", bad])
+
+    def test_help_speaks_of_agent_logs(self):
+        parser = cli.build_parser()
+        subs = next(a for a in parser._actions if a.choices).choices
+        text = parser.format_help() + "".join(sub.format_help() for sub in subs.values())
+        self.assertIn("archive agent token logs only", text)
+        self.assertIn("skip the agent log scan", text)
+        self.assertNotIn("transcript", text)
 
     def test_run_only_options_default_on_other_commands(self):
         a = cli.parse_args(["render", "-o", "/ws"])
@@ -197,6 +206,37 @@ class TestEndToEnd(unittest.TestCase):
     def test_subdirectory_resolves_to_the_repository(self):
         self.assertEqual(self.run_cli(os.path.join(self.repo, "pkg"), "--cache-dir", self.cache)[0], 0)
         self.assertTrue(os.path.exists(os.path.join(self.ws, "index.html")))
+
+    def test_a_run_archives_and_shows_every_agent_found(self):
+        agent_logs.install("codex", os.path.join(self.root, "codex"), self.repo)
+        agent_logs.install("gemini", os.path.join(self.root, "home", ".gemini"), self.repo)
+        homes = {"claude-code": [self.projects],
+                 "codex": codex.default_homes({"CODEX_HOME": os.path.join(self.root, "codex")}),
+                 "gemini": gemini.default_homes({"GEMINI_CLI_HOME": os.path.join(self.root, "home")})}
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = cli.main([self.repo, "--no-open", "--cache-dir", self.cache], homes=homes)
+        log = out.getvalue()
+        self.assertEqual(code, 0)
+        archive = tokens.load(os.path.join(self.ws, "token_usage.json"))
+        self.assertEqual({key for day in archive.values() for key in day}, {"codex", "gemini"})
+        self.assertEqual(sorted(archive), ["2026-05-23", "2026-05-29", "2026-06-12", "2026-08-26", "2026-09-07"])
+        for line in ("Step 1/3: Archiving token usage from agent logs...",
+                     "  Scanned 4 days of Codex CLI logs", "  Scanned 1 day of Gemini CLI logs",
+                     # 1,866,762 from Codex CLI and 238,144 from Gemini CLI (tests/test_sources_*.py).
+                     "  Archive now 5 days, 2,104,906 tokens (+5 days, +2,104,906 tokens)",
+                     # The polyglot history credits Claude, Copilot and Cursor, never Codex or Gemini.
+                     "  3 AI commits carry no token figure (Claude Code, Copilot, Cursor): "
+                     "no token logs from their agent cover their work"):
+            self.assertIn(line, log.splitlines())
+        self.assertIn("No logs for this repository from Claude Code (" + self.projects + ")", log)
+
+    def test_no_tokens_says_what_it_skipped(self):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            cli.main([self.repo, "--no-open", "--no-tokens", "--cache-dir", self.cache],
+                     homes={s.KEY: [self.projects] for s in sources.SOURCES})
+        self.assertIn("Step 1/3: Skipping the agent log scan (--no-tokens)", out.getvalue().splitlines())
 
     def test_explicit_workspace_and_no_tokens(self):
         ws = os.path.join(self.root, "elsewhere")

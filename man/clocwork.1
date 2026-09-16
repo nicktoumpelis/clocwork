@@ -21,7 +21,7 @@ in git diff mode and cached per file, so a first run over a long history is slow
 .I index.html
 (its charts load Chart.js and its plugins from a CDN) plus a
 .I commit_bodies.js
-sidecar, written to a workspace next to the repository, never inside it: lines per language and type at every commit, which commits an AI agent co\-authored and when each model first appeared, and, when Claude Code transcripts exist for the repository, what the work cost in tokens.
+sidecar, written to a workspace next to the repository, never inside it: lines per language and type at every commit, which commits an AI agent co\-authored and when each model first appeared, and, when a coding agent's logs for the repository are on the machine (Claude Code, Codex CLI, Gemini CLI), what the work cost in tokens.
 .PP
 A first argument that is not a command is taken as
 .IR REPO ,
@@ -65,7 +65,7 @@ measure at most N uncached commits this run
 cloc processes to run at once (default: one per CPU core)
 .TP
 .B \-\-no\-tokens
-skip the transcript scan
+skip the agent log scan
 .TP
 .B \-\-cache\-dir DIR
 cache location (default: $XDG_CACHE_HOME/clocwork, else ~/.cache/clocwork; wins over both)
@@ -73,7 +73,7 @@ cache location (default: $XDG_CACHE_HOME/clocwork, else ~/.cache/clocwork; wins 
 .B clocwork tokens
 [\-q] [\-o DIR] [REPO]
 .PP
-archive Claude Code transcripts only
+archive agent token logs only
 .TP
 .I REPO
 repository or any directory inside it (default: cwd)
@@ -93,6 +93,21 @@ A BCP 47 tag such as
 The region locale the page formats numbers, dates and units with. Wins over the machine's setting;
 .B \-\-locale
 wins over both.
+.TP
+.B CODEX_HOME
+Where Codex CLI keeps its sessions, read from its
+.I sessions/
+and
+.I archived_sessions/
+directories; the default is
+.IR ~/.codex .
+.TP
+.B GEMINI_CLI_HOME
+The directory Gemini CLI uses in place of the home directory; its sessions are read from
+.I .gemini/tmp/
+and
+.I .cache/.gemini/tmp/
+below it.
 .TP
 .B XDG_CACHE_HOME
 When set, the cloc cache lives under
@@ -120,7 +135,7 @@ then this file in the workspace, then
 in the repository.
 .TP
 .I token_usage.json
-The per\-day token archive scanned from Claude Code transcripts. It cannot be regenerated once the transcripts expire; no run shrinks it.
+The per\-day token archive, kept per agent, read from coding agents' logs. It cannot be regenerated once the logs expire; no run shrinks it.
 .TP
 .I full_commit_data.json
 The analysis the page is rendered from.

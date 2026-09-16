@@ -133,6 +133,13 @@ class TestAnalyse(unittest.TestCase):
         # Zero when nothing is attributed, so the page can rely on the key.
         self.assertTrue(all(isinstance(c["tokens"], int) for c in self.data["commits"]))
 
+    def test_every_commit_carries_a_token_kind(self):
+        self.assertEqual({c["token_kind"] for c in self.data["commits"]}, {""})
+
+    def test_commit_records_have_the_dashboard_fixtures_keys(self):
+        from tests.test_fixture_shape import fixture
+        self.assertEqual(set(fixture.build()["commits"][0]), set(self.data["commits"][0]))
+
     def test_summary_carries_a_tokens_block(self):
         t = self.data["summary"]["tokens"]
         self.assertEqual(t["measured_total"], 0)      # no transcripts for the fixture repo
@@ -193,6 +200,8 @@ class TestInputs(unittest.TestCase):
             lines = []
             data = an.analyse(d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), archive, log=lines.append)
             tokens = {c["agent"]: c["tokens"] for c in data["commits"] if c["agent"]}
+            kinds = {c["agent"]: c["token_kind"] for c in data["commits"] if c["agent"]}
+            self.assertEqual((kinds["Claude Opus 4.6"], kinds["Copilot"], kinds["Cursor"]), ("m", "", ""))
             self.assertEqual((tokens["Claude Opus 4.6"], tokens["Copilot"], tokens["Cursor"]), (70, 0, 0))
             self.assertIn("  2 AI commits carry no token figure (Copilot, Cursor): "
                           "no token logs from their agent cover their work", lines)
@@ -449,6 +458,61 @@ class TestCostEstimate(unittest.TestCase):
         self.assertEqual(cost["measured_usd"], 0)
         self.assertEqual(cost["unpriced_tokens"], 1500)
 
+    # Every id the two vendors list for the families Codex CLI and Gemini CLI
+    # report, and the row it must be priced by. A variant whose id extends a
+    # shorter one's takes the shorter price unless it has a row of its own.
+    VARIANTS = (
+        ("gpt-6-astra", "gpt-6-astra"),
+        ("gpt-5.6-sol", "gpt-5.6-sol"), ("gpt-5.6-terra", "gpt-5.6-terra"), ("gpt-5.6-luna", "gpt-5.6-luna"),
+        ("gpt-5.6-cyber", "gpt-5.6-cyber"),
+        ("gpt-5.5", "gpt-5.5"), ("gpt-5.5-pro", "gpt-5.5-pro"), ("gpt-5.5-cyber", "gpt-5.5-cyber"),
+        ("gpt-5.4", "gpt-5.4"), ("gpt-5.4-mini", "gpt-5.4-mini"), ("gpt-5.4-nano", "gpt-5.4-nano"),
+        ("gpt-5.4-pro", "gpt-5.4-pro"),
+        ("gpt-5.3-codex", "gpt-5.3-codex"),
+        ("gpt-5.2", "gpt-5.2"), ("gpt-5.2-pro", "gpt-5.2-pro"), ("gpt-5.1", "gpt-5.1"),
+        ("gpt-5", "gpt-5"), ("gpt-5-mini", "gpt-5-mini"), ("gpt-5-nano", "gpt-5-nano"), ("gpt-5-pro", "gpt-5-pro"),
+        ("gpt-5-search-api", "gpt-5"),                              # listed at gpt-5's price
+        ("gpt-5-mini-2025-08-07", "gpt-5-mini"),                    # a dated snapshot
+        ("gemini-3.8-flash", "gemini-3.8-flash"), ("gemini-3.7-flash", "gemini-3.7-flash"),
+        ("gemini-3.6-flash", "gemini-3.6-flash"),
+        ("gemini-3.5-flash", "gemini-3.5-flash"), ("gemini-3.5-flash-lite", "gemini-3.5-flash-lite"),
+        ("gemini-3.1-pro-preview", "gemini-3.1-pro-preview"),
+        ("gemini-3.1-pro-preview-customtools", "gemini-3.1-pro-preview"),   # listed together
+        ("gemini-3.1-flash-lite", "gemini-3.1-flash-lite"),
+        ("gemini-3-flash-preview", "gemini-3-flash-preview"),
+        ("gemini-2.5-pro", "gemini-2.5-pro"), ("gemini-2.5-flash", "gemini-2.5-flash"),
+        ("gemini-2.5-flash-lite", "gemini-2.5-flash-lite"),
+        ("gpt-5.6", None), ("gpt-4o", None), ("o3", None), ("gemini-3.5", None), ("gemini-3-pro-preview", None),
+        # Variants the pages do not list: another model, not a dated copy.
+        ("gpt-5.1-codex-mini", None), ("gpt-5-codex", None), ("gpt-5.3-codex-spark", None),
+        ("gemini-2.5-flash-image", None), ("gemini-2.5-flash-preview-tts", None),
+        ("claude-sonnet-4-5-20250929", "claude-sonnet-4"),
+    )
+
+    def test_each_variant_resolves_to_its_own_row(self):
+        for model, row in self.VARIANTS:
+            with self.subTest(model=model):
+                self.assertIs(an.price_for(model), an.PRICE_USD_PER_MTOK[row] if row else None)
+
+    def test_openai_cache_writes_have_their_own_rate(self):
+        # gpt-5.6-sol: $4 input, $5 cache write, $0.40 cached input, $20 output per MTok.
+        a = self.archive("gpt-5.6-sol", input=1_000_000, cache_write=1_000_000, cache_read=1_000_000, output=1_000_000)
+        self.assertAlmostEqual(an.cost_estimate(a)["measured_usd"], 4 + 5 + 0.4 + 20)
+
+    def test_gemini_is_priced_at_its_base_tier(self):
+        # gemini-2.5-pro up to 200k tokens: $1.25 input, $0.125 cached, $10 output.
+        a = self.archive("gemini-2.5-pro", input=1_000_000, cache_read=1_000_000, output=1_000_000)
+        self.assertAlmostEqual(an.cost_estimate(a)["measured_usd"], 1.25 + 0.125 + 10)
+
+    def test_a_scheduled_price_change_applies_from_its_date(self):
+        before = self.archive("gemini-3.8-flash", input=1_000_000, output=1_000_000)
+        after = {"2027-01-01": before["2026-08-06"]}
+        self.assertAlmostEqual(an.cost_estimate(before)["measured_usd"], 0.75 + 3.75)
+        self.assertAlmostEqual(an.cost_estimate(after)["measured_usd"], 1.50 + 7.50)
+        self.assertEqual(an.price_for("gemini-3.7-flash", "2026-12-31")["cache_read"], 0.075)
+        self.assertEqual(an.price_for("gemini-3.7-flash", "2027-01-01")["cache_read"], 0.15)
+        self.assertIs(an.price_for("gemini-3.5-flash", "2027-06-01"), an.PRICE_USD_PER_MTOK["gemini-3.5-flash"])
+
     def test_empty_archive_costs_nothing(self):
         self.assertEqual(an.cost_estimate({}), {"measured_usd": 0.0, "unpriced_tokens": 0})
 
@@ -537,6 +601,23 @@ class TestPerSource(unittest.TestCase):
             "key": "claude-code", "label": "Claude Code", "measured_total": 1010, "measured_days": 1,
             "estimated_total": 0, "ratio": 20.2, "coverage_start": "2026-09-01",
             "top_model": "claude-opus-5", "per_day": [["2026-09-01", 1010, "m"]]}])
+
+    def test_each_commit_takes_the_kind_of_its_own_sources_day(self):
+        fake = types.SimpleNamespace(KEY="fake", LABEL="Fake", AGENT=re.compile(r"^Cursor\b"))
+        archive = {"2026-08-01": {"fake": self.entry(300)},
+                   "2026-09-01": {"claude-code": self.entry(1000), "fake": self.entry(300)}}
+        results = [self.row(0, "2026-08-01", "Claude Opus 5", 50),    # estimated for Claude Code
+                   self.row(1, "2026-08-01", "Cursor", 10),           # measured for the other source
+                   self.row(2, "2026-09-01", "Claude Opus 5", 50),
+                   self.row(3, "2026-09-01", "Cursor", 10),
+                   self.row(4, "2026-09-01", None, 10)]
+        with mock.patch.object(src, "SOURCES", src.SOURCES + (fake,)):
+            t = an.token_summary(archive, results)
+            kinds = an.token_kinds(t["sources"], results)
+            split = an.tokens_by_commit(t["sources"], results)
+        self.assertEqual(t["per_day"][0], ["2026-08-01", 1300, "e"])      # the day's total is an estimate
+        self.assertEqual(kinds, {0: "e", 1: "m", 2: "m", 3: "m"})
+        self.assertEqual(split, {0: 1000, 1: 300, 2: 1000, 3: 300})
 
     def test_two_sources_on_one_day_each_split_across_their_own_commits(self):
         fake = types.SimpleNamespace(KEY="fake", LABEL="Fake", AGENT=re.compile(r"^Cursor\b"))
