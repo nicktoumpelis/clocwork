@@ -1390,7 +1390,7 @@ function resetMainZoom() {
         });
         colgroup.removeChild(colgroup.children[colgroup.children.length - 1]);
     }
-    var FIXED_COLUMNS = HAVE_TOKENS ? 9 : 8;   // expander, Date, SHA, Commit, Agent, +/-, Net, Cumulative[, Tokens]
+    // Fixed columns: expander, Date, SHA, Commit, Agent, +/-, Net, Cumulative and, with token data, Tokens.
 
     // One Net column per language, generated from the data so a new language
     // appears without a code change. They follow the Line type selection only.
@@ -1686,7 +1686,7 @@ function resetMainZoom() {
     // Starting widths come from measuring the widest content each column can
     // show, so every column except Commit fits without truncation. Commit takes
     // whatever is left. These fallbacks only apply if measuring is impossible.
-    var FALLBACK_WIDTHS = [32, 100, 84, null, 170, 130, 84, 100].concat(LANGS.map(function() { return 90; }));
+    var FALLBACK_WIDTHS = [32, 100, 84, null, 170, 130, 84, 100].concat(HAVE_TOKENS ? [100] : []).concat(LANGS.map(function() { return 90; }));
     var COMMIT_COLUMN = 3;
     var MIN_WIDTH = 40;
     var MIN_COMMIT_WIDTH = 260;

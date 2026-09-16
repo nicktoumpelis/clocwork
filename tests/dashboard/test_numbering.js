@@ -10,7 +10,7 @@ const LOCALE = 'ar-EG';
 const page = load({ locale: LOCALE });
 const { RAW, byId } = page;
 const T = RAW.summary.tokens;
-const hasTokens = !!(T && T.per_day.length);   // the page shows no token element without data
+const hasTokens = !!(T && T.per_day && T.per_day.length);   // the page shows no token element without data
 const int = new Intl.NumberFormat(LOCALE);
 
 section('digits follow the numbering system');

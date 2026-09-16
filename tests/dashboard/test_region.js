@@ -24,7 +24,7 @@ check(value('AI-Assisted') === int.format(S.ai_assisted_commits) + ' (' + pct.fo
 const top = byId('allCommitsBody').children[0];
 check(cells(top)[0] === date(RAW.commits[RAW.commits.length - 1][2]), 'table date in the region format: ' + cells(top)[0]);
 const T = S.tokens;
-const hasTokens = !!(T && T.per_day.length);   // the page shows no token element without data
+const hasTokens = !!(T && T.per_day && T.per_day.length);   // the page shows no token element without data
 const co2 = p => p.byId('tokenStats').children.find(x => x.children[0].textContent === 'CO\u2082e (est.)').children[1].textContent;
 const massFmt = (tag, unit) => new Intl.NumberFormat(tag, { style: 'unit', unit, maximumSignificantDigits: 2 });
 const inKg = tag => massFmt(tag, 'kilogram').formatRange(T.co2_kg, T.co2_kg);

@@ -8,7 +8,7 @@ const { checkAbsent } = require('./tokens_absent');
 const page = load();
 const { RAW, byId, charts } = page;
 const T = RAW.summary.tokens;
-if (!T || !T.per_day.length) {
+if (!T || !T.per_day || !T.per_day.length) {
   // CLOCWORK_DASH_WORKSPACE can point at a real workspace whose repository
   // was never worked on with Claude Code here; the page then owes it nothing
   // about tokens, and the checks further down have no subject.

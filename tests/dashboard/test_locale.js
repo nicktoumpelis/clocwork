@@ -11,7 +11,7 @@ const LOCALE = 'de-DE';
 const page = load({ locale: LOCALE });
 const { RAW, byId, charts, cells } = page;
 const S = RAW.summary, T = S.tokens;
-const hasTokens = !!(T && T.per_day.length);   // the page shows no token element without data
+const hasTokens = !!(T && T.per_day && T.per_day.length);   // the page shows no token element without data
 const st = page.run('return SEL.stats()');
 
 const int = new Intl.NumberFormat(LOCALE);

@@ -170,8 +170,10 @@ rather than guessed at; `[agents].extra` names the rest.
 
 ### Token usage
 
-The token section appears when Claude Code transcripts exist for the
-repository under `~/.claude/projects/`. Per-day totals are archived into
+The token section appears when the workspace's token archive holds at least
+one day, which happens once Claude Code transcripts for the repository exist
+under `~/.claude/projects/` on a machine that ran the tool. Per-day totals
+are archived into
 `token_usage.json` with a keep-the-larger-record rule, days before the
 archive are estimated from the archive's tokens-per-line ratio, and the page
 prices the result at API list prices and estimates its electricity. For any
@@ -188,7 +190,10 @@ node tests/dashboard/run_all.js                   # the page, in a fake DOM unde
 
 The dashboard suite renders a synthetic workspace (`tests/dashboard/fixture.py`)
 through `./clocwork render`. Set `CLOCWORK_DASH_WORKSPACE=<dir>` to run the
-same checks over any rendered workspace, a real one included.
+checks over any rendered workspace, a real one included; the one file that
+exercises the token-less page renders its own synthetic variant regardless.
+Checks that assume the fixture's size, such as the 500-row cap, fail over a
+short history.
 
 `man/clocwork.1` is generated from the argparse parsers, and a test checks the
 committed page is current. After changing any help text or the version,

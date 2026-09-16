@@ -6,7 +6,7 @@ const { check, section, done } = require('./check');
 const page = load();
 const { RAW, byId, charts } = page;
 const LANGS = RAW.languages;
-const hasTokens = !!(RAW.summary.tokens && RAW.summary.tokens.per_day.length);   // the page shows no token element without data
+const hasTokens = !!(RAW.summary.tokens && RAW.summary.tokens.per_day && RAW.summary.tokens.per_day.length);   // the page shows no token element without data
 const fmt = n => new Intl.NumberFormat('en-US').format(n);
 const enDate = iso => { const p = iso.split('-').map(Number); return new Intl.DateTimeFormat('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(p[0], p[1] - 1, p[2])); };
 const [main, daily, agentCum, pie, agentNet] = charts;

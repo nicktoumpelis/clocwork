@@ -12,7 +12,7 @@ const chip = name => bar.children.find(b => b.textContent === name);
 const num = s => parseInt(String(s).replace(/[+,]/g, ''), 10);
 const rows = () => tbody.children.filter(r => r.className.indexOf('detail-row') < 0);
 const total = RAW.commits.length;
-const hasTokens = !!(RAW.summary.tokens && RAW.summary.tokens.per_day.length);   // the page shows no token element without data
+const hasTokens = !!(RAW.summary.tokens && RAW.summary.tokens.per_day && RAW.summary.tokens.per_day.length);   // the page shows no token element without data
 const FIXED = hasTokens ? 9 : 8;   // fixed columns including the expander; Tokens only with token data
 const en = n => new Intl.NumberFormat('en-US').format(n);
 // Date cells are locale-formatted, so order is checked via the commit's ISO date.
