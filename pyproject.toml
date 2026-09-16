@@ -1,15 +1,37 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "clocwork"
 description = "Lines per language, AI co-authored commits and token cost over a repository's whole history"
 readme = "README.md"
-license = { file = "LICENSE" }
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dynamic = ["version"]
 authors = [{ name = "Nick Toumpelis" }]
+keywords = ["git", "cloc", "lines of code", "code statistics", "ai agents", "tokens", "dashboard"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Software Development :: Version Control :: Git",
+]
+
+[project.urls]
+Homepage = "https://github.com/nicktoumpelis/clocwork"
+Issues = "https://github.com/nicktoumpelis/clocwork/issues"
+Changelog = "https://github.com/nicktoumpelis/clocwork/blob/main/CHANGELOG.md"
 
 [project.scripts]
 clocwork = "clocwork.cli:main"
