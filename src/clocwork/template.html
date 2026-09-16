@@ -1499,7 +1499,16 @@ function resetMainZoom() {
     var expanded = {};
 
     // Bitbucket Cloud spells the path /commits/; GitHub and GitLab /commit/.
-    var commitPath = repoUrl && repoUrl.indexOf('bitbucket.org') >= 0 ? '/commits/' : '/commit/';
+    var repoHost = null;
+    if (repoUrl) {
+        try {
+            repoHost = new URL(repoUrl).hostname.toLowerCase();
+        } catch (e) {
+            repoHost = null;
+        }
+    }
+    var isBitbucket = !!repoHost && (repoHost === 'bitbucket.org' || repoHost.endsWith('.bitbucket.org'));
+    var commitPath = isBitbucket ? '/commits/' : '/commit/';
     function commitUrl(c) { return repoUrl ? repoUrl + commitPath + c[1] : null; }
 
     // Full commit bodies live in commit_bodies.js, loaded on first expand.
