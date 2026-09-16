@@ -35,9 +35,11 @@ def git_repo(path, remote=None):
     return path
 
 
-def meta(sid, cwd, forked_from=None):
-    return {"timestamp": TS, "type": "session_meta",
-            "payload": {"id": sid, "forked_from_id": forked_from, "cwd": cwd, "source": "cli"}}
+def meta(sid, cwd, forked_from=None, git=None):
+    payload = {"id": sid, "forked_from_id": forked_from, "cwd": cwd, "source": "cli"}
+    if git is not None:
+        payload["git"] = git
+    return {"timestamp": TS, "type": "session_meta", "payload": payload}
 
 
 def turn(turn_id, model):
@@ -281,10 +283,36 @@ class TestRules(unittest.TestCase):
     def test_a_file_with_unexpected_shapes_is_unreadable_not_fatal(self):
         self.write("rollout-a.jsonl", [meta("a", self.repo), turn("t1", "gpt-5.5"), record("r1", "t1", usage(10, 0, 1))])
         self.write("rollout-b.jsonl", [{"timestamp": TS, "type": "session_meta", "payload": ["not", "a", "dict"]}])
-        self.write("rollout-d.jsonl", [meta("d", self.repo), {"timestamp": 1756000000, "type": "turn_context",
-                                                             "payload": {"turn_id": ["t"], "model": "gpt-5.5"}}])
+        self.write("rollout-c.jsonl", [meta("c", self.repo), turn("t1", "gpt-5.5"), record("r2", "t1", ["not", "usage"])])
         result = self.scan()
         self.assertEqual((result.days["2026-09-01"]["turns"], result.skipped), (1, 2))
+
+    def test_an_id_model_or_timestamp_of_the_wrong_type_is_read_as_missing(self):
+        def at(line, stamp):
+            return dict(line, timestamp=stamp)
+        odd = (["x"], {"x": 1})
+        for n, value in enumerate(odd):
+            # An id that is not a string is no id: the file stands for itself.
+            self.write(f"rollout-{n}a.jsonl", [meta(value, self.repo), turn("t1", "gpt-5.5"), record(f"a{n}", "t1", usage(10, 0, 1))])
+            # A fork parent that is not a string names no parent.
+            self.write(f"rollout-{n}b.jsonl", [meta(f"b{n}", self.repo, forked_from=value),
+                                               turn("t1", "gpt-5.5"), record(f"b{n}", "t1", usage(10, 0, 1))])
+            # A model that is not a string is unknown.
+            self.write(f"rollout-{n}c.jsonl", [meta(f"c{n}", self.repo), turn("t1", value), record(f"c{n}", "t1", usage(10, 0, 1))])
+            # A response id that is not a string deduplicates nothing.
+            self.write(f"rollout-{n}d.jsonl", [meta(f"d{n}", self.repo), turn("t1", "gpt-5.5"), record(value, "t1", usage(10, 0, 1))])
+            # A turn id that is not a string names no turn; the latest model still applies.
+            self.write(f"rollout-{n}e.jsonl", [meta(f"e{n}", self.repo), dict(turn(value, "gpt-5.5")),
+                                               record(f"e{n}", "t1", usage(10, 0, 1))])
+            # A timestamp that is not an ISO date string puts the usage on no day.
+            self.write(f"rollout-{n}f.jsonl", [meta(f"f{n}", self.repo), turn("t1", "gpt-5.5"),
+                                               at(record(f"f{n}", "t1", usage(10, 0, 1)), value),
+                                               at(count(usage(10, 0, 1), usage(10, 0, 1)), value)])
+        result = self.scan()
+        self.assertEqual((result.skipped, result.malformed), (0, 0))
+        self.assertEqual(result.days, {"2026-09-01": {"turns": 10, "models": {
+            "gpt-5.5": {"input": 80, "output": 8, "cache_read": 0, "cache_write": 0},
+            "unknown": {"input": 20, "output": 2, "cache_read": 0, "cache_write": 0}}}})
 
     def test_a_count_that_is_not_an_integer_reads_as_zero(self):
         self.write("rollout-a.jsonl", [meta("a", self.repo), turn("t1", "gpt-5.5"),

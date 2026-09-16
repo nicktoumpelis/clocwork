@@ -144,6 +144,32 @@ class TestClaudeCodeScan(unittest.TestCase):
             self.assertEqual(cc.scan_directory(d).days["2026-08-06"]["models"]["claude-opus-5"],
                              {"input": 0, "output": 10, "cache_read": 1000, "cache_write": 0})
 
+    def test_records_of_the_wrong_shape_are_skipped_not_fatal(self):
+        def odd(**changes):
+            rec = json.loads(turn(changes.pop("msg_id"), "2026-08-06"))
+            for path, value in changes.items():
+                *parents, leaf = path.split("__")
+                target = rec
+                for p in parents:
+                    target = target[p]
+                target[leaf] = value
+            return json.dumps(rec)
+        with tempfile.TemporaryDirectory() as d:
+            write_transcripts(d, {"a.jsonl": [
+                json.dumps(["usage"]),
+                json.dumps({"type": "assistant", "message": "usage"}),
+                odd(msg_id="m9", message__usage=["input_tokens"]),
+                turn("m1", "2026-08-06"),
+                odd(msg_id="m2", message__id=["m2"]),               # no message id: the uuid stands in
+                odd(msg_id="m3", timestamp={"at": "2026-08-06"}),   # on no day
+                odd(msg_id="m4", message__model=["claude-opus-5"]),
+            ]})
+            result = cc.scan_directory(d)
+        self.assertEqual(result.malformed, 0)
+        day = result.days["2026-08-06"]
+        self.assertEqual((day["turns"], {m: c["output"] for m, c in day["models"].items()}),
+                         (3, {"claude-opus-5": 20, "unknown": 10}))
+
     def test_non_jsonl_files_are_ignored(self):
         with tempfile.TemporaryDirectory() as d:
             write_transcripts(d, {"a.jsonl": [turn("m1", "2026-08-06")]})

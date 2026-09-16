@@ -60,18 +60,20 @@ def scan_directory(directory):
                 except ValueError:
                     malformed += 1
                     continue
-                if rec.get("type") != "assistant":
+                # A line of another shape is skipped, and an id, model or
+                # timestamp of the wrong type is read as missing.
+                if not isinstance(rec, dict) or rec.get("type") != "assistant":
                     continue
-                msg = rec.get("message") or {}
-                usage = msg.get("usage")
-                if not usage:
+                msg = rec.get("message")
+                usage = msg.get("usage") if isinstance(msg, dict) else None
+                if not usage or not isinstance(usage, dict):
                     continue
-                key = msg.get("id") or rec.get("requestId") or rec.get("uuid")
+                key = tokens.text(msg.get("id")) or tokens.text(rec.get("requestId")) or tokens.text(rec.get("uuid"))
                 if key is not None:
                     if key in seen:
                         continue            # a replayed turn from a resumed session
                     seen.add(key)
-                date = (rec.get("timestamp") or "")[:10]
+                date = tokens.day(rec.get("timestamp"))
                 if not date:
                     continue
                 tokens.record(days, date, msg.get("model"), tokens.additive(

@@ -15,6 +15,7 @@ never counts a token twice.
 
 import json
 import os
+import re
 import tempfile
 from collections import namedtuple
 
@@ -23,6 +24,8 @@ COUNTERS = ("input", "output", "cache_read", "cache_write")
 # days: {date: {"turns", "models"}}; malformed: lines that did not parse;
 # skipped: files that could not be read at all.
 ScanResult = namedtuple("ScanResult", "days malformed skipped", defaults=(0,))
+
+DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 VERSION = 2
 # Version 1 archives predate sources and hold Claude Code transcripts only.
@@ -35,6 +38,18 @@ class ArchiveError(RuntimeError):
 
 def empty_counts():
     return {k: 0 for k in COUNTERS}
+
+
+def text(value):
+    """A non-empty string as written, or None. Agents write ids, model names
+    and hashes as strings; a value of another type is read as missing."""
+    return value if isinstance(value, str) and value else None
+
+
+def day(stamp):
+    """The date ('YYYY-MM-DD') an ISO 8601 timestamp starts with, or '' when
+    the value is not one, which puts its usage on no day."""
+    return stamp[:10] if isinstance(stamp, str) and DATE.match(stamp) else ""
 
 
 def count(value):
@@ -64,7 +79,7 @@ def record(days, date, model, counts):
     """Add one model response to a scan's per-day, per-model totals."""
     day = days.setdefault(date, {"turns": 0, "models": {}})
     day["turns"] += 1
-    totals = day["models"].setdefault(model or "unknown", empty_counts())
+    totals = day["models"].setdefault(text(model) or "unknown", empty_counts())
     for k in COUNTERS:
         totals[k] += counts[k]
 

@@ -234,6 +234,25 @@ class TestCounters(unittest.TestCase):
         self.assertEqual(tu.inclusive(prompt=10, cached=40)["input"], 0)
         self.assertEqual(tu.additive(-3)["input"], 0)
 
+    def test_text_is_a_non_empty_string_or_nothing(self):
+        self.assertEqual(tu.text("r1"), "r1")
+        for value in ("", None, 5, ["r1"], {"id": "r1"}):
+            with self.subTest(value=value):
+                self.assertIsNone(tu.text(value))
+
+    def test_day_is_the_date_a_timestamp_starts_with_or_nothing(self):
+        self.assertEqual(tu.day("2026-09-01T10:00:00.000Z"), "2026-09-01")
+        self.assertEqual(tu.day("2026-09-01"), "2026-09-01")
+        for value in ("", "yesterday", "2026-09", "09/01/2026", None, 1756000000, ["2026-09-01"], {"d": 1}):
+            with self.subTest(value=value):
+                self.assertEqual(tu.day(value), "")
+
+    def test_a_model_that_is_not_a_name_is_recorded_as_unknown(self):
+        days = {}
+        for model in (["gpt-5.5"], {"name": "gpt-5.5"}, 5, ""):
+            tu.record(days, "2026-08-06", model, tu.additive(output=1))
+        self.assertEqual(days["2026-08-06"]["models"], {"unknown": tu.additive(output=4)})
+
     def test_record_adds_a_turn_and_its_counters(self):
         days = {}
         tu.record(days, "2026-08-06", "m", tu.additive(1, 2, 3, 4))

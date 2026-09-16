@@ -37,8 +37,10 @@ LABEL = "Codex CLI"
 AGENT = re.compile(r"^Codex\b")
 SKIPPED = "damaged, or compressed and this Python is older than 3.14"
 
-# A file that cannot be opened, or holds a shape no Codex version writes, is
-# counted as unreadable rather than stopping the run.
+# A file that cannot be opened, or is built in a way no Codex version writes
+# (a payload or usage that is not an object), is counted as unreadable rather
+# than stopping the run. An id, model or timestamp of the wrong type is read
+# as missing instead, and costs only its own line.
 READ_ERRORS = (OSError, EOFError, UnicodeError, TypeError, AttributeError) + ((zstd.ZstdError,) if zstd else ())
 # Only these lines matter; messages, tool calls and other events are skipped
 # before they are parsed.
@@ -108,9 +110,9 @@ def read_session(lines, repo_real, remote):
     meta = head.get("payload") or {}
     if not belongs(meta, repo_real, remote):
         return None, 0
-    own = uuid7(meta.get("id")) if meta.get("forked_from_id") else None
-    session = {"id": meta.get("id"), "forked_from": meta.get("forked_from_id"),
+    session = {"id": tokens.text(meta.get("id")), "forked_from": tokens.text(meta.get("forked_from_id")),
                "records": [], "events": [], "before_records": None}
+    own = uuid7(session["id"]) if session["forked_from"] else None
     turn_models, model, previous, own_turns, malformed = {}, None, None, False, 0
     for line in lines:
         if not any(marker in line for marker in WANTED):
@@ -123,19 +125,19 @@ def read_session(lines, repo_real, remote):
         if not isinstance(rec, dict):
             continue
         kind, payload = rec.get("type"), rec.get("payload") or {}
-        date = (rec.get("timestamp") or "")[:10]
+        date = tokens.day(rec.get("timestamp"))
         if kind == "turn_context":
-            model = payload.get("model") or model
-            turn_id = payload.get("turn_id")
+            model = tokens.text(payload.get("model")) or model
+            turn_id = tokens.text(payload.get("turn_id"))
             if turn_id:
-                turn_models[turn_id] = payload.get("model")
+                turn_models[turn_id] = tokens.text(payload.get("model"))
                 if own and (uuid7(turn_id) or "") > own:
                     own_turns = True
         elif kind == "token_usage_record":
             if not session["records"]:
                 session["before_records"] = len(session["events"])
-            session["records"].append((payload.get("response_id"), date,
-                                       turn_models.get(payload.get("turn_id")) or model,
+            session["records"].append((tokens.text(payload.get("response_id")), date,
+                                       turn_models.get(tokens.text(payload.get("turn_id"))) or model,
                                        counts(payload.get("usage") or {})))
         elif kind == "event_msg" and payload.get("type") == "token_count":
             info = payload.get("info") or {}
