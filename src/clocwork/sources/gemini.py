@@ -28,8 +28,10 @@ LABEL = "Gemini CLI"
 # for commits whose author credited Gemini by hand, and not Gemini Code
 # Assist, which is a different product with no logs here.
 AGENT = re.compile(r"^Gemini$")
-# A session file that cannot be read, or holds a shape no Gemini CLI version
-# writes, is counted as unreadable rather than stopping the run.
+# A session file that cannot be read, or is built in a way no Gemini CLI
+# version writes (messages that are a number, say), is counted as
+# unreadable rather than stopping the run. An id, hash, model or timestamp of
+# the wrong type is read as missing instead.
 READ_ERRORS = (OSError, TypeError, AttributeError)
 
 
@@ -73,11 +75,6 @@ def session_files(homes):
     return sorted(found), unreadable
 
 
-def number(value):
-    """A token count as written, or 0 for anything that is not one."""
-    return value if isinstance(value, int) and not isinstance(value, bool) else 0
-
-
 def counters(t):
     """The four archive counters from a message's tokens.
 
@@ -86,7 +83,7 @@ def counters(t):
     output + thoughts + tool. A deployment that folds them into output
     reports a total without them, and then they are not added again.
     """
-    n = {k: max(0, number(t.get(k))) for k in ("input", "output", "cached", "thoughts", "tool")}
+    n = {k: max(0, tokens.count(t.get(k))) for k in ("input", "output", "cached", "thoughts", "tool")}
     folded = t.get("total") in (n["input"] + n["output"], n["input"] + n["output"] + n["tool"])
     return tokens.additive(input=max(0, n["input"] - n["cached"]) + n["tool"],
                            output=n["output"] + (0 if folded else n["thoughts"]),
@@ -99,7 +96,7 @@ def read_legacy(path, hashes):
             doc = json.load(f)
         except ValueError:
             return None, 1
-    if not isinstance(doc, dict) or doc.get("projectHash") not in hashes:
+    if not isinstance(doc, dict) or tokens.text(doc.get("projectHash")) not in hashes:
         return None, 0
     return [m for m in doc.get("messages") or [] if isinstance(m, dict)], 0
 
@@ -122,7 +119,7 @@ def read_session(path, hashes):
             if not isinstance(rec, dict):
                 continue
             if matched is None and "projectHash" in rec and "sessionId" in rec:
-                matched = rec["projectHash"] in hashes
+                matched = tokens.text(rec["projectHash"]) in hashes
                 if not matched:
                     return None, malformed
             elif isinstance(rec.get("$set"), dict):
@@ -157,8 +154,7 @@ def scan(repo, homes):
         return None
     days = {}
     for m in latest.values():
-        stamp = m.get("timestamp")
-        date = stamp[:10] if isinstance(stamp, str) else ""
+        date = tokens.day(m.get("timestamp"))
         c = counters(m["tokens"])
         if date and any(c.values()):
             tokens.record(days, date, m.get("model"), c)

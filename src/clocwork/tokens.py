@@ -15,6 +15,7 @@ never counts a token twice.
 
 import json
 import os
+import re
 import tempfile
 from collections import namedtuple
 
@@ -23,6 +24,8 @@ COUNTERS = ("input", "output", "cache_read", "cache_write")
 # days: {date: {"turns", "models"}}; malformed: lines that did not parse;
 # skipped: files that could not be read at all.
 ScanResult = namedtuple("ScanResult", "days malformed skipped", defaults=(0,))
+
+DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 
 VERSION = 2
 # Version 1 archives predate sources and hold Claude Code transcripts only.
@@ -37,19 +40,39 @@ def empty_counts():
     return {k: 0 for k in COUNTERS}
 
 
+def text(value):
+    """A non-empty string as written, or None. Agents write ids, model names
+    and hashes as strings; a value of another type is read as missing."""
+    return value if isinstance(value, str) and value else None
+
+
+def day(stamp):
+    """The date ('YYYY-MM-DD') an ISO 8601 timestamp starts with, or '' when
+    the value is not one, which puts its usage on no day."""
+    return stamp[:10] if isinstance(stamp, str) and DATE.match(stamp) else ""
+
+
+def count(value):
+    """A token count as written, or 0 for anything that is not an integer.
+    A missing count is ordinary (older Codex usage has no cache-write field);
+    no agent writes a fractional or textual one, and every reader gives such
+    a value the same meaning."""
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
 def additive(input=0, output=0, cache_read=0, cache_write=0):
     """The four counters from a provider that reports cache reads and writes
-    beside the uncached input (Anthropic, Bedrock). Missing values are zero
-    and nothing goes below it."""
-    return {"input": max(0, input or 0), "output": max(0, output or 0),
-            "cache_read": max(0, cache_read or 0), "cache_write": max(0, cache_write or 0)}
+    beside the uncached input (Anthropic, Bedrock). A value that is not a
+    count is zero, and nothing goes below it."""
+    return {"input": max(0, count(input)), "output": max(0, count(output)),
+            "cache_read": max(0, count(cache_read)), "cache_write": max(0, count(cache_write))}
 
 
 def inclusive(prompt=0, output=0, cached=0, cache_write=0):
     """The four counters from a provider whose prompt count already contains
     its cached and cache-written tokens (OpenAI and most compatible APIs).
     Read as-is, such a prompt would count every cached token twice."""
-    uncached = (prompt or 0) - (cached or 0) - (cache_write or 0)
+    uncached = count(prompt) - count(cached) - count(cache_write)
     return additive(uncached, output, cached, cache_write)
 
 
@@ -57,7 +80,7 @@ def record(days, date, model, counts):
     """Add one model response to a scan's per-day, per-model totals."""
     day = days.setdefault(date, {"turns": 0, "models": {}})
     day["turns"] += 1
-    totals = day["models"].setdefault(model or "unknown", empty_counts())
+    totals = day["models"].setdefault(text(model) or "unknown", empty_counts())
     for k in COUNTERS:
         totals[k] += counts[k]
 

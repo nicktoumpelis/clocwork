@@ -570,14 +570,27 @@ class TestPerSource(unittest.TestCase):
         self.assertEqual((t["unmeasured_agent_commits"], t["unmeasured_agents"]), (1, ["Claude Code"]))
 
     def test_a_source_whose_records_hold_no_tokens_leaves_its_commits_unmeasured(self):
-        # Claude Code writes zero-usage turns (model "<synthetic>"); a source
-        # made only of those has lines to cover but no rate to price them at.
+        # Archives written before the readers dropped zero-usage turns hold
+        # Claude Code records of "<synthetic>" turns only. Such a record
+        # measured nothing: the source is not listed, and its commits are
+        # unmeasured rather than measured at zero.
         archive = {"2026-01-01": {"claude-code": self.entry(0, model="<synthetic>")}}
         results = [self.row(0, "2026-01-01", "Claude Opus 5", 10), self.row(1, "2026-01-02", "Claude Opus 5", 10)]
         t = an.token_summary(archive, results)
-        self.assertEqual(an.tokens_by_commit(t["sources"], results), {0: 0})
+        self.assertEqual((t["sources"], t["per_day"], t["measured_days"], t["coverage_start"]), ([], [], 0, None))
+        self.assertEqual((an.tokens_by_commit(t["sources"], results), an.token_kinds(t["sources"], results)), ({}, {}))
         self.assertEqual((t["unmeasured_agent_commits"], t["unmeasured_agents"]), (2, ["Claude Code"]))
         self.assertEqual(t["ratio"], 0.0)
+
+    def test_a_day_whose_record_holds_no_tokens_is_estimated_like_a_day_without_one(self):
+        archive = {"2026-01-01": {"claude-code": self.entry(1000)},
+                   "2026-01-02": {"claude-code": self.entry(0, model="<synthetic>"), "codex": self.entry(0)}}
+        results = [self.row(0, "2026-01-01", "Claude Opus 5", 10), self.row(1, "2026-01-02", "Claude Opus 5", 5)]
+        t = an.token_summary(archive, results)
+        self.assertEqual(t["per_day"], [["2026-01-01", 1000, "m"], ["2026-01-02", 500, "e"]])
+        self.assertEqual((t["measured_days"], [s["key"] for s in t["sources"]]), (1, ["claude-code"]))
+        self.assertEqual(t["sources"][0]["measured_days"], 1)
+        self.assertEqual(an.token_kinds(t["sources"], results), {0: "m", 1: "e"})
 
     def test_the_ratio_counts_only_the_sources_own_lines(self):
         self.assertEqual(an.token_summary(*self.probe())["ratio"], 20.0)   # not 1,000 over 100 lines

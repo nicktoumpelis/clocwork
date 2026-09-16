@@ -126,6 +126,16 @@ class TestClaudeCodeScan(unittest.TestCase):
             ]})
             self.assertEqual(cc.scan_directory(d).days["2026-08-06"]["turns"], 1)
 
+    def test_a_turn_that_used_no_tokens_adds_nothing(self):
+        silent = json.loads(turn("m2", "2026-08-06", model="<synthetic>", output=0, cache_read=0))
+        silent["message"]["usage"].update(input_tokens=0, cache_creation_input_tokens=0)
+        with tempfile.TemporaryDirectory() as d:
+            write_transcripts(d, {"a.jsonl": [json.dumps(dict(silent, timestamp="2026-08-05T12:00:00.000Z")),
+                                              turn("m1", "2026-08-06"), json.dumps(silent)]})
+            days = cc.scan_directory(d).days
+        self.assertEqual(sorted(days), ["2026-08-06"])
+        self.assertEqual((days["2026-08-06"]["turns"], sorted(days["2026-08-06"]["models"])), (1, ["claude-opus-5"]))
+
     def test_malformed_lines_are_skipped_and_counted(self):
         with tempfile.TemporaryDirectory() as d:
             write_transcripts(d, {"a.jsonl": [
@@ -135,6 +145,41 @@ class TestClaudeCodeScan(unittest.TestCase):
             result = cc.scan_directory(d)
             self.assertEqual(result.malformed, 1)
             self.assertEqual(result.days["2026-08-06"]["turns"], 1)
+
+    def test_a_count_that_is_not_an_integer_reads_as_zero(self):
+        rec = json.loads(turn("m1", "2026-08-06"))
+        rec["message"]["usage"].update(input_tokens="1", cache_creation_input_tokens=100.5)
+        with tempfile.TemporaryDirectory() as d:
+            write_transcripts(d, {"a.jsonl": [json.dumps(rec)]})
+            self.assertEqual(cc.scan_directory(d).days["2026-08-06"]["models"]["claude-opus-5"],
+                             {"input": 0, "output": 10, "cache_read": 1000, "cache_write": 0})
+
+    def test_records_of_the_wrong_shape_are_skipped_not_fatal(self):
+        def odd(**changes):
+            rec = json.loads(turn(changes.pop("msg_id"), "2026-08-06"))
+            for path, value in changes.items():
+                *parents, leaf = path.split("__")
+                target = rec
+                for p in parents:
+                    target = target[p]
+                target[leaf] = value
+            return json.dumps(rec)
+        with tempfile.TemporaryDirectory() as d:
+            write_transcripts(d, {"a.jsonl": [
+                json.dumps(["usage"]),
+                json.dumps({"type": "assistant", "message": "usage"}),
+                odd(msg_id="m9", message__usage=["input_tokens"]),
+                turn("m1", "2026-08-06"),
+                odd(msg_id="m2", message__id=["m2"]),               # no message id: the uuid stands in,
+                odd(msg_id="m2", message__id={"id": "m2"}),         # so its replay counts once
+                odd(msg_id="m3", timestamp={"at": "2026-08-06"}),   # on no day
+                odd(msg_id="m4", message__model=["claude-opus-5"]),
+            ]})
+            result = cc.scan_directory(d)
+        self.assertEqual(result.malformed, 0)
+        day = result.days["2026-08-06"]
+        self.assertEqual((day["turns"], {m: c["output"] for m, c in day["models"].items()}),
+                         (3, {"claude-opus-5": 20, "unknown": 10}))
 
     def test_non_jsonl_files_are_ignored(self):
         with tempfile.TemporaryDirectory() as d:

@@ -9,6 +9,7 @@ from unittest import mock
 from clocwork import tokens as tu
 from clocwork.sources import codex
 from tests import agent_logs
+from tests import repo_fixture as fx
 
 # What the recordings hold, computed before reduction and without the
 # reader: each 0.130-0.149 session's final running total, and the sum of each
@@ -25,6 +26,12 @@ RECORDED = {
         "gpt-5.6-terra": {"input": 83_900, "output": 11_116, "cache_read": 883_456, "cache_write": 0}}},
 }
 TS = "2026-09-01T10:00:00.000Z"
+try:
+    GIT_VERSION = tuple(int(n) for n in subprocess.run(["git", "version"], capture_output=True, text=True)
+                        .stdout.split()[2].split(".")[:2])
+except (OSError, IndexError, ValueError):
+    GIT_VERSION = ()                # no git, or a version line this cannot read
+GIT_NO_LAZY_FETCH = GIT_VERSION >= (2, 44)
 
 
 def git_repo(path, remote=None):
@@ -35,9 +42,11 @@ def git_repo(path, remote=None):
     return path
 
 
-def meta(sid, cwd, forked_from=None):
-    return {"timestamp": TS, "type": "session_meta",
-            "payload": {"id": sid, "forked_from_id": forked_from, "cwd": cwd, "source": "cli"}}
+def meta(sid, cwd, forked_from=None, git=None):
+    payload = {"id": sid, "forked_from_id": forked_from, "cwd": cwd, "source": "cli"}
+    if git is not None:
+        payload["git"] = git
+    return {"timestamp": TS, "type": "session_meta", "payload": payload}
 
 
 def turn(turn_id, model):
@@ -168,6 +177,76 @@ class TestRules(unittest.TestCase):
     def day(self):
         return self.scan().days["2026-09-01"]
 
+    NEW = "git@github.com:me/new-name.git"
+    OLD = "https://github.com/me/old-name.git"
+
+    def committed(self, remote):
+        """Make the repository a clone of `remote` with one commit, and return its hash."""
+        git_repo(self.repo, remote)
+        fx._git(self.repo, "commit", "-q", "--allow-empty", "-m", "Start")
+        return fx._git(self.repo, "rev-parse", "HEAD")
+
+    def session(self, name, cwd, git):
+        self.write(name, [meta(name, cwd, git=git), turn("t1", "gpt-5.5"), record(name, "t1", usage(10, 0, 1))])
+
+    def test_a_session_recorded_before_a_rename_matches_by_its_commit(self):
+        head = self.committed(self.NEW)
+        self.session("rollout-a.jsonl", self.repo, {"repository_url": self.OLD, "commit_hash": head})
+        self.session("rollout-b.jsonl", os.path.join(self.repo, "pkg"), {"repository_url": self.OLD, "commit_hash": head.upper()})
+        self.assertEqual(self.day()["turns"], 2)
+
+    def test_another_remotes_session_in_the_directory_needs_one_of_its_commits(self):
+        head = self.committed(self.NEW)
+        other = "https://github.com/someone/else.git"
+        self.session("rollout-a.jsonl", self.repo, {"repository_url": other, "commit_hash": "0" * 40})
+        self.session("rollout-b.jsonl", self.repo, {"repository_url": other})
+        self.session("rollout-c.jsonl", self.repo, {"repository_url": other, "commit_hash": head[:12]})
+        self.session("rollout-d.jsonl", self.repo, {"repository_url": other, "commit_hash": ["not", "a", "hash"]})
+        self.session("rollout-e.jsonl", self.repo + "-copy", {"repository_url": other, "commit_hash": head})
+        tree = fx._git(self.repo, "rev-parse", "HEAD^{tree}")
+        self.session("rollout-f.jsonl", self.repo, {"repository_url": other, "commit_hash": tree})
+        self.assertIsNone(self.scan())
+
+    def test_git_is_asked_once_per_commit_and_only_for_sessions_in_the_directory(self):
+        head = self.committed(self.NEW)
+        old = {"repository_url": self.OLD, "commit_hash": head}
+        self.session("rollout-a.jsonl", self.repo, old)
+        self.session("rollout-b.jsonl", self.repo, old)
+        self.session("rollout-c.jsonl", "/elsewhere", dict(old, commit_hash="1" * 40))
+        self.session("rollout-d.jsonl", self.repo, {"repository_url": self.NEW, "commit_hash": "2" * 40})
+        self.session("rollout-e.jsonl", self.repo, dict(old, commit_hash="--help"))
+        with mock.patch.object(subprocess, "run", wraps=subprocess.run) as run:
+            self.assertEqual(self.day()["turns"], 3)
+        asked = [c for c in run.call_args_list if "cat-file" in c.args[0]]
+        self.assertEqual([c.args[0] for c in asked], [["git", "-C", self.repo, "cat-file", "-e", head + "^{commit}"]])
+        # Never a fetch or a prompt: no lazy fetch (git 2.44+), no transport
+        # at all whatever the user's config allows (older git), no terminal
+        # input, and git told not to ask.
+        env = asked[0].kwargs["env"]
+        self.assertEqual((env["GIT_NO_LAZY_FETCH"], env["GIT_ALLOW_PROTOCOL"], env["GIT_TERMINAL_PROMPT"]), ("1", "", "0"))
+        self.assertIs(asked[0].kwargs["stdin"], subprocess.DEVNULL)
+
+    @unittest.skipUnless(GIT_NO_LAZY_FETCH, "GIT_NO_LAZY_FETCH arrived in git 2.44")
+    def test_an_unknown_commit_in_a_partial_clone_is_not_fetched(self):
+        # The case the lookup exists for, another repository's hash, is the
+        # one a partial clone would otherwise try to fetch from its remote.
+        upstream = os.path.join(os.path.dirname(self.repo), "upstream")
+        git_repo(upstream)
+        fx._git(upstream, "commit", "-q", "--allow-empty", "-m", "Start")
+        fx._git(upstream, "config", "uploadpack.allowFilter", "true")
+        os.rmdir(self.repo)
+        # The objects come from a local promisor remote; origin only names the repository.
+        fx._git(os.path.dirname(self.repo), "clone", "-q", "-o", "upstream", "--filter=blob:none",
+                "file://" + upstream, self.repo)
+        fx._git(self.repo, "remote", "add", "origin", self.NEW)
+        self.session("rollout-a.jsonl", self.repo, {"repository_url": self.OLD, "commit_hash": "1" * 40})
+        trace = os.path.join(os.path.dirname(self.repo), "trace")
+        with mock.patch.dict(os.environ, {"GIT_TRACE": trace}):
+            self.assertIsNone(self.scan())
+        with open(trace) as f:
+            fetches = [line for line in f if "built-in: git fetch" in line]
+        self.assertEqual(fetches, [])
+
     def test_the_prompt_count_includes_cached_and_written_tokens(self):
         self.write("rollout-a.jsonl", [meta("a", self.repo), turn("t1", "gpt-5.6-sol"),
                                        record("r1", "t1", usage(100, 30, 5, cache_write=20))])
@@ -281,12 +360,46 @@ class TestRules(unittest.TestCase):
     def test_a_file_with_unexpected_shapes_is_unreadable_not_fatal(self):
         self.write("rollout-a.jsonl", [meta("a", self.repo), turn("t1", "gpt-5.5"), record("r1", "t1", usage(10, 0, 1))])
         self.write("rollout-b.jsonl", [{"timestamp": TS, "type": "session_meta", "payload": ["not", "a", "dict"]}])
-        self.write("rollout-c.jsonl", [meta("c", self.repo), turn("t1", "gpt-5.5"),
-                                       record("r2", "t1", dict(usage(10, 0, 1), input_tokens="ten"))])
-        self.write("rollout-d.jsonl", [meta("d", self.repo), {"timestamp": 1756000000, "type": "turn_context",
-                                                             "payload": {"turn_id": ["t"], "model": "gpt-5.5"}}])
+        self.write("rollout-c.jsonl", [meta("c", self.repo), turn("t1", "gpt-5.5"), record("r2", "t1", ["not", "usage"])])
         result = self.scan()
-        self.assertEqual((result.days["2026-09-01"]["turns"], result.skipped), (1, 3))
+        self.assertEqual((result.days["2026-09-01"]["turns"], result.skipped), (1, 2))
+
+    def test_an_id_model_or_timestamp_of_the_wrong_type_is_read_as_missing(self):
+        def at(line, stamp):
+            return dict(line, timestamp=stamp)
+        odd = (["x"], {"x": 1})
+        for n, value in enumerate(odd):
+            # An id that is not a string is no id: the file stands for itself.
+            self.write(f"rollout-{n}a.jsonl", [meta(value, self.repo), turn("t1", "gpt-5.5"), record(f"a{n}", "t1", usage(10, 0, 1))])
+            # A fork parent that is not a string names no parent.
+            self.write(f"rollout-{n}b.jsonl", [meta(f"b{n}", self.repo, forked_from=value),
+                                               turn("t1", "gpt-5.5"), record(f"b{n}", "t1", usage(10, 0, 1))])
+            # A model that is not a string is unknown.
+            self.write(f"rollout-{n}c.jsonl", [meta(f"c{n}", self.repo), turn("t1", value), record(f"c{n}", "t1", usage(10, 0, 1))])
+            # A response id that is not a string deduplicates nothing.
+            self.write(f"rollout-{n}d.jsonl", [meta(f"d{n}", self.repo), turn("t1", "gpt-5.5"), record(value, "t1", usage(10, 0, 1))])
+            # A turn id that is not a string names no turn; the latest model still applies.
+            self.write(f"rollout-{n}e.jsonl", [meta(f"e{n}", self.repo), dict(turn(value, "gpt-5.5")),
+                                               record(f"e{n}", "t1", usage(10, 0, 1))])
+            # A timestamp that is not an ISO date string puts the usage on no
+            # day: the event before the record, which would count, and the record.
+            self.write(f"rollout-{n}f.jsonl", [meta(f"f{n}", self.repo), turn("t1", "gpt-5.5"),
+                                               at(count(usage(10, 0, 1), usage(10, 0, 1)), value),
+                                               at(record(f"f{n}", "t1", usage(10, 0, 1)), value)])
+        result = self.scan()
+        self.assertEqual((result.skipped, result.malformed), (0, 0))
+        self.assertEqual(result.days, {"2026-09-01": {"turns": 10, "models": {
+            "gpt-5.5": {"input": 80, "output": 8, "cache_read": 0, "cache_write": 0},
+            "unknown": {"input": 20, "output": 2, "cache_read": 0, "cache_write": 0}}}})
+
+    def test_a_count_that_is_not_an_integer_reads_as_zero(self):
+        self.write("rollout-a.jsonl", [meta("a", self.repo), turn("t1", "gpt-5.5"),
+                                       record("r1", "t1", dict(usage(10, 0, 1), input_tokens="ten")),
+                                       record("r2", "t1", dict(usage(10, 0, 1), output_tokens=1.5))])
+        result = self.scan()
+        self.assertEqual(result.skipped, 0)
+        self.assertEqual(result.days["2026-09-01"]["models"]["gpt-5.5"],
+                         {"input": 10, "output": 1, "cache_read": 0, "cache_write": 0})
 
     def test_other_files_in_the_homes_are_ignored(self):
         self.write("notes.jsonl", [meta("a", self.repo), turn("t1", "gpt-5.5"), record("r1", "t1", usage(10, 0, 1))])

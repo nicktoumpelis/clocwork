@@ -23,6 +23,7 @@ a fork.
 import json
 import os
 import re
+import subprocess
 
 from clocwork import paths, tokens
 
@@ -37,12 +38,18 @@ LABEL = "Codex CLI"
 AGENT = re.compile(r"^Codex\b")
 SKIPPED = "damaged, or compressed and this Python is older than 3.14"
 
-# A file that cannot be opened, or holds a shape no Codex version writes, is
-# counted as unreadable rather than stopping the run.
+# A file that cannot be opened, or is built in a way no Codex version writes
+# (a payload or usage that is not an object), is counted as unreadable rather
+# than stopping the run. An id, model or timestamp of the wrong type is read
+# as missing instead. A missing response id only stops that response being
+# deduplicated; a missing session id stops the whole file being deduplicated
+# against other copies of the session.
 READ_ERRORS = (OSError, EOFError, UnicodeError, TypeError, AttributeError) + ((zstd.ZstdError,) if zstd else ())
 # Only these lines matter; messages, tool calls and other events are skipped
 # before they are parsed.
 WANTED = ('"turn_context"', '"token_usage_record"', '"token_count"')
+# A full commit hash, SHA-1 or SHA-256; git is asked about nothing else.
+COMMIT = re.compile(r"[0-9a-fA-F]{40}(?:[0-9a-fA-F]{24})?")
 UUID7 = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
 
@@ -61,19 +68,58 @@ def rollouts(homes):
     return sorted(found)
 
 
-def belongs(meta, repo_real, remote):
-    """Whether a session ran in the repository: the same remote when both
-    name one, as paths.check_identity decides, else a working directory at
-    or below the repository's."""
-    url = (meta.get("git") or {}).get("repository_url")
-    if remote and isinstance(url, str) and url:
-        parsed = paths.parse_remote(url)
-        return parsed is not None and f"{parsed[0]}/{parsed[1]}".lower() == remote.lower()
-    cwd = meta.get("cwd")
-    if not isinstance(cwd, str) or not cwd:
+def commit_lookup(repo):
+    """A test of whether a full hash names a commit in the repository,
+    asking git once per hash.
+
+    The hashes asked about are mostly another repository's, so a partial
+    clone must not fetch them from its remote, and nothing may wait on a
+    prompt. GIT_NO_LAZY_FETCH (git 2.44+) skips the fetch. On older git an
+    empty GIT_ALLOW_PROTOCOL makes it fail before connecting, overriding any
+    protocol setting in the user's config, so no ssh passphrase or credential
+    prompt can appear either.
+    """
+    known = {}
+    env = dict(os.environ, GIT_NO_LAZY_FETCH="1", GIT_ALLOW_PROTOCOL="", GIT_TERMINAL_PROMPT="0")
+
+    def lookup(sha):
+        if sha not in known:
+            known[sha] = bool(COMMIT.fullmatch(sha)) and subprocess.run(
+                ["git", "-C", repo, "cat-file", "-e", sha + "^{commit}"],
+                stdin=subprocess.DEVNULL, capture_output=True, env=env).returncode == 0
+        return known[sha]
+    return lookup
+
+
+def ran_inside(meta, repo_real):
+    """Whether the session's working directory is the repository's or below it."""
+    cwd = tokens.text(meta.get("cwd"))
+    if cwd is None:
         return False
     real = os.path.realpath(cwd)
     return real == repo_real or real.startswith(repo_real.rstrip(os.sep) + os.sep)
+
+
+def belongs(meta, repo_real, remote, known_commit):
+    """Whether a session ran in the repository.
+
+    When both name a remote, the same remote decides, as
+    paths.check_identity does, so a session from any clone counts. A session
+    that recorded another remote still belongs when it ran in the
+    repository's directory from one of the repository's commits: the
+    repository was renamed or moved since, while a different repository
+    cloned to the same path shares none of its commits. Without two remotes
+    to compare, the working directory decides.
+    """
+    git = meta.get("git") or {}
+    url = tokens.text(git.get("repository_url"))
+    if remote and url:
+        parsed = paths.parse_remote(url)
+        if parsed is not None and f"{parsed[0]}/{parsed[1]}".lower() == remote.lower():
+            return True
+        commit = tokens.text(git.get("commit_hash"))
+        return commit is not None and ran_inside(meta, repo_real) and known_commit(commit)
+    return ran_inside(meta, repo_real)
 
 
 def counts(usage):
@@ -85,7 +131,7 @@ def uuid7(value):
     return value if isinstance(value, str) and UUID7.match(value) else None
 
 
-def read_session(lines, repo_real, remote):
+def read_session(lines, repo_real, remote, known_commit):
     """(session, malformed lines) for one rollout, or (None, n) when it is
     not the repository's or does not open with its session_meta.
 
@@ -106,11 +152,11 @@ def read_session(lines, repo_real, remote):
     if not isinstance(head, dict) or head.get("type") != "session_meta":
         return None, 1
     meta = head.get("payload") or {}
-    if not belongs(meta, repo_real, remote):
+    if not belongs(meta, repo_real, remote, known_commit):
         return None, 0
-    own = uuid7(meta.get("id")) if meta.get("forked_from_id") else None
-    session = {"id": meta.get("id"), "forked_from": meta.get("forked_from_id"),
+    session = {"id": tokens.text(meta.get("id")), "forked_from": tokens.text(meta.get("forked_from_id")),
                "records": [], "events": [], "before_records": None}
+    own = uuid7(session["id"]) if session["forked_from"] else None
     turn_models, model, previous, own_turns, malformed = {}, None, None, False, 0
     for line in lines:
         if not any(marker in line for marker in WANTED):
@@ -123,19 +169,19 @@ def read_session(lines, repo_real, remote):
         if not isinstance(rec, dict):
             continue
         kind, payload = rec.get("type"), rec.get("payload") or {}
-        date = (rec.get("timestamp") or "")[:10]
+        date = tokens.day(rec.get("timestamp"))
         if kind == "turn_context":
-            model = payload.get("model") or model
-            turn_id = payload.get("turn_id")
+            model = tokens.text(payload.get("model")) or model
+            turn_id = tokens.text(payload.get("turn_id"))
             if turn_id:
-                turn_models[turn_id] = payload.get("model")
+                turn_models[turn_id] = tokens.text(payload.get("model"))
                 if own and (uuid7(turn_id) or "") > own:
                     own_turns = True
         elif kind == "token_usage_record":
             if not session["records"]:
                 session["before_records"] = len(session["events"])
-            session["records"].append((payload.get("response_id"), date,
-                                       turn_models.get(payload.get("turn_id")) or model,
+            session["records"].append((tokens.text(payload.get("response_id")), date,
+                                       turn_models.get(tokens.text(payload.get("turn_id"))) or model,
                                        counts(payload.get("usage") or {})))
         elif kind == "event_msg" and payload.get("type") == "token_count":
             info = payload.get("info") or {}
@@ -168,6 +214,7 @@ def scan(repo, homes):
     belongs to it and none was unreadable."""
     repo_real = os.path.realpath(repo)
     remote = paths.remote_key(repo) if os.path.isdir(repo) else None
+    known_commit = commit_lookup(repo)
     found, malformed, skipped = {}, 0, 0
     for path in rollouts(homes):
         compressed = path.endswith(".zst")
@@ -176,7 +223,7 @@ def scan(repo, homes):
             continue
         try:
             with (zstd.open if compressed else open)(path, "rt", encoding="utf-8", errors="replace") as f:
-                session, bad = read_session(iter(f), repo_real, remote)
+                session, bad = read_session(iter(f), repo_real, remote, known_commit)
         except READ_ERRORS:
             skipped += 1
             continue

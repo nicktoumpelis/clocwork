@@ -183,11 +183,16 @@ archives per-day totals, per agent and model, into `token_usage.json`:
 
 A Codex session belongs to the repository when it records the same remote
 as the repository's `origin`, so sessions from any clone or worktree count.
-When the session records no remote, or `origin` is missing or not a URL
-clocwork recognises, the session belongs when it ran in the repository or a
-directory inside it. Gemini CLI identifies a session's project only by
-a hash of the directory it started in, so its sessions count when that is
-the repository's current path or a directory tracked at `HEAD` below it.
+A session that recorded another remote still belongs when it ran in the
+repository, or a directory inside it, from one of the repository's commits.
+A renamed or transferred repository keeps its sessions that way, and a
+different repository later cloned to the same path gets them only if it
+holds the commit they started from. When the session records no remote, or
+`origin` is missing or not a URL clocwork recognises, the session belongs
+when it ran in the repository or a directory inside it.
+Gemini CLI identifies a session's project only by a hash of the directory it
+started in, so its sessions count when that is the repository's current path
+or a directory tracked at `HEAD` below it.
 
 Only dates, model names, and token and turn counts reach the archive;
 prompts and replies are never kept. The archive keeps the larger record for
@@ -196,11 +201,12 @@ in time is gone.
 
 A day the archive does not cover for an agent, but on which that agent's
 commits changed lines, is estimated from the agent's own tokens-per-line
-ratio. The result is priced at API list prices, each measured day at the
-prices in force on it and the estimated days at the measured mix, and its
-electricity is estimated. For any repository not worked on with these agents
-on this machine, the section and the commit table's Tokens column are simply
-absent; that is the normal case, not an error.
+ratio; a record that holds no tokens covers nothing. The result is priced at
+API list prices, each measured day at the prices in force on it and the
+estimated days at the measured mix, and its electricity is estimated. For
+any repository not worked on with these agents on this machine, the section
+and the commit table's Tokens column are simply absent; that is the normal
+case, not an error.
 
 Tokens land only on the commits of the agent whose logs measured them,
 split across that agent's commits of the day by lines changed. A commit

@@ -223,9 +223,36 @@ class TestCounters(unittest.TestCase):
         # Summing the four counters must not count a cached token twice.
         self.assertEqual(sum(tu.inclusive(prompt=1000, output=50, cached=700, cache_write=200).values()), 1050)
 
+    def test_a_count_that_is_not_an_integer_is_zero(self):
+        # No agent writes these; every reader gives them the same meaning.
+        self.assertEqual(tu.additive("ten", 1.5, True, [3]), tu.empty_counts())
+        self.assertEqual(tu.inclusive(prompt="100", output=5, cached=2.0, cache_write=None),
+                         {"input": 0, "output": 5, "cache_read": 0, "cache_write": 0})
+        self.assertEqual(tu.inclusive(prompt=100, output=5, cached=False)["input"], 100)
+
     def test_counters_never_go_negative(self):
         self.assertEqual(tu.inclusive(prompt=10, cached=40)["input"], 0)
         self.assertEqual(tu.additive(-3)["input"], 0)
+
+    def test_text_is_a_non_empty_string_or_nothing(self):
+        self.assertEqual(tu.text("r1"), "r1")
+        for value in ("", None, 5, ["r1"], {"id": "r1"}):
+            with self.subTest(value=value):
+                self.assertIsNone(tu.text(value))
+
+    def test_day_is_the_date_a_timestamp_starts_with_or_nothing(self):
+        self.assertEqual(tu.day("2026-09-01T10:00:00.000Z"), "2026-09-01")
+        self.assertEqual(tu.day("2026-09-01"), "2026-09-01")
+        for value in ("", "yesterday", "2026-09", "09/01/2026", None, 1756000000, ["2026-09-01"], {"d": 1},
+                      "\uff12\uff10\uff12\uff16-\uff10\uff19-\uff10\uff11T10:00:00Z", "\u0662\u0660\u0662\u0666-09-01"):
+            with self.subTest(value=value):
+                self.assertEqual(tu.day(value), "")
+
+    def test_a_model_that_is_not_a_name_is_recorded_as_unknown(self):
+        days = {}
+        for model in (["gpt-5.5"], {"name": "gpt-5.5"}, 5, ""):
+            tu.record(days, "2026-08-06", model, tu.additive(output=1))
+        self.assertEqual(days["2026-08-06"]["models"], {"unknown": tu.additive(output=4)})
 
     def test_record_adds_a_turn_and_its_counters(self):
         days = {}

@@ -60,7 +60,7 @@ class TestCounters(unittest.TestCase):
         self.assertEqual(gemini.counters({"input": 100, "output": 10, "thoughts": 5})["output"], 15)
 
     def test_a_count_that_is_not_a_number_is_zero(self):
-        self.assertEqual(gemini.counters({"input": "many", "output": 10, "cached": None, "thoughts": True}),
+        self.assertEqual(gemini.counters({"input": "many", "output": 10, "cached": None, "thoughts": True, "tool": 2.5}),
                          {"input": 0, "output": 10, "cache_read": 0, "cache_write": 0})
 
     def test_nothing_goes_below_zero(self):
@@ -227,12 +227,20 @@ class TestRules(unittest.TestCase):
         listed = dict(reply("m3"), id=["m3"])
         worded = reply("m4")
         worded["tokens"] = dict(worded["tokens"], input="many")
-        self.write("a.jsonl", [meta(self.repo), reply("m1"), dated, listed, worded])
+        stamped = dict(reply("m6"), timestamp={"at": TS})
+        modelled = dict(reply("m7"), model=["gemini-3.5-flash"])
+        described = dict(reply("m8"), model={"name": "gemini-3.5-flash"})
+        self.write("a.jsonl", [meta(self.repo), reply("m1"), dated, listed, worded, stamped, modelled, described])
+        # A project hash that is not a string names no project.
         self.write("b.jsonl", [dict(meta(self.repo), projectHash=["not", "a", "hash"]), reply("m5")])
+        self.write("c.json", dict(meta(self.repo), projectHash={"hash": "x"}, messages=[reply("m9")]), legacy=True)
+        self.write("d.json", dict(meta(self.repo), messages=5), legacy=True)
         result = self.scan()
         day = result.days["2026-09-01"]
-        # m1's 110 tokens and m4's 10 output tokens; b.jsonl cannot be read.
-        self.assertEqual((day["turns"], tu.source_total(day), result.skipped), (2, 120, 1))
+        # m1's 110 tokens, m4's 10 output tokens, and m7's and m8's 110 each
+        # under an unknown model; d.json's messages cannot be read.
+        self.assertEqual((day["turns"], tu.source_total(day), result.skipped), (4, 340, 1))
+        self.assertEqual(sorted(day["models"]), ["gemini-3.5-flash", "unknown"])
 
     def test_files_outside_chats_are_ignored(self):
         path = os.path.join(self.home, ".gemini", "tmp", "proj", "logs.json")
