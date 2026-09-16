@@ -8,34 +8,46 @@ what that work cost in tokens, dollars and electricity. Every commit is
 measured with `cloc --git --diff`, cached per file, and reconciled against a
 `cloc` snapshot of HEAD so drift is visible rather than silent.
 
-The output is one `index.html` (its charts load Chart.js and its plugins from a CDN) plus a
-`commit_bodies.js` sidecar for the full commit messages, written to a
-**workspace** next to the repository, never inside it.
+The output is one `index.html` (its charts load Chart.js and its plugins from
+a CDN) plus a `commit_bodies.js` sidecar for the full commit messages, written
+to a **workspace** next to the repository, never inside it.
 
 ## Requirements
 
 - Python 3.11 or later (standard library only)
-- [`cloc`](https://github.com/AlDanial/cloc) 2.x on `PATH` (`brew install cloc`, `apt install cloc`)
+- [`cloc`](https://github.com/AlDanial/cloc) 2.06 or later on `PATH`. On
+  macOS, `brew install cloc` gives a current release. Linux distributions
+  often package an older one (Ubuntu 24.04 has 1.98). Earlier releases
+  report per-file results in a form clocwork misreads, so check
+  `cloc --version`. If it is older, save `cloc-<version>.pl` from the
+  [cloc releases](https://github.com/AlDanial/cloc/releases) as an
+  executable named `cloc` on `PATH`.
 - `git`
 
-## Running
-
-From a clone, no install step:
+## Installing
 
 ```bash
-git clone https://github.com/nicktoumpelis/clocwork.git
+pipx install clocwork          # or: pip install clocwork
+```
+
+pip does not install the manual page; `man/clocwork.1` is in the repository
+and in the source distribution.
+
+To run from a clone instead, with no install step:
+
+```bash
+git clone https://github.com/nicktoumpelis/clocwork.git ~/code/clocwork
 cd ~/code/foo && ~/code/clocwork/clocwork
 ```
 
-Or install the `clocwork` command:
+For development, `pip install -e ~/code/clocwork` installs the `clocwork`
+command from the clone.
 
-```bash
-pip install -e ~/code/clocwork      # or: pipx install ~/code/clocwork
-cd ~/code/foo && clocwork
-```
+## Running
 
-The first run over a long history measures every commit with `cloc`, running
-one `cloc` process per CPU core (`--jobs N` chooses the number). On a 10-core
+Run `clocwork` inside the repository to analyse, or pass its path. The first
+run over a long history measures every commit with `cloc`, running one
+`cloc` process per CPU core (`--jobs N` chooses the number). On a 10-core
 machine the 289 commits of [spf13/cast](https://github.com/spf13/cast) take
 14 seconds (113 seconds with `--jobs 1`), and a repository of 3,800 commits,
 2,700 of them non-merge, takes about four minutes. Results are cached, so
