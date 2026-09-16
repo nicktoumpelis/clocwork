@@ -1,0 +1,118 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Every cloc release before 2.06 misreads per-file diffs; Python 3.11 runs
+  # against the oldest supported release, the rest against the newest.
+  CLOC_OLDEST: "2.06"
+  CLOC_OLDEST_SHA256: ed9fbdd081a2ceb933ea490b3c1cfacc87d3898ae2650d0d6756439695a836c8
+  CLOC_NEWEST: "2.10"
+  CLOC_NEWEST_SHA256: bf59272455172108072a0a106379f7509fd4349bdcfd85203bac038ccd286d83
+
+jobs:
+  linux:
+    name: Linux, Python ${{ matrix.python }}, cloc ${{ matrix.cloc }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { python: "3.11", cloc: oldest }
+          - { python: "3.12", cloc: newest }
+          - { python: "3.13", cloc: newest }
+          - { python: "3.14", cloc: newest }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+      - name: Install cloc
+        run: |
+          if [ "${{ matrix.cloc }}" = oldest ]; then v=$CLOC_OLDEST; sum=$CLOC_OLDEST_SHA256; else v=$CLOC_NEWEST; sum=$CLOC_NEWEST_SHA256; fi
+          curl -fsSL -o cloc "https://github.com/AlDanial/cloc/releases/download/v$v/cloc-$v.pl"
+          echo "$sum  cloc" | sha256sum -c -
+          chmod +x cloc && sudo mv cloc /usr/local/bin/cloc
+          cloc --version
+      - name: Python suite
+        run: python -m unittest discover -s tests -t . -q
+      - name: Dashboard suite
+        run: node tests/dashboard/run_all.js
+      - name: End to end
+        run: |
+          R=$(python -c 'import sys, tempfile, os; sys.path[:0] = ["src", "."]
+          from tests import repo_fixture as fx
+          d = tempfile.mkdtemp(); r = os.path.join(d, "poly"); os.makedirs(r); fx.make_polyglot_repo(r); print(r)')
+          ./clocwork "$R" --no-open --cache-dir "$RUNNER_TEMP/cache" | tee run.log
+          grep -F "Test code at main: 11 of 20 code lines (55.0%)" run.log
+          if grep -q '__[A-Z_]*__' "$R-stats/index.html"; then echo "a placeholder survived in index.html"; exit 1; fi
+
+  macos:
+    name: macOS, Python 3.14, Homebrew cloc
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+      - name: Install cloc
+        run: brew install cloc && cloc --version
+      - name: Python suite
+        run: python -m unittest discover -s tests -t . -q
+      - name: Dashboard suite
+        run: node tests/dashboard/run_all.js
+
+  package:
+    name: Build and check the distributions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+      - name: Install cloc
+        run: |
+          curl -fsSL -o cloc "https://github.com/AlDanial/cloc/releases/download/v$CLOC_NEWEST/cloc-$CLOC_NEWEST.pl"
+          echo "$CLOC_NEWEST_SHA256  cloc" | sha256sum -c -
+          chmod +x cloc && sudo mv cloc /usr/local/bin/cloc
+      - name: Build
+        run: |
+          python -m pip install --upgrade build twine
+          python -m build
+          python -m twine check --strict dist/*
+      - name: Both suites from the source distribution
+        run: |
+          mkdir "$RUNNER_TEMP/sdist"
+          tar -xzf dist/*.tar.gz -C "$RUNNER_TEMP/sdist" --strip-components=1
+          cd "$RUNNER_TEMP/sdist"
+          python -m unittest discover -s tests -t . -q
+          node tests/dashboard/run_all.js
+      - name: The installed wheel
+        run: |
+          python -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install dist/*.whl
+          "$RUNNER_TEMP/venv/bin/clocwork" --version | grep -Fx "clocwork $(python -c 'import sys; sys.path.insert(0, "src"); import clocwork; print(clocwork.__version__)')"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
