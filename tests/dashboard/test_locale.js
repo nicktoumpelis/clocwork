@@ -44,8 +44,11 @@ check(page.run('return Chart.defaults.locale') === LOCALE, 'Chart.js is told the
 
 section('summary cards');
 check(value('statsGrid', 'Total Commits') === int.format(S.total_commits), 'commit count grouped the German way: ' + value('statsGrid', 'Total Commits'));
-check(value('statsGrid', 'AI-Assisted') === int.format(S.ai_assisted_commits) + ' (' + pct.format(S.ai_assisted_commits / S.total_commits) + ')',
-      'AI-assisted share as a German percentage: ' + value('statsGrid', 'AI-Assisted'));
+// The count alone is the value, so it never wraps; the share is the line beneath.
+check(value('statsGrid', 'AI-Assisted') === int.format(S.ai_assisted_commits), 'AI-assisted count alone: ' + value('statsGrid', 'AI-Assisted'));
+check(note('statsGrid', 'AI-Assisted') === pct.format(S.ai_assisted_commits / S.total_commits) + ' of all commits',
+      'AI-assisted share as a German percentage on its own line: ' + note('statsGrid', 'AI-Assisted'));
+check(!note('statsGrid', 'Total Commits'), 'a tile without a note has no second line');
 check(value('statsGrid', 'Peak') === int.format(st.peak.value), 'peak lines');
 check(value('statsGrid', 'Peak Date') === date(st.peak.date), 'peak date in the numeric region format: ' + value('statsGrid', 'Peak Date'));
 check(value('statsGrid', 'First Commit') === date(S.first_date) && value('statsGrid', 'Last Commit') === date(S.last_date), 'first and last commit dates');

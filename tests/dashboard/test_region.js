@@ -14,13 +14,16 @@ const S = RAW.summary;
 const int = new Intl.NumberFormat(REGION);
 const pct = new Intl.NumberFormat(REGION, { style: 'percent', minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const date = iso => { const p = iso.split('-').map(Number); return new Intl.DateTimeFormat(REGION, { year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(p[0], p[1] - 1, p[2])); };
-const value = label => byId('statsGrid').children.find(x => x.children[0].textContent === label).children[1].textContent;
+const tile = label => byId('statsGrid').children.find(x => x.children[0].textContent === label);
+const value = label => tile(label).children[1].textContent;
+const note = label => tile(label).children[2] && tile(label).children[2].textContent;
 
 section('embedded region locale wins over the browser language');
 check(int.format(3744) !== new Intl.NumberFormat('en-US').format(3744), 'sanity: en-SE groups digits differently from en-US');
 check(page.run('return FMT.locale') === REGION && page.run('return Chart.defaults.locale') === REGION, 'page and Chart.js use the embedded locale');
 check(value('Total Commits') === int.format(S.total_commits), 'commit count in the region format: ' + value('Total Commits'));
-check(value('AI-Assisted') === int.format(S.ai_assisted_commits) + ' (' + pct.format(S.ai_assisted_commits / S.total_commits) + ')', 'percentage in the region format: ' + value('AI-Assisted'));
+check(value('AI-Assisted') === int.format(S.ai_assisted_commits), 'AI-assisted count in the region format: ' + value('AI-Assisted'));
+check(note('AI-Assisted') === pct.format(S.ai_assisted_commits / S.total_commits) + ' of all commits', 'percentage in the region format: ' + note('AI-Assisted'));
 const top = byId('allCommitsBody').children[0];
 check(cells(top)[0] === date(RAW.commits[RAW.commits.length - 1][2]), 'table date in the region format: ' + cells(top)[0]);
 const T = S.tokens;
