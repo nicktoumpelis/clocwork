@@ -201,11 +201,12 @@ in time is gone.
 
 A day the archive does not cover for an agent, but on which that agent's
 commits changed lines, is estimated from the agent's own tokens-per-line
-ratio. The result is priced at API list prices, each measured day at the
-prices in force on it and the estimated days at the measured mix, and its
-electricity is estimated. For any repository not worked on with these agents
-on this machine, the section and the commit table's Tokens column are simply
-absent; that is the normal case, not an error.
+ratio; a record that holds no tokens covers nothing. The result is priced at
+API list prices, each measured day at the prices in force on it and the
+estimated days at the measured mix, and its electricity is estimated. For
+any repository not worked on with these agents on this machine, the section
+and the commit table's Tokens column are simply absent; that is the normal
+case, not an error.
 
 Tokens land only on the commits of the agent whose logs measured them,
 split across that agent's commits of the day by lines changed. A commit

@@ -26,8 +26,11 @@ RECORDED = {
         "gpt-5.6-terra": {"input": 83_900, "output": 11_116, "cache_read": 883_456, "cache_write": 0}}},
 }
 TS = "2026-09-01T10:00:00.000Z"
-GIT_VERSION = tuple(int(n) for n in subprocess.run(["git", "version"], capture_output=True, text=True)
-                    .stdout.split()[2].split(".")[:2])
+try:
+    GIT_VERSION = tuple(int(n) for n in subprocess.run(["git", "version"], capture_output=True, text=True)
+                        .stdout.split()[2].split(".")[:2])
+except (OSError, IndexError, ValueError):
+    GIT_VERSION = ()                # no git, or a version line this cannot read
 GIT_NO_LAZY_FETCH = GIT_VERSION >= (2, 44)
 
 
@@ -215,7 +218,8 @@ class TestRules(unittest.TestCase):
         with mock.patch.object(subprocess, "run", wraps=subprocess.run) as run:
             self.assertEqual(self.day()["turns"], 3)
         asked = [c for c in run.call_args_list if "cat-file" in c.args[0]]
-        self.assertEqual([c.args[0] for c in asked], [["git", "-C", self.repo, "cat-file", "-e", head + "^{commit}"]])
+        self.assertEqual([c.args[0] for c in asked],
+                         [["git", "-c", "protocol.allow=never", "-C", self.repo, "cat-file", "-e", head + "^{commit}"]])
         # Never a credential prompt: no terminal input, and git told not to ask.
         self.assertEqual((asked[0].kwargs["stdin"], asked[0].kwargs["env"]["GIT_TERMINAL_PROMPT"]),
                          (subprocess.DEVNULL, "0"))

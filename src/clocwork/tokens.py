@@ -53,9 +53,10 @@ def day(stamp):
 
 
 def count(value):
-    """A token count as written, or 0 for anything that is not an integer:
-    no agent writes a missing, fractional or textual count, so every reader
-    gives one the same meaning."""
+    """A token count as written, or 0 for anything that is not an integer.
+    A missing count is ordinary (older Codex usage has no cache-write field);
+    no agent writes a fractional or textual one, and every reader gives such
+    a value the same meaning."""
     return value if isinstance(value, int) and not isinstance(value, bool) else 0
 
 

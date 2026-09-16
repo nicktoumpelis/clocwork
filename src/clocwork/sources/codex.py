@@ -41,7 +41,9 @@ SKIPPED = "damaged, or compressed and this Python is older than 3.14"
 # A file that cannot be opened, or is built in a way no Codex version writes
 # (a payload or usage that is not an object), is counted as unreadable rather
 # than stopping the run. An id, model or timestamp of the wrong type is read
-# as missing instead, and costs only its own line.
+# as missing instead. A missing response id only stops that response being
+# deduplicated; a missing session id stops the whole file being deduplicated
+# against other copies of the session.
 READ_ERRORS = (OSError, EOFError, UnicodeError, TypeError, AttributeError) + ((zstd.ZstdError,) if zstd else ())
 # Only these lines matter; messages, tool calls and other events are skipped
 # before they are parsed.
@@ -71,8 +73,10 @@ def commit_lookup(repo):
     asking git once per hash.
 
     The hashes asked about are mostly another repository's, so a partial
-    clone must not fetch them from its remote (GIT_NO_LAZY_FETCH, git 2.44+),
-    and nothing may wait on a credential prompt.
+    clone must not fetch them from its remote, and nothing may wait on a
+    prompt. GIT_NO_LAZY_FETCH (git 2.44+) skips the fetch; before that,
+    protocol.allow=never makes it fail before connecting, so no ssh
+    passphrase or credential prompt can appear either.
     """
     known = {}
     env = dict(os.environ, GIT_NO_LAZY_FETCH="1", GIT_TERMINAL_PROMPT="0")
@@ -80,7 +84,7 @@ def commit_lookup(repo):
     def lookup(sha):
         if sha not in known:
             known[sha] = bool(COMMIT.fullmatch(sha)) and subprocess.run(
-                ["git", "-C", repo, "cat-file", "-e", sha + "^{commit}"],
+                ["git", "-c", "protocol.allow=never", "-C", repo, "cat-file", "-e", sha + "^{commit}"],
                 stdin=subprocess.DEVNULL, capture_output=True, env=env).returncode == 0
         return known[sha]
     return lookup
