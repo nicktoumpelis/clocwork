@@ -12,6 +12,8 @@ const chip = name => bar.children.find(b => b.textContent === name);
 const num = s => parseInt(String(s).replace(/[+,]/g, ''), 10);
 const rows = () => tbody.children.filter(r => r.className.indexOf('detail-row') < 0);
 const total = RAW.commits.length;
+const hasTokens = !!(RAW.summary.tokens && RAW.summary.tokens.per_day && RAW.summary.tokens.per_day.length);   // the page shows no token element without data
+const FIXED = hasTokens ? 9 : 8;   // fixed columns including the expander; Tokens only with token data
 const en = n => new Intl.NumberFormat('en-US').format(n);
 // Date cells are locale-formatted, so order is checked via the commit's ISO date.
 const isoOf = r => RAW.commits.find(c => c[1] === cells(r)[1])[2];
@@ -124,6 +126,7 @@ check(rows().map(r => cells(r)[1]).join() === stSel.gains.map(i => RAW.commits[i
 check(tabs[1].textContent === 'Biggest ' + RAW.languages[0] + ' LOC Gains' && tabs[2].textContent === 'Biggest ' + RAW.languages[0] + ' LOC Drops', 'tab labels follow the selection');
 tabs[0].fire('click');
 
+if (hasTokens) {
 section('tokens column');
 {
   tabs[0].fire('click'); search.value = ''; search.fire('input'); chip('All').fire('click');
@@ -147,6 +150,7 @@ section('tokens column');
   check(cells(rows()[0])[7] === expected(rawOf(rows()[0])), 'tokens ignore the Language and Line type selection');
   page.run('SEL.set({ lang: "All", type: "code" })');
 }
+}
 
 section('per-language columns');
 {
@@ -159,37 +163,38 @@ section('per-language columns');
   page.run('SEL.set({ lang: "All", type: "code", tests: false })');
   tabs[0].fire('click'); search.value = ''; search.fire('input'); chip('All').fire('click'); thDate.fire('click');
   if (thDate.getAttribute('data-dir') !== 'desc') thDate.fire('click');
-  check(headers.length === 9 + LANGS.length && page.cols.length === headers.length, 'one header and col per language after the fixed columns');
-  check(headers.slice(9).map(h => h.textContent).join('|') === LANGS.join('|'), 'language headers in data order');
-  check(headers.slice(9).every((h, i) => h.className.indexOf('sortable') >= 0 && h.getAttribute('data-sort') === 'lang:' + i), 'language headers sortable with lang:<idx> keys');
+  check(headers.length === FIXED + LANGS.length && page.cols.length === headers.length, 'one header and col per language after the fixed columns');
+  check(headers.slice(FIXED).map(h => h.textContent).join('|') === LANGS.join('|'), 'language headers in data order');
+  check(headers.slice(FIXED).every((h, i) => h.className.indexOf('sortable') >= 0 && h.getAttribute('data-sort') === 'lang:' + i), 'language headers sortable with lang:<idx> keys');
   const top = rows()[0];
   const topRaw = RAW.commits.find(c => c[1] === cells(top)[1]);
   let ok = true;
   LANGS.forEach((l, li) => {
     const expected = langNet(topRaw, li, 'code');
-    const cell = cells(top)[8 + li];
+    const cell = cells(top)[FIXED - 1 + li];
     const shown = cell === '' ? 0 : num(cell);
     if (shown !== expected || (expected === 0 && cell !== '')) ok = false;
   });
   check(ok, 'newest row language cells equal an independent per-language net (blank for zero)');
-  // find a row with a non-zero Swift net and check the badge sign class
-  const swiftIdx = LANGS.indexOf('Swift');
-  const rowWithSwift = rows().find(r => cells(r)[8 + swiftIdx] !== '');
-  check(!!rowWithSwift && rowWithSwift.children[9 + swiftIdx].children[0].className.indexOf(num(cells(rowWithSwift)[8 + swiftIdx]) >= 0 ? 'positive' : 'negative') >= 0, 'non-zero language cell is a signed badge');
-  headers[9 + swiftIdx].fire('click');
-  let vals = rows().map(r => { const c = cells(r)[8 + swiftIdx]; return c === '' ? 0 : num(c); });
-  check(headers[9 + swiftIdx].getAttribute('data-dir') === 'desc' && vals.every((v, i) => i === 0 || vals[i - 1] >= v), 'clicking a language header sorts by that language, largest first');
-  headers[9 + swiftIdx].fire('click');
-  vals = rows().map(r => { const c = cells(r)[8 + swiftIdx]; return c === '' ? 0 : num(c); });
+  // find a row with a non-zero net in the first language (Swift in the
+  // fixture; whichever has the most code in a real workspace) and check the badge sign class
+  const langIdx = 0;
+  const rowWithLang = rows().find(r => cells(r)[FIXED - 1 + langIdx] !== '');
+  check(!!rowWithLang && rowWithLang.children[FIXED + langIdx].children[0].className.indexOf(num(cells(rowWithLang)[FIXED - 1 + langIdx]) >= 0 ? 'positive' : 'negative') >= 0, 'non-zero language cell is a signed badge');
+  headers[FIXED + langIdx].fire('click');
+  let vals = rows().map(r => { const c = cells(r)[FIXED - 1 + langIdx]; return c === '' ? 0 : num(c); });
+  check(headers[FIXED + langIdx].getAttribute('data-dir') === 'desc' && vals.every((v, i) => i === 0 || vals[i - 1] >= v), 'clicking a language header sorts by that language, largest first');
+  headers[FIXED + langIdx].fire('click');
+  vals = rows().map(r => { const c = cells(r)[FIXED - 1 + langIdx]; return c === '' ? 0 : num(c); });
   check(vals.every((v, i) => i === 0 || vals[i - 1] <= v), 'second click reverses');
   page.run('SEL.set({ type: "comment" })');
   thDate.fire('click'); if (thDate.getAttribute('data-dir') !== 'desc') thDate.fire('click');
   const top2 = rows()[0]; const top2Raw = RAW.commits.find(c => c[1] === cells(top2)[1]);
-  ok = LANGS.every((l, li) => { const cell = cells(top2)[8 + li]; return (cell === '' ? 0 : num(cell)) === langNet(top2Raw, li, 'comment'); });
+  ok = LANGS.every((l, li) => { const cell = cells(top2)[FIXED - 1 + li]; return (cell === '' ? 0 : num(cell)) === langNet(top2Raw, li, 'comment'); });
   check(ok, 'language cells follow the Line type selection');
   page.run('SEL.set({ lang: "' + LANGS[0] + '" })');
   const top3 = rows()[0]; const top3Raw = RAW.commits.find(c => c[1] === cells(top3)[1]);
-  ok = LANGS.every((l, li) => { const cell = cells(top3)[8 + li]; return (cell === '' ? 0 : num(cell)) === langNet(top3Raw, li, 'comment'); });
+  ok = LANGS.every((l, li) => { const cell = cells(top3)[FIXED - 1 + li]; return (cell === '' ? 0 : num(cell)) === langNet(top3Raw, li, 'comment'); });
   check(ok, 'language cells ignore the Language selection');
   top3.fire('click');
   check(top3.nextSibling.className === 'detail-row' && top3.nextSibling.children[0].colSpan === headers.length, 'detail row spans every column');

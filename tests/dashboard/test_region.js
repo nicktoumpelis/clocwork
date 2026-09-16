@@ -24,18 +24,19 @@ check(value('AI-Assisted') === int.format(S.ai_assisted_commits) + ' (' + pct.fo
 const top = byId('allCommitsBody').children[0];
 check(cells(top)[0] === date(RAW.commits[RAW.commits.length - 1][2]), 'table date in the region format: ' + cells(top)[0]);
 const T = S.tokens;
+const hasTokens = !!(T && T.per_day && T.per_day.length);   // the page shows no token element without data
 const co2 = p => p.byId('tokenStats').children.find(x => x.children[0].textContent === 'CO\u2082e (est.)').children[1].textContent;
 const massFmt = (tag, unit) => new Intl.NumberFormat(tag, { style: 'unit', unit, maximumSignificantDigits: 2 });
 const inKg = tag => massFmt(tag, 'kilogram').formatRange(T.co2_kg, T.co2_kg);
 const inLb = tag => massFmt(tag, 'pound').formatRange(T.co2_kg * 2.20462262, T.co2_kg * 2.20462262);
-check(T.co2_kg < 1000, 'sanity: the CO\u2082e figure is below a tonne, so the kilogram branch is what renders');
-check(co2(page) === inKg(REGION), 'a metric region shows kilograms: ' + co2(page));
+if (hasTokens) check(T.co2_kg < 1000, 'sanity: the CO\u2082e figure is below a tonne, so the kilogram branch is what renders');
+if (hasTokens) check(co2(page) === inKg(REGION), 'a metric region shows kilograms: ' + co2(page));
 
 section('measurement system can be pinned in the tag');
 const usMetric = load({ locale: 'en-US', region: 'en-US-u-ms-metric' });
-check(co2(usMetric) === inKg('en-US'), 'en-US with -u-ms-metric shows kilograms: ' + co2(usMetric));
+if (hasTokens) check(co2(usMetric) === inKg('en-US'), 'en-US with -u-ms-metric shows kilograms: ' + co2(usMetric));
 const seCustomary = load({ locale: 'en-US', region: 'en-SE-u-ms-ussystem' });
-check(co2(seCustomary) === inLb('en-SE'), 'en-SE with -u-ms-ussystem shows pounds: ' + co2(seCustomary));
+if (hasTokens) check(co2(seCustomary) === inLb('en-SE'), 'en-SE with -u-ms-ussystem shows pounds: ' + co2(seCustomary));
 check(seCustomary.run('return FMT.locale') === 'en-SE', 'the extension does not leak into the resolved locale');
 
 section('unusable embedded tag falls back to the browser');

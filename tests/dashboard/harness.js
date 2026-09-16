@@ -10,17 +10,23 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 
 // CLOCWORK_DASH_WORKSPACE points the suite at an already rendered workspace
-// (a real one, say) instead of the synthetic fixture.
-let WORKSPACE = process.env.CLOCWORK_DASH_WORKSPACE || null;
-function workspace() {
-  if (WORKSPACE) return WORKSPACE;
+// (a real one, say) instead of the synthetic fixture. It stands in for the
+// default variant only: a test that asks for the no-tokens variant always
+// gets the synthetic one, because a real workspace is whatever it is.
+const WORKSPACES = {};   // variant -> rendered directory
+function workspace(variant) {
+  variant = variant || 'default';
+  if (variant === 'default' && process.env.CLOCWORK_DASH_WORKSPACE) return process.env.CLOCWORK_DASH_WORKSPACE;
+  if (WORKSPACES[variant]) return WORKSPACES[variant];
   const root = path.resolve(__dirname, '..', '..');
-  WORKSPACE = fs.mkdtempSync(path.join(os.tmpdir(), 'clocwork-dash-'));
-  execFileSync('python3', [path.join(__dirname, 'fixture.py'), WORKSPACE], { stdio: 'inherit' });
-  execFileSync(path.join(root, 'clocwork'), ['render', '-o', WORKSPACE, '--no-open', '-q'], { stdio: 'inherit' });
-  const rendered = WORKSPACE;
-  process.on('exit', () => { try { fs.rmSync(rendered, { recursive: true, force: true }); } catch (e) { /* best effort */ } });
-  return WORKSPACE;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'clocwork-dash-'));
+  const args = [path.join(__dirname, 'fixture.py'), dir];
+  if (variant === 'no-tokens') args.push('--no-tokens');
+  execFileSync('python3', args, { stdio: 'inherit' });
+  execFileSync(path.join(root, 'clocwork'), ['render', '-o', dir, '--no-open', '-q'], { stdio: 'inherit' });
+  process.on('exit', () => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { /* best effort */ } });
+  WORKSPACES[variant] = dir;
+  return dir;
 }
 
 function El(tag) {
@@ -65,7 +71,9 @@ Chart.prototype.resetZoom = function () {};
 
 function load(opts) {
   opts = opts || {};
-  const html = fs.readFileSync(path.join(workspace(), 'index.html'), 'utf8');
+  // opts.tokens === false loads the workspace of a repository with no token data.
+  const ws = workspace(opts.tokens === false ? 'no-tokens' : 'default');
+  const html = fs.readFileSync(path.join(ws, 'index.html'), 'utf8');
   const scripts = []; const re = /<script>([\s\S]*?)<\/script>/g; let m;
   while ((m = re.exec(html))) scripts.push(m[1]);
   let src = scripts.join('\n');
@@ -122,7 +130,7 @@ function load(opts) {
   return {
     RAW, byId, headers: headRow.children, tabs, cols: colgroup.children, head, charts: Chart.instances, location: global.location,
     cells: row => row.children.slice(1).map(td => td.children.length ? td.children[0].textContent : td.textContent),
-    bodiesFile: path.join(workspace(), 'commit_bodies.js'),
+    bodiesFile: path.join(ws, 'commit_bodies.js'),
     run: js => new Function(js)(),
   };
 }
