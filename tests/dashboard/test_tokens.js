@@ -32,7 +32,6 @@ check(/^~\d+B$/.test(cardValue('Tokens (lifetime est. ceiling)')), 'lifetime car
 check(cardValue('Measured').indexOf('B') > 0 || cardValue('Measured').indexOf('M') > 0, 'measured card is abbreviated');
 check(cardValue('Cache Read') === enPct.format(T.cache_read_share), 'cache read share');
 check(cardValue('Output per Line') === en.format(T.output_per_line), 'output per line');
-check(byId('tokenNote').textContent.indexOf('30 days') > 0, 'note explains the retention window');
 
 section('clarifications and footprint');
 check(/re-read|context/i.test(cardNote('Cache Read') || ''), 'cache read card explains itself: ' + cardNote('Cache Read'));
@@ -54,6 +53,26 @@ check(typeof T.lifetime_cost_usd === 'number' && T.lifetime_cost_usd > 0, 'blob 
 check(cardValue('API Cost (est.)') === usd.formatRange(T.lifetime_cost_usd, T.lifetime_cost_usd), 'cost card: coarse dollars at list prices: ' + cardValue('API Cost (est.)'));
 check((cardNote('API Cost (est.)') || '').indexOf(usdExact.format(T.cost_usd)) === 0 && /measured/.test(cardNote('API Cost (est.)') || ''), 'cost note leads with the measured window figure: ' + cardNote('API Cost (est.)'));
 check(/list price/i.test(byId('tokenNote').textContent), 'note explains the cost basis');
+
+section('text written from the data');
+const note = byId('tokenNote').textContent;
+const S = T.sources || [];
+const subtitle = byId('tokenChartSource').textContent;
+check(S.length > 0 && S.every(s => subtitle.indexOf(s.label) >= 0) && / \u00b7 earlier days estimated from lines changed$/.test(subtitle),
+      'subtitle names the measured agents: ' + subtitle);
+if (S.length === 1 && S[0].key === 'claude-code') {
+  check(subtitle === 'measured from Claude Code transcripts \u00b7 earlier days estimated from lines changed', 'one Claude Code source keeps the original subtitle');
+}
+check(note.indexOf('Opus 5 with a 1M context') < 0, 'the note assumes no particular repository\u2019s model');
+check(S.filter(s => s.top_model).every(s => note.indexOf('mostly ' + s.top_model) > 0), 'the note names each agent\u2019s main model');
+if (S.some(s => s.key === 'claude-code')) check(note.indexOf('about ' + en.format(30) + ' days') > 0, 'the note gives Claude Code\u2019s retention window');
+if (T.unmeasured_agent_commits) {
+  check(note.indexOf(en.format(T.unmeasured_agent_commits) + ' AI-attributed commit') >= 0 && T.unmeasured_agents.every(a => note.indexOf(a) >= 0),
+        'the note counts and names the agents whose commits carry no figure');
+} else {
+  check(note.indexOf('no token figure') < 0, 'no unmeasured sentence when every AI commit has a figure');
+}
+check(/prompt length/.test(note), 'the note says prices tiered by prompt length are taken at their base rate');
 
 section('token chart');
 const token = charts[charts.length - 1];

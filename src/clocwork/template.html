@@ -493,7 +493,7 @@
 <div class="stats-grid" id="tokenStats"></div>
 
 <div class="chart-container">
-    <h2>Tokens per Day <small>measured from Claude Code transcripts &middot; earlier days estimated from lines changed</small></h2>
+    <h2>Tokens per Day <small id="tokenChartSource"></small></h2>
     <canvas id="tokenChart"></canvas>
     <div class="recon-note" id="tokenNote"></div>
 </div>
@@ -525,7 +525,7 @@
                 <th class="sortable" data-sort="churn" title="Sorts by lines added plus lines deleted">+/-</th>
                 <th class="sortable" data-sort="net">Net</th>
                 <th class="sortable" data-sort="cumulative">Cumulative</th>
-                <th class="sortable" data-sort="tokens" title="Tokens attributed to the commit: the day's measured or estimated total, split across that day's AI commits by lines changed">Tokens</th>
+                <th class="sortable" data-sort="tokens" title="Tokens attributed to the commit: its agent's measured or estimated total for the day, split across that agent's commits by lines changed">Tokens</th>
             </tr></thead>
             <tbody id="allCommitsBody"></tbody>
         </table>
@@ -567,8 +567,9 @@ function annotationObjects(list) {
 var LANGS = RAW.languages;
 var ROWS = RAW.commits;   // [idx, hash, date, msg, agent, isMerge, lines, testLines, tokens, tokenKind]; lines = [[langIdx, [codeAdd, codeRem, commentAdd, commentRem, blankAdd, blankRem]], ...]
 var SUMMARY = RAW.summary;
-// Token data exist only when Claude Code transcripts were on the machine that
-// generated the workspace; a clone of someone else's repository never has any.
+// Token data exist only when a coding agent's logs for the repository (Claude
+// Code, Codex CLI, Gemini CLI) were on the machine that generated the
+// workspace; a clone of someone else's repository never has any.
 // Without them the token section and the table's Tokens column are left out
 // altogether, because an empty section reads as a defect rather than an absence.
 var HAVE_TOKENS = !!(SUMMARY.tokens && SUMMARY.tokens.per_day && SUMMARY.tokens.per_day.length);
@@ -1201,7 +1202,7 @@ function resetMainZoom() {
     refresh();
 })();
 
-// --- Token Usage: measured from archived transcripts, estimated before that ---
+// --- Token Usage: measured from archived agent logs, estimated before that ---
 //
 // Deliberately independent of SEL. Tokens are not per-language and not
 // per-line-type, so this section must not move when the Language or Line type
@@ -1210,6 +1211,12 @@ function resetMainZoom() {
 (function() {
     if (!HAVE_TOKENS) { document.getElementById('tokenSection').hidden = true; return; }
     var T = SUMMARY.tokens;
+
+    // Data written before per-agent archives has no sources list; all of it
+    // was Claude Code's.
+    var sources = T.sources || [{ key: 'claude-code', label: 'Claude Code', measured_total: T.measured_total,
+        measured_days: T.measured_days, coverage_start: T.coverage_start, ratio: T.ratio, top_model: null,
+        per_day: T.per_day }];
 
     // Kept in step with GRID_G_CO2E_PER_KWH in analyse_all_commits.py, which is
     // where the figure is actually applied; this copy only labels the card.
@@ -1309,11 +1316,54 @@ function resetMainZoom() {
         }
     });
 
-    document.getElementById('tokenNote').textContent =
-        'Measured: ' + fmt(T.measured_total) + ' tokens across ' + fmt(T.measured_days) +
-        ' days of Claude Code transcripts, which are kept for about ' + fmt(30) + ' days. Earlier days are estimated at ' +
-        fmt(Math.round(T.ratio)) + ' tokens per AI-attributed line changed, calibrated only on the measured window — ' +
-        'predominantly Opus 5 with a 1M context, so earlier months on smaller-context models are overstated. ' +
+    // The subtitle and the footnote are written from the data: whose logs
+    // were read, what each measured, and which commits could not be priced.
+    // How long an agent keeps the logs its tokens are read from, where known.
+    var RETENTION_DAYS = { 'claude-code': 30 };
+    // Why an agent's tokens may reach no commit at all.
+    var TRAILER_HINT = {
+        'gemini': 'Gemini CLI adds no co-author trailer to its commits, so only a commit whose author credits Gemini by hand can carry its tokens.'
+    };
+    function andList(items) {
+        return items.length > 1 ? items.slice(0, -1).join(', ') + ' and ' + items[items.length - 1] : items.join('');
+    }
+    function measuredText(s) {
+        return fmt(s.measured_total) + ' tokens across ' + fmt(s.measured_days) + ' days';
+    }
+    function sinceText(s) {
+        return 'from ' + FMT.date(s.coverage_start) + (s.top_model ? ', mostly ' + s.top_model : '') + '. ';
+    }
+    function detailText(s) {
+        var text = RETENTION_DAYS[s.key] ? s.label + ' keeps its logs for about ' + fmt(RETENTION_DAYS[s.key]) + ' days. ' : '';
+        if (s.ratio) {
+            return text + 'Its earlier days are estimated at ' + fmt(Math.round(s.ratio)) + ' tokens per line changed in commits credited to ' +
+                s.label + ', calibrated only on its measured window, so months on other models or context sizes can be over- or understated. ';
+        }
+        return text + 'No commit credited to ' + s.label + ' changed a line on those days, so its tokens land on no commit and ' +
+            'no earlier day is estimated for it. ' + (TRAILER_HINT[s.key] ? TRAILER_HINT[s.key] + ' ' : '');
+    }
+
+    var transcripts = sources.every(function(s) { return s.key === 'claude-code'; });
+    document.getElementById('tokenChartSource').textContent = 'measured from ' +
+        andList(sources.map(function(s) { return s.label; })) + (transcripts ? ' transcripts' : ' logs') +
+        ' \u00b7 earlier days estimated from lines changed';
+
+    var note;
+    if (sources.length > 1) {
+        note = 'Measured: ' + measuredText(T) + ' of agent logs. ' + sources.map(function(s) {
+            return s.label + ': ' + measuredText(s) + ' ' + sinceText(s) + detailText(s);
+        }).join('') + (T.ratio ? 'Across the agents with a rate, that is ' + fmt(Math.round(T.ratio)) +
+            ' tokens per AI-attributed line changed. ' : '');
+    } else {
+        note = 'Measured: ' + measuredText(sources[0]) + ' of ' + sources[0].label + ' logs, ' + sinceText(sources[0]) + detailText(sources[0]);
+    }
+    var unmeasured = T.unmeasured_agent_commits || 0;
+    if (unmeasured) {
+        note += fmt(unmeasured) + ' AI-attributed commit' + (unmeasured === 1 ? '' : 's') + ' by ' + andList(T.unmeasured_agents) +
+            (unmeasured === 1 ? ' carries' : ' carry') + ' no token figure: no token logs from their agent cover their work, ' +
+            'and no commit is priced at another agent\u2019s rate. ';
+    }
+    document.getElementById('tokenNote').textContent = note +
         'The estimate also prices bulk deletions at the same rate as written code, so days dominated ' +
         'by mass file removals are inflated most. Treat the lifetime figure as an upper bound rather than a best ' +
         'guess: the true total is plausibly around half of it. The electricity and CO\u2082e figures ' +
@@ -1321,7 +1371,8 @@ function resetMainZoom() {
         'figures vary widely between sources and none cover agentic coding at these context sizes. ' +
         'The API cost prices each measured counter at its model\u2019s list price, cache reads and writes ' +
         'at their own rates, and scales with the same ceiling: it is what this usage would cost through ' +
-        'the API, not what a subscription charges.';
+        'the API, not what a subscription charges. Models whose list price rises with prompt length are ' +
+        'priced at their base rate, because the archive keeps daily sums rather than request sizes.';
 })();
 
 // --- Agent Detail Cards ---
@@ -1463,15 +1514,19 @@ function resetMainZoom() {
         tokens:     function(c) { return c[8]; }
     };
 
-    // Tokens are archived per day and split across that day's AI commits by
-    // lines changed (analyse_all_commits.py). A share of an estimated day is
-    // shown as approximate, the way the token chart separates the two kinds;
-    // a commit with nothing attributed shows nothing. Independent of SEL.
+    // Tokens are archived per day and split across the commits of the agent
+    // whose logs measured them, by lines changed (analyse.py). A share of an
+    // estimated day is shown as approximate, the way the token chart
+    // separates the two kinds; a commit with nothing attributed shows nothing.
+    // The commit's own kind (c[9]) decides: a date can mix a measured share
+    // for one agent with an estimated one for another. Data written before
+    // commits carried a kind falls back to the day's. Independent of SEL.
     var TOKEN_DAY_KIND = {};
     ((SUMMARY.tokens && SUMMARY.tokens.per_day) || []).forEach(function(r) { TOKEN_DAY_KIND[r[0]] = r[2]; });
+    function tokenKind(c) { return c[9] || TOKEN_DAY_KIND[c[2]]; }
     function tokenText(c) {
         if (!c[8]) return '';
-        return TOKEN_DAY_KIND[c[2]] === 'e' ? FMT.compact.approx(c[8]) : FMT.compact(c[8]);
+        return tokenKind(c) === 'e' ? FMT.compact.approx(c[8]) : FMT.compact(c[8]);
     }
 
     // One chip per agent present in the data, ordered by first appearance,
@@ -1606,7 +1661,7 @@ function resetMainZoom() {
         if (HAVE_TOKENS) {
             var tdTokens = document.createElement('td');
             tdTokens.textContent = tokenText(c);
-            if (c[8]) tdTokens.title = fmt(c[8]) + ' tokens attributed from a' + (TOKEN_DAY_KIND[c[2]] === 'e' ? 'n estimated' : ' measured') + ' day';
+            if (c[8]) tdTokens.title = fmt(c[8]) + ' tokens attributed from a' + (tokenKind(c) === 'e' ? 'n estimated' : ' measured') + ' day of its agent\u2019s usage';
             row.appendChild(tdTokens);
         }
 

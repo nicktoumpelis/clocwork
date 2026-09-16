@@ -19,7 +19,7 @@ if (hasTokens) {
   const note = byId('tokenNote').textContent;
   const measured = byId('tokenStats').children.find(x => x.children[0].textContent === 'Measured').children[2].textContent;
   check(note.indexOf(' across ' + int.format(T.measured_days) + ' days') > 0, 'token note day count: ' + note.slice(0, 80));
-  check(note.indexOf('about ' + int.format(30) + ' days') > 0, 'token note retention window');
+  if ((T.sources || []).some(s => s.key === 'claude-code')) check(note.indexOf('about ' + int.format(30) + ' days') > 0, 'token note retention window');
   check(measured.indexOf(int.format(T.measured_days) + ' days from ') === 0, 'measured card day count: ' + measured);
 }
 check(byId('allCommitsCount').textContent.indexOf(int.format(500)) > 0, 'table headline row cap');

@@ -137,7 +137,12 @@ section('tokens column');
   const kind = {}; RAW.summary.tokens.per_day.forEach(([d, , k]) => { kind[d] = k; });
   const rawOf = r => RAW.commits.find(x => x[1] === cells(r)[1]);
   // Attributed from a measured day: plain. From an estimated day: the approximation sign. None: blank.
-  const expected = c => !c[8] ? '' : kind[c[2]] === 'e' ? compact.formatRange(c[8], c[8]) : compact.format(c[8]);
+  // A commit's own kind (c[9]) decides between plain and approximate; data
+  // written before commits had one falls back to the kind of the day.
+  const expected = c => !c[8] ? '' : (c[9] || kind[c[2]]) === 'e' ? compact.formatRange(c[8], c[8]) : compact.format(c[8]);
+  if (RAW.commits.some(c => c[9])) {
+    check(RAW.commits.every(c => !c[8] || c[9] === 'm' || c[9] === 'e'), 'every commit with tokens carries its kind');
+  }
   check(rows().every(r => cells(r)[7] === expected(rawOf(r))), 'token cells show the attributed figure, approximate on estimated days, blank when none');
   check(rows().some(r => cells(r)[7] !== '') && rows().filter(r => cells(r)[3] === 'Misc').every(r => cells(r)[7] === ''), 'AI commits carry tokens, merges do not');
   const withTokens = rows().find(r => cells(r)[7] !== '');
