@@ -138,6 +138,8 @@ class TestAnalyse(unittest.TestCase):
         self.assertEqual(t["measured_total"], 0)      # no transcripts for the fixture repo
         self.assertEqual(t["per_day"], [])
         self.assertEqual(t["sources"], [])
+        # The fixture repository has one Claude commit and no logs on this machine.
+        self.assertEqual((t["unmeasured_agent_commits"], t["unmeasured_agents"]), (1, ["Claude Code"]))
 
 
 @unittest.skipUnless(HAVE_CLOC, "cloc not installed")
@@ -178,6 +180,21 @@ class TestInputs(unittest.TestCase):
                               config=conf, log=lambda *a: None)
             self.assertEqual(data["commits"][0]["test_lines"], {"Swift": fx.SWIFT_ROW_1})
             self.assertEqual(data["summary"]["head_snapshot"]["tests"]["Swift"], fx.HEAD_SWIFT)
+
+    def test_claude_code_tokens_land_only_on_claude_commits_and_the_rest_are_named(self):
+        # The polyglot fixture credits Copilot, Cursor and Claude Opus 4.6 on
+        # three days; the archive holds Claude Code's record for Claude's day.
+        with tempfile.TemporaryDirectory() as d:
+            fx.make_polyglot_repo(d)
+            archive = os.path.join(d, "t.json")
+            with open(archive, "w") as f:
+                json.dump({"version": 2, "days": {"2025-02-03": {"claude-code": {"turns": 1, "models": {
+                    "claude-opus-4-6": {"input": 0, "output": 70, "cache_read": 0, "cache_write": 0}}}}}}, f)
+            lines = []
+            data = an.analyse(d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), archive, log=lines.append)
+            tokens = {c["agent"]: c["tokens"] for c in data["commits"] if c["agent"]}
+            self.assertEqual((tokens["Claude Opus 4.6"], tokens["Copilot"], tokens["Cursor"]), (70, 0, 0))
+            self.assertIn("  No token logs for 2 AI commits (Copilot, Cursor); they carry no token figure", lines)
 
     def test_configured_agents_are_used(self):
         # The polyglot fixture's last commit credits "Jules", which no built-in
@@ -465,6 +482,18 @@ class TestPerSource(unittest.TestCase):
                    self.row(1, "2026-09-01", "Cursor", 50),
                    self.row(2, "2026-08-01", "Devin", 50)]
         return archive, results
+
+    def test_commits_by_agents_without_logs_are_counted_and_named(self):
+        t = an.token_summary(*self.probe())
+        self.assertEqual((t["unmeasured_agent_commits"], t["unmeasured_agents"]), (2, ["Cursor", "Devin"]))
+
+    def test_a_known_source_with_no_logs_is_named_once_by_its_label(self):
+        results = [self.row(0, "2026-09-01", "Claude Opus 5", 50),
+                   self.row(1, "2026-09-02", "Claude Opus 4.6", 5),
+                   self.row(2, "2026-09-02", an.MISC, 0),
+                   self.row(3, "2026-09-02", None, 9)]
+        t = an.token_summary({}, results)
+        self.assertEqual((t["unmeasured_agent_commits"], t["unmeasured_agents"]), (2, ["Claude Code"]))
 
     def test_the_ratio_counts_only_the_sources_own_lines(self):
         self.assertEqual(an.token_summary(*self.probe())["ratio"], 20.0)   # not 1,000 over 100 lines

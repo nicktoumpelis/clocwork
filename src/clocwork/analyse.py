@@ -316,6 +316,7 @@ def token_summary(archive_days, results):
         unpriced += cost["unpriced_tokens"]
         if s["measured_total"]:
             lifetime_cost += cost["measured_usd"] * ceiling / s["measured_total"]
+    unmeasured, unmeasured_names = unmeasured_agents(results, set(keys))
 
     return {
         "measured_total": measured_total,
@@ -333,6 +334,8 @@ def token_summary(archive_days, results):
         "coverage_start": min(archive_days) if archive_days else None,
         "per_day": per_day,
         "sources": sources,
+        "unmeasured_agent_commits": unmeasured,
+        "unmeasured_agents": unmeasured_names,
     }
 
 
@@ -364,6 +367,24 @@ def tokens_by_commit(sources, results):
             for index, churn in commits:
                 attributed[index] = attributed.get(index, 0) + round(day_tokens[date] * churn / total)
     return attributed
+
+
+def unmeasured_agents(results, measured_keys):
+    """How many AI-attributed commits carry no token figure, and by whom.
+
+    That is every commit whose agent no source reads, and every commit whose
+    source found no logs for this repository. Known sources are named by their
+    label, so a history of Claude models reads as "Claude Code".
+    """
+    count, names = 0, set()
+    for r in results:
+        if not is_ai(r):
+            continue
+        source = src.source_for(r["agent"])
+        if source is None or source.KEY not in measured_keys:
+            count += 1
+            names.add(source.LABEL if source else r["agent"])
+    return count, sorted(names)
 
 
 def analyse(repo_dir, output_path, cache_path, archive_path, *, config=None, branch=None,
@@ -513,6 +534,9 @@ def analyse(repo_dir, output_path, cache_path, archive_path, *, config=None, bra
         log(f"  Tokens: {t['lifetime_total']:,} lifetime "
             f"({t['measured_total']:,} measured over {t['measured_days']} days, "
             f"{t['estimated_total']:,} estimated at {t['ratio']:,.0f} per AI line)")
+        if t["unmeasured_agent_commits"]:
+            log(f"  No token logs for {t['unmeasured_agent_commits']} AI commits "
+                f"({', '.join(t['unmeasured_agents'])}); they carry no token figure")
     else:
         log("  Tokens: none (no agent token archive for this repository)")
     head_tests = sum(v["code"] for v in by_file_tests.values())

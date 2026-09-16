@@ -38,6 +38,7 @@ NO_TOKENS = {
     "measured_total": 0, "measured_days": 0, "estimated_total": 0, "lifetime_total": 0, "ratio": 0.0,
     "energy_kwh": 0.0, "co2_kg": 0.0, "cost_usd": 0.0, "lifetime_cost_usd": 0.0, "unpriced_tokens": 0,
     "cache_read_share": 0.0, "output_per_line": 0, "coverage_start": None, "per_day": [], "sources": [],
+    "unmeasured_agent_commits": 0, "unmeasured_agents": [],
 }
 
 
@@ -91,6 +92,10 @@ def build(tokens=True):
     reconciliation = json.loads(json.dumps(zero))
     reconciliation["Swift"]["code"] = -7
     ai = sum(1 for c in commits if c["agent"] and c["agent"] != "Misc")
+    ai_commits = [c for c in commits if c["agent"] and c["agent"] != "Misc"]
+    # With the archive only Copilot's commits lack token logs; without it, every agent's do.
+    unmeasured = [c for c in ai_commits if not c["agent"].startswith("Claude")] if tokens else ai_commits
+    unmeasured_names = sorted({"Claude Code" if c["agent"].startswith("Claude") else c["agent"] for c in unmeasured})
     if not tokens:
         for c in commits:
             c["tokens"] = 0
@@ -118,7 +123,9 @@ def build(tokens=True):
                     "ratio": 812.5, "coverage_start": per_day[cut][0], "top_model": "claude-fable-5-1",
                     "per_day": per_day,
                 }],
-            } if tokens else dict(NO_TOKENS),
+                "unmeasured_agent_commits": len(unmeasured), "unmeasured_agents": unmeasured_names,
+            } if tokens else dict(NO_TOKENS, unmeasured_agent_commits=len(unmeasured),
+                                  unmeasured_agents=unmeasured_names),
         },
     }
 
