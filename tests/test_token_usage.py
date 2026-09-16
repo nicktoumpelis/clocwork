@@ -117,13 +117,33 @@ class TestArchiveRoundTrip(unittest.TestCase):
             tu.archive("/repo", os.path.join(d, "t.json"), [source], homes={"x": []}, log=lambda *a: None)
         self.assertEqual(seen, [[]])
 
-    def test_a_source_that_finds_its_store_but_no_usage_still_writes_the_archive(self):
+    def test_a_source_that_finds_no_usage_leaves_the_archive_unwritten(self):
         empty = types.SimpleNamespace(KEY="empty", LABEL="Empty", default_homes=lambda env: [],
                                       scan=lambda repo, homes: tu.ScanResult({}, 0))
+        lines = []
         with tempfile.TemporaryDirectory() as d:
             path = os.path.join(d, "token_usage.json")
-            self.assertEqual(tu.archive("/repo", path, [empty], log=lambda *a: None), {})
-            self.assertTrue(os.path.exists(path))
+            self.assertEqual(tu.archive("/repo", path, [empty], log=lines.append), {})
+            self.assertFalse(os.path.exists(path))
+        self.assertIn("  Scanned 0 days of Empty logs", lines)
+
+    def test_unreadable_files_are_counted_with_the_sources_reason(self):
+        source = types.SimpleNamespace(KEY="z", LABEL="Zed", SKIPPED="compressed files need a newer Python",
+                                       default_homes=lambda env: [],
+                                       scan=lambda repo, homes: tu.ScanResult({}, 0, 3))
+        lines = []
+        with tempfile.TemporaryDirectory() as d:
+            tu.archive("/repo", os.path.join(d, "t.json"), [source], log=lines.append)
+            self.assertFalse(os.path.exists(os.path.join(d, "t.json")))
+        self.assertIn("  NOTE: could not read 3 Zed files: compressed files need a newer Python", lines)
+
+    def test_a_source_without_a_reason_still_has_its_unreadable_files_counted(self):
+        source = types.SimpleNamespace(KEY="z", LABEL="Zed", default_homes=lambda env: [],
+                                       scan=lambda repo, homes: tu.ScanResult({}, 0, 2))
+        lines = []
+        with tempfile.TemporaryDirectory() as d:
+            tu.archive("/repo", os.path.join(d, "t.json"), [source], log=lines.append)
+        self.assertIn("  NOTE: could not read 2 Zed files", lines)
 
     def write_raw(self, path, data):
         with open(path, "w") as f:

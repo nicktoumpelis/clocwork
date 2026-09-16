@@ -134,13 +134,13 @@ def archive(repo_path, archive_path, sources, homes=None, log=print):
 
     `homes` maps a source key to the directories to read in place of the
     source's own defaults; that is how the tests point a source at a fixture.
-    The archive is written only when some source found a store for the
-    repository, so a machine with no logs never creates or touches one.
+    The archive is written only when some source found usage for the
+    repository, so a machine without any never creates or touches one.
     """
     days = load(archive_path)
     was_days, was_total = len(days), sum(day_total(d) for d in days.values())
 
-    scanned, found, missing = {}, False, []
+    scanned, missing = {}, []
     for source in sources:
         # An override is used even when empty: [] means read nothing.
         where = (homes or {}).get(source.KEY)
@@ -150,17 +150,17 @@ def archive(repo_path, archive_path, sources, homes=None, log=print):
         if result is None:
             missing.append(f"{source.LABEL} ({', '.join(where) or 'no directories'})")
             continue
-        found = True
         for date, day in result.days.items():
             scanned.setdefault(date, {})[source.KEY] = day
         log(f"  Scanned {len(result.days)} days of {source.LABEL} logs")
         if result.malformed:
             log(f"  NOTE: skipped {result.malformed} unparseable {source.LABEL} lines")
         if result.skipped:
-            log(f"  NOTE: could not read {result.skipped} {source.LABEL} files")
+            reason = getattr(source, "SKIPPED", "")
+            log(f"  NOTE: could not read {result.skipped} {source.LABEL} files" + (f": {reason}" if reason else ""))
     if missing:
         log(f"  No logs for this repository from {'; '.join(missing)}")
-    if not found:
+    if not scanned:
         log(f"  Archive left unchanged: {was_days} days, {was_total:,} tokens")
         return days
 
