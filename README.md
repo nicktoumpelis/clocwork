@@ -8,6 +8,18 @@ what that work cost in tokens, dollars and electricity. Every commit is
 measured with `cloc --git --diff`, cached per file, and reconciled against a
 `cloc` snapshot of HEAD so drift is visible rather than silent.
 
+<!-- To regenerate: run clocwork on this repository with `--locale en-GB`,
+capture index.html with headless Chrome (`--window-size=1200,1300
+--force-device-scale-factor=2 --virtual-time-budget=15000 --screenshot`; the
+charts load from a CDN), crop just below the Code Lines Over Time card (2092
+px down at 2×, for this image), and quantise with Pillow's
+`Image.quantize(256)`. -->
+![The top of the clocwork dashboard for clocwork's own history: counts of commits and lines, then a chart of code lines at every commit, with each commit coloured by agent and a dashed line where each model first appeared](https://raw.githubusercontent.com/nicktoumpelis/clocwork/main/.github/dashboard.png)
+
+The top of the page clocwork writes for its own history. Each point on the
+chart is a commit, coloured by the agent that co-authored it (grey when none
+did), and each dashed line marks the first commit of a new model.
+
 The output is one `index.html` (its charts load Chart.js and its plugins from
 a CDN) plus a `commit_bodies.js` sidecar for the full commit messages, written
 to a **workspace** next to the repository, never inside it.
