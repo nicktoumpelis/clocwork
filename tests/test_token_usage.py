@@ -243,7 +243,8 @@ class TestCounters(unittest.TestCase):
     def test_day_is_the_date_a_timestamp_starts_with_or_nothing(self):
         self.assertEqual(tu.day("2026-09-01T10:00:00.000Z"), "2026-09-01")
         self.assertEqual(tu.day("2026-09-01"), "2026-09-01")
-        for value in ("", "yesterday", "2026-09", "09/01/2026", None, 1756000000, ["2026-09-01"], {"d": 1}):
+        for value in ("", "yesterday", "2026-09", "09/01/2026", None, 1756000000, ["2026-09-01"], {"d": 1},
+                      "\uff12\uff10\uff12\uff16-\uff10\uff19-\uff10\uff11T10:00:00Z", "\u0662\u0660\u0662\u0666-09-01"):
             with self.subTest(value=value):
                 self.assertEqual(tu.day(value), "")
 

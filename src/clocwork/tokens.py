@@ -25,7 +25,7 @@ COUNTERS = ("input", "output", "cache_read", "cache_write")
 # skipped: files that could not be read at all.
 ScanResult = namedtuple("ScanResult", "days malformed skipped", defaults=(0,))
 
-DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 
 VERSION = 2
 # Version 1 archives predate sources and hold Claude Code transcripts only.

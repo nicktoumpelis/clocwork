@@ -170,7 +170,8 @@ class TestClaudeCodeScan(unittest.TestCase):
                 json.dumps({"type": "assistant", "message": "usage"}),
                 odd(msg_id="m9", message__usage=["input_tokens"]),
                 turn("m1", "2026-08-06"),
-                odd(msg_id="m2", message__id=["m2"]),               # no message id: the uuid stands in
+                odd(msg_id="m2", message__id=["m2"]),               # no message id: the uuid stands in,
+                odd(msg_id="m2", message__id={"id": "m2"}),         # so its replay counts once
                 odd(msg_id="m3", timestamp={"at": "2026-08-06"}),   # on no day
                 odd(msg_id="m4", message__model=["claude-opus-5"]),
             ]})

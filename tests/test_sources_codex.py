@@ -26,6 +26,9 @@ RECORDED = {
         "gpt-5.6-terra": {"input": 83_900, "output": 11_116, "cache_read": 883_456, "cache_write": 0}}},
 }
 TS = "2026-09-01T10:00:00.000Z"
+GIT_VERSION = tuple(int(n) for n in subprocess.run(["git", "version"], capture_output=True, text=True)
+                    .stdout.split()[2].split(".")[:2])
+GIT_NO_LAZY_FETCH = GIT_VERSION >= (2, 44)
 
 
 def git_repo(path, remote=None):
@@ -211,8 +214,32 @@ class TestRules(unittest.TestCase):
         self.session("rollout-e.jsonl", self.repo, dict(old, commit_hash="--help"))
         with mock.patch.object(subprocess, "run", wraps=subprocess.run) as run:
             self.assertEqual(self.day()["turns"], 3)
-        asked = [c.args[0] for c in run.call_args_list if "cat-file" in c.args[0]]
-        self.assertEqual(asked, [["git", "-C", self.repo, "cat-file", "-e", head + "^{commit}"]])
+        asked = [c for c in run.call_args_list if "cat-file" in c.args[0]]
+        self.assertEqual([c.args[0] for c in asked], [["git", "-C", self.repo, "cat-file", "-e", head + "^{commit}"]])
+        # Never a credential prompt: no terminal input, and git told not to ask.
+        self.assertEqual((asked[0].kwargs["stdin"], asked[0].kwargs["env"]["GIT_TERMINAL_PROMPT"]),
+                         (subprocess.DEVNULL, "0"))
+
+    @unittest.skipUnless(GIT_NO_LAZY_FETCH, "GIT_NO_LAZY_FETCH arrived in git 2.44")
+    def test_an_unknown_commit_in_a_partial_clone_is_not_fetched(self):
+        # The case the lookup exists for, another repository's hash, is the
+        # one a partial clone would otherwise try to fetch from its remote.
+        upstream = os.path.join(os.path.dirname(self.repo), "upstream")
+        git_repo(upstream)
+        fx._git(upstream, "commit", "-q", "--allow-empty", "-m", "Start")
+        fx._git(upstream, "config", "uploadpack.allowFilter", "true")
+        os.rmdir(self.repo)
+        # The objects come from a local promisor remote; origin only names the repository.
+        fx._git(os.path.dirname(self.repo), "clone", "-q", "-o", "upstream", "--filter=blob:none",
+                "file://" + upstream, self.repo)
+        fx._git(self.repo, "remote", "add", "origin", self.NEW)
+        self.session("rollout-a.jsonl", self.repo, {"repository_url": self.OLD, "commit_hash": "1" * 40})
+        trace = os.path.join(os.path.dirname(self.repo), "trace")
+        with mock.patch.dict(os.environ, {"GIT_TRACE": trace}):
+            self.assertIsNone(self.scan())
+        with open(trace) as f:
+            fetches = [line for line in f if "built-in: git fetch" in line]
+        self.assertEqual(fetches, [])
 
     def test_the_prompt_count_includes_cached_and_written_tokens(self):
         self.write("rollout-a.jsonl", [meta("a", self.repo), turn("t1", "gpt-5.6-sol"),
@@ -348,10 +375,11 @@ class TestRules(unittest.TestCase):
             # A turn id that is not a string names no turn; the latest model still applies.
             self.write(f"rollout-{n}e.jsonl", [meta(f"e{n}", self.repo), dict(turn(value, "gpt-5.5")),
                                                record(f"e{n}", "t1", usage(10, 0, 1))])
-            # A timestamp that is not an ISO date string puts the usage on no day.
+            # A timestamp that is not an ISO date string puts the usage on no
+            # day: the event before the record, which would count, and the record.
             self.write(f"rollout-{n}f.jsonl", [meta(f"f{n}", self.repo), turn("t1", "gpt-5.5"),
-                                               at(record(f"f{n}", "t1", usage(10, 0, 1)), value),
-                                               at(count(usage(10, 0, 1), usage(10, 0, 1)), value)])
+                                               at(count(usage(10, 0, 1), usage(10, 0, 1)), value),
+                                               at(record(f"f{n}", "t1", usage(10, 0, 1)), value)])
         result = self.scan()
         self.assertEqual((result.skipped, result.malformed), (0, 0))
         self.assertEqual(result.days, {"2026-09-01": {"turns": 10, "models": {

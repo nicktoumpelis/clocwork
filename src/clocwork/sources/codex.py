@@ -68,13 +68,20 @@ def rollouts(homes):
 
 def commit_lookup(repo):
     """A test of whether a full hash names a commit in the repository,
-    asking git once per hash."""
+    asking git once per hash.
+
+    The hashes asked about are mostly another repository's, so a partial
+    clone must not fetch them from its remote (GIT_NO_LAZY_FETCH, git 2.44+),
+    and nothing may wait on a credential prompt.
+    """
     known = {}
+    env = dict(os.environ, GIT_NO_LAZY_FETCH="1", GIT_TERMINAL_PROMPT="0")
 
     def lookup(sha):
         if sha not in known:
             known[sha] = bool(COMMIT.fullmatch(sha)) and subprocess.run(
-                ["git", "-C", repo, "cat-file", "-e", sha + "^{commit}"], capture_output=True).returncode == 0
+                ["git", "-C", repo, "cat-file", "-e", sha + "^{commit}"],
+                stdin=subprocess.DEVNULL, capture_output=True, env=env).returncode == 0
         return known[sha]
     return lookup
 
