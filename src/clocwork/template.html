@@ -1279,26 +1279,48 @@ function resetMainZoom() {
         grid.appendChild(card);
     });
 
-    function points(tag) {
-        return T.per_day.filter(function(r) { return r[2] === tag; })
-                        .map(function(r) { return { x: r[0], y: r[1] }; });
+    function points(rows, tag) {
+        return rows.filter(function(r) { return r[2] === tag; })
+                   .map(function(r) { return { x: r[0], y: r[1] }; });
+    }
+
+    // One source keeps the original pair of series. With logs from several
+    // agents, each gets a measured and an estimated series in one stack, in its
+    // own hue, and the legend names each agent once.
+    var SOURCE_COLOURS = { 'claude-code': '#58a6ff', 'codex': '#7ee787', 'gemini': '#f0883e' };
+    var charted = sources.filter(function(s) { return s.per_day && s.per_day.length; });
+    var stacked = charted.length > 1;
+    var datasets = [];
+    if (stacked) {
+        charted.forEach(function(s, i) {
+            var colour = SOURCE_COLOURS[s.key] || ANNOTATION_PALETTE[i % ANNOTATION_PALETTE.length];
+            datasets.push({ label: s.label, data: points(s.per_day, 'm'), stack: 'tokens',
+                            backgroundColor: hexToRgba(colour, 0.6), borderColor: colour,
+                            borderWidth: 1, borderRadius: 2 });
+            datasets.push({ label: s.label + ' (estimated)', data: points(s.per_day, 'e'), stack: 'tokens',
+                            backgroundColor: hexToRgba(colour, 0.2), borderColor: hexToRgba(colour, 0.5),
+                            borderWidth: 1, borderRadius: 2, inLegend: false });
+        });
+    } else {
+        datasets = [
+            { label: 'Estimated', data: points(T.per_day, 'e'),
+              backgroundColor: 'rgba(139,148,158,0.35)', borderColor: 'rgba(139,148,158,0.7)',
+              borderWidth: 1, borderRadius: 2 },
+            { label: 'Measured', data: points(T.per_day, 'm'),
+              backgroundColor: hexToRgba('#58a6ff', 0.6), borderColor: '#58a6ff',
+              borderWidth: 1, borderRadius: 2 }
+        ];
     }
 
     new Chart(document.getElementById('tokenChart'), {
         type: 'bar',
-        data: { datasets: [
-            { label: 'Estimated', data: points('e'),
-              backgroundColor: 'rgba(139,148,158,0.35)', borderColor: 'rgba(139,148,158,0.7)',
-              borderWidth: 1, borderRadius: 2 },
-            { label: 'Measured', data: points('m'),
-              backgroundColor: 'rgba(88,166,255,0.6)', borderColor: '#58a6ff',
-              borderWidth: 1, borderRadius: 2 }
-        ] },
+        data: { datasets: datasets },
         options: {
             responsive: true, maintainAspectRatio: true,
             interaction: { intersect: false, mode: 'index' },
             plugins: {
-                legend: { display: true, labels: { boxWidth: 10, padding: 12 } },
+                legend: { display: true, labels: { boxWidth: 10, padding: 12,
+                    filter: function(item, data) { return data.datasets[item.datasetIndex].inLegend !== false; } } },
                 tooltip: {
                     backgroundColor: '#1c2129', borderColor: '#30363d', borderWidth: 1,
                     titleColor: '#e6edf3', bodyColor: '#8b949e', padding: 12, cornerRadius: 8,
@@ -1309,8 +1331,8 @@ function resetMainZoom() {
                 }
             },
             scales: {
-                x: { type: 'time', time: { unit: 'month' }, ticks: { callback: monthTick }, grid: { display: false } },
-                y: { title: { display: true, text: 'Tokens', color: '#8b949e' }, grid: { color: '#21262d' },
+                x: { type: 'time', stacked: stacked, time: { unit: 'month' }, ticks: { callback: monthTick }, grid: { display: false } },
+                y: { stacked: stacked, title: { display: true, text: 'Tokens', color: '#8b949e' }, grid: { color: '#21262d' },
                      ticks: { callback: function(v) { return big(v); } } }
             }
         }

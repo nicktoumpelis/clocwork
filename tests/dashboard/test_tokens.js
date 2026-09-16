@@ -4,6 +4,7 @@ const { load } = require('./harness');
 const { check, section, done } = require('./check');
 
 const { checkAbsent } = require('./tokens_absent');
+const { charted, checkSources } = require('./tokens_sources');
 
 const page = load();
 const { RAW, byId, charts } = page;
@@ -28,7 +29,11 @@ check(page.headers.some(h => h.getAttribute('data-sort') === 'tokens'), 'Tokens 
 
 section('token cards');
 check(byId('tokenStats').children.length === 7, 'seven token cards');
-check(/^~\d+B$/.test(cardValue('Tokens (lifetime est. ceiling)')), 'lifetime card is coarse, en-US compact: ' + cardValue('Tokens (lifetime est. ceiling)'));
+const compactWhole = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 0 });
+const compact3 = new Intl.NumberFormat('en-US', { notation: 'compact', maximumSignificantDigits: 3 });
+const lifetime = T.lifetime_total >= 1e9 ? compactWhole : compact3;
+check(cardValue('Tokens (lifetime est. ceiling)') === lifetime.formatRange(T.lifetime_total, T.lifetime_total),
+      'lifetime card is coarse, en-US compact: ' + cardValue('Tokens (lifetime est. ceiling)'));
 check(cardValue('Measured').indexOf('B') > 0 || cardValue('Measured').indexOf('M') > 0, 'measured card is abbreviated');
 check(cardValue('Cache Read') === enPct.format(T.cache_read_share), 'cache read share');
 check(cardValue('Output per Line') === en.format(T.output_per_line), 'output per line');
@@ -77,12 +82,17 @@ check(/prompt length/.test(note), 'the note says prices tiered by prompt length 
 section('token chart');
 const token = charts[charts.length - 1];
 check(charts.length === 6, 'token chart is the sixth chart');
-const estimated = token.data.datasets[0];
-const measured = token.data.datasets[1];
-check(estimated.label === 'Estimated' && measured.label === 'Measured', 'two labelled datasets');
-check(estimated.data.length === T.per_day.filter(r => r[2] === 'e').length, 'estimated points match the e rows');
-check(measured.data.length === T.per_day.filter(r => r[2] === 'm').length, 'measured points match the m rows');
-check(measured.data.every(p => typeof p.x === 'string' && typeof p.y === 'number'), 'measured points are {x,y}');
+if (charted(T).length > 1) {
+  checkSources(page, check, section);
+} else {
+  const estimated = token.data.datasets[0];
+  const measured = token.data.datasets[1];
+  check(token.data.datasets.length === 2 && estimated.label === 'Estimated' && measured.label === 'Measured', 'two labelled datasets');
+  check(estimated.data.length === T.per_day.filter(r => r[2] === 'e').length, 'estimated points match the e rows');
+  check(measured.data.length === T.per_day.filter(r => r[2] === 'm').length, 'measured points match the m rows');
+  check(measured.data.every(p => typeof p.x === 'string' && typeof p.y === 'number'), 'measured points are {x,y}');
+  check(measured.backgroundColor === 'rgba(88,166,255,0.6)' && token.options.scales.y.stacked !== true, 'one source keeps the unstacked blue bars');
+}
 
 section('independent of the selection');
 const before = [cardValue('Tokens (lifetime est.)'), cardValue('Measured'), cardValue('Output per Line')];
