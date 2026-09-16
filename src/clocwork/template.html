@@ -488,6 +488,7 @@
     </div>
 </div>
 
+<section id="tokenSection">
 <h2 style="margin: 1.5rem 0 1rem;">Token Usage</h2>
 <div class="stats-grid" id="tokenStats"></div>
 
@@ -496,6 +497,7 @@
     <canvas id="tokenChart"></canvas>
     <div class="recon-note" id="tokenNote"></div>
 </div>
+</section>
 
 <h2 style="margin: 1.5rem 0 1rem;">Agent Breakdown</h2>
 <div class="agent-grid" id="agentGrid"></div>
@@ -563,8 +565,13 @@ function annotationObjects(list) {
 
 // Unpack compact data
 var LANGS = RAW.languages;
-var ROWS = RAW.commits;   // [idx, hash, date, msg, agent, isMerge, lines, testLines]; lines = [[langIdx, [codeAdd, codeRem, commentAdd, commentRem, blankAdd, blankRem]], ...]
+var ROWS = RAW.commits;   // [idx, hash, date, msg, agent, isMerge, lines, testLines, tokens]; lines = [[langIdx, [codeAdd, codeRem, commentAdd, commentRem, blankAdd, blankRem]], ...]
 var SUMMARY = RAW.summary;
+// Token data exist only when Claude Code transcripts were on the machine that
+// generated the workspace; a clone of someone else's repository never has any.
+// Without them the token section and the table's Tokens column are left out
+// altogether, because an empty section reads as a defect rather than an absence.
+var HAVE_TOKENS = !!(SUMMARY.tokens && SUMMARY.tokens.per_day && SUMMARY.tokens.per_day.length);
 
 var TYPE_INDEX = { code: 0, comment: 1, blank: 2 };
 var TYPE_LABELS = { code: 'Code', comment: 'Comment', blank: 'Blank', total: 'Total' };
@@ -1201,8 +1208,8 @@ function resetMainZoom() {
 // selector changes; wiring it to SEL would make a number change when nothing
 // about it had.
 (function() {
+    if (!HAVE_TOKENS) { document.getElementById('tokenSection').hidden = true; return; }
     var T = SUMMARY.tokens;
-    if (!T || !T.per_day.length) return;
 
     // Kept in step with GRID_G_CO2E_PER_KWH in analyse_all_commits.py, which is
     // where the figure is actually applied; this copy only labels the card.
@@ -1375,7 +1382,15 @@ function resetMainZoom() {
     var commitList = document.getElementById('commitList');
     var headRow = document.getElementById('allCommitsHeadRow');
     var colgroup = document.getElementById('allCommitsColgroup');
-    var FIXED_COLUMNS = 9;   // expander, Date, SHA, Commit, Agent, +/-, Net, Cumulative, Tokens
+    // The Tokens header and its <col> are in the markup; without token data
+    // they go, before the per-language columns are appended after them.
+    if (!HAVE_TOKENS) {
+        Array.prototype.slice.call(headRow.children).forEach(function(th) {
+            if (th.getAttribute('data-sort') === 'tokens') headRow.removeChild(th);
+        });
+        colgroup.removeChild(colgroup.children[colgroup.children.length - 1]);
+    }
+    var FIXED_COLUMNS = HAVE_TOKENS ? 9 : 8;   // expander, Date, SHA, Commit, Agent, +/-, Net, Cumulative[, Tokens]
 
     // One Net column per language, generated from the data so a new language
     // appears without a code change. They follow the Line type selection only.
@@ -1588,10 +1603,12 @@ function resetMainZoom() {
 
         var tdCumul = document.createElement('td'); tdCumul.textContent = fmt(s.cumulative[idx]); row.appendChild(tdCumul);
 
-        var tdTokens = document.createElement('td');
-        tdTokens.textContent = tokenText(c);
-        if (c[8]) tdTokens.title = fmt(c[8]) + ' tokens attributed from a' + (TOKEN_DAY_KIND[c[2]] === 'e' ? 'n estimated' : ' measured') + ' day';
-        row.appendChild(tdTokens);
+        if (HAVE_TOKENS) {
+            var tdTokens = document.createElement('td');
+            tdTokens.textContent = tokenText(c);
+            if (c[8]) tdTokens.title = fmt(c[8]) + ' tokens attributed from a' + (TOKEN_DAY_KIND[c[2]] === 'e' ? 'n estimated' : ' measured') + ' day';
+            row.appendChild(tdTokens);
+        }
 
         s.langNet[idx].forEach(function(value) {
             var td = document.createElement('td');
@@ -1731,9 +1748,8 @@ function resetMainZoom() {
                 { build: function(td) { var b = document.createElement('span'); b.className = 'agent-badge ' + agentClass(name === 'Human' ? '' : name); b.textContent = name; td.appendChild(b); } },
                 { text: w.delta },
                 { build: function(td) { var b = document.createElement('span'); b.className = 'badge positive'; b.textContent = w.net; td.appendChild(b); } },
-                { text: w.cumul },
-                { text: w.tokens }
-            ].concat(w.langs.map(function(str) {
+                { text: w.cumul }
+            ].concat(HAVE_TOKENS ? [{ text: w.tokens }] : []).concat(w.langs.map(function(str) {
                 return { build: function(td) { var b = document.createElement('span'); b.className = 'badge positive'; b.textContent = str; td.appendChild(b); } };
             }));
             cellsSpec.forEach(function(spec) {

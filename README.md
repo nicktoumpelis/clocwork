@@ -175,8 +175,9 @@ repository under `~/.claude/projects/`. Per-day totals are archived into
 `token_usage.json` with a keep-the-larger-record rule, days before the
 archive are estimated from the archive's tokens-per-line ratio, and the page
 prices the result at API list prices and estimates its electricity. For any
-repository not worked on with Claude Code on this machine, the section is
-simply absent; that is the normal case, not an error.
+repository not worked on with Claude Code on this machine, the section and
+the commit table's Tokens column are simply absent; that is the normal case,
+not an error.
 
 ## Development
 

@@ -11,6 +11,7 @@ const LOCALE = 'de-DE';
 const page = load({ locale: LOCALE });
 const { RAW, byId, charts, cells } = page;
 const S = RAW.summary, T = S.tokens;
+const hasTokens = !!(T && T.per_day.length);   // the page shows no token element without data
 const st = page.run('return SEL.stats()');
 
 const int = new Intl.NumberFormat(LOCALE);
@@ -56,6 +57,7 @@ check(byId('headerFrom').textContent === monthLong.format(local(S.first_date)) &
 check(byId('footerCommits').textContent === int.format(S.total_commits), 'footer commit count');
 check(typeof RAW.generated === 'string' && byId('generatedOn').textContent === date(RAW.generated), 'generation date from the data blob: ' + byId('generatedOn').textContent);
 
+if (hasTokens) {
 section('token cards');
 check(value('tokenStats', 'Tokens (lifetime est. ceiling)') === approx(compactWhole)(T.lifetime_total), 'lifetime ceiling: German approximation sign and compact billion: ' + value('tokenStats', 'Tokens (lifetime est. ceiling)'));
 check(value('tokenStats', 'Measured') === compact.format(T.measured_total), 'measured total compact: ' + value('tokenStats', 'Measured'));
@@ -72,6 +74,8 @@ const usd = new Intl.NumberFormat(LOCALE, { style: 'currency', currency: 'USD', 
 check(value('tokenStats', 'API Cost (est.)') === usd.formatRange(T.lifetime_cost_usd, T.lifetime_cost_usd), 'api cost in the German currency format: ' + value('tokenStats', 'API Cost (est.)'));
 check(byId('tokenNote').textContent.indexOf(int.format(T.measured_total)) > 0 && byId('tokenNote').textContent.indexOf(int.format(Math.round(T.ratio))) > 0,
       'token note numbers grouped the German way');
+
+}
 
 section('commit table');
 const rows = () => byId('allCommitsBody').children.filter(r => r.className.indexOf('detail-row') < 0);
@@ -96,12 +100,12 @@ check(strong[4] === date(a.first_date) + ' to ' + date(a.last_date), 'agent acti
 section('charts');
 const [main, daily, agentCum, pie, agentNet, token] = charts;
 const sept = new Date(2026, 8, 1).getTime();
-[['main', main], ['daily', daily], ['agent cumulative', agentCum], ['token', token]].forEach(([label, c]) => {
+[['main', main], ['daily', daily], ['agent cumulative', agentCum]].concat(hasTokens ? [['token', token]] : []).forEach(([label, c]) => {
   const cb = c.options.scales.x.ticks && c.options.scales.x.ticks.callback;
   const out = typeof cb === 'function' ? cb(sept, 0, [{ value: sept }]) : undefined;
   check(out === monthShort.format(new Date(sept)), label + ' x-axis months in German: ' + out);
 });
-check(token.options.scales.y.ticks.callback(1500000) === compact.format(1500000), 'token y-axis compact: ' + token.options.scales.y.ticks.callback(1500000));
+if (hasTokens) check(token.options.scales.y.ticks.callback(1500000) === compact.format(1500000), 'token y-axis compact: ' + token.options.scales.y.ticks.callback(1500000));
 const tt = c => c.options.plugins.tooltip.callbacks;
 check(tt(main).title([{ dataIndex: i }]) === date(RAW.commits[i][2]) + '  (' + RAW.commits[i][1] + ')', 'main tooltip title date: ' + tt(main).title([{ dataIndex: i }]));
 const mainLabel = tt(main).label({ dataIndex: i, datasetIndex: 0, dataset: { label: 'Code Lines' }, parsed: { y: st.cumulative[i] } });
@@ -116,7 +120,7 @@ check(tt(pie).label({ label: 'Human', parsed: S.human_only_commits }) === '  Hum
       'pie tooltip: ' + tt(pie).label({ label: 'Human', parsed: S.human_only_commits }));
 const an = agentNet.data.labels[0], as = st.agents[an];
 check(tt(agentNet).label({ dataIndex: 0, datasetIndex: 1 }) === '  Deleted: ' + signed.format(-as.removed) && tt(agentNet).afterBody([{ dataIndex: 0 }]) === '  Net: ' + signed.format(as.net), 'agent net tooltip');
-check(tt(token).title && tt(token).title([{ raw: { x: d0.date } }]) === date(d0.date)
+if (hasTokens) check(tt(token).title && tt(token).title([{ raw: { x: d0.date } }]) === date(d0.date)
       && tt(token).label({ dataset: { label: 'Measured' }, parsed: { y: 1234567 } }) === '  Measured: ' + int.format(1234567), 'token tooltip');
 const drift = page.run('return SEL.drift()');
 if (drift !== 0) check(byId('reconNote').textContent.indexOf(signed.format(drift) + ' lines') > 0, 'reconciliation drift signed the German way');

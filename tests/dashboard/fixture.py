@@ -1,6 +1,10 @@
 """Write a synthetic clocwork workspace for the dashboard tests.
 
-Usage: python3 tests/dashboard/fixture.py <workspace-dir>
+Usage: python3 tests/dashboard/fixture.py <workspace-dir> [--no-tokens]
+
+--no-tokens writes the workspace a repository never worked on with Claude
+Code produces: the tokens block analyse.py emits when there is no archive,
+and zero tokens on every commit. The page must then show nothing about tokens.
 
 Deterministic: the same numbers every run, so the checks in tests/dashboard
 can reason about the data they are given. Shaped like a real
@@ -28,7 +32,15 @@ def matrix(rng, scale):
             rng.randint(0, scale // 8), rng.randint(0, scale // 6), rng.randint(0, scale // 10)]
 
 
-def build():
+# What analyse.token_summary returns when the transcript archive is empty.
+NO_TOKENS = {
+    "measured_total": 0, "measured_days": 0, "estimated_total": 0, "lifetime_total": 0, "ratio": 0.0,
+    "energy_kwh": 0.0, "co2_kg": 0.0, "cost_usd": 0.0, "lifetime_cost_usd": 0.0, "unpriced_tokens": 0,
+    "cache_read_share": 0.0, "output_per_line": 0, "coverage_start": None, "per_day": [],
+}
+
+
+def build(tokens=True):
     rng = random.Random(20260915)
     start = date(2025, 1, 1)
     commits, running, running_tests = [], {}, {}
@@ -78,6 +90,9 @@ def build():
     reconciliation = json.loads(json.dumps(zero))
     reconciliation["Swift"]["code"] = -7
     ai = sum(1 for c in commits if c["agent"] and c["agent"] != "Misc")
+    if not tokens:
+        for c in commits:
+            c["tokens"] = 0
     return {
         "languages": LANGS, "commits": commits, "first_appearances": first,
         "summary": {
@@ -96,7 +111,7 @@ def build():
                 "energy_kwh": 1234.5, "co2_kg": 493.8, "cost_usd": 4321.0, "lifetime_cost_usd": 9876.0,
                 "unpriced_tokens": 0, "cache_read_share": 0.913, "output_per_line": 42,
                 "coverage_start": per_day[cut][0], "per_day": per_day,
-            },
+            } if tokens else dict(NO_TOKENS),
         },
     }
 
@@ -105,7 +120,7 @@ def main():
     ws = sys.argv[1]
     os.makedirs(ws, exist_ok=True)
     with open(os.path.join(ws, "full_commit_data.json"), "w") as f:
-        json.dump(build(), f)
+        json.dump(build(tokens="--no-tokens" not in sys.argv[2:]), f)
     with open(os.path.join(ws, "clocwork.json"), "w") as f:
         json.dump({"version": "0.1.0", "repo_remote": REMOTE, "repo_path": "/example/fixture",
                    "repo_name": "fixture", "generated": "2026-09-15T00:00:00Z"}, f)

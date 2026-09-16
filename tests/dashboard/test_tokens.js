@@ -3,14 +3,28 @@
 const { load } = require('./harness');
 const { check, section, done } = require('./check');
 
+const { checkAbsent } = require('./tokens_absent');
+
 const page = load();
 const { RAW, byId, charts } = page;
 const T = RAW.summary.tokens;
+if (!T || !T.per_day.length) {
+  // CLOCWORK_DASH_WORKSPACE can point at a real workspace whose repository
+  // was never worked on with Claude Code here; the page then owes it nothing
+  // about tokens, and the checks further down have no subject.
+  checkAbsent(page, check, section);
+  done();
+  return;
+}
 const en = new Intl.NumberFormat('en-US');
 const enPct = new Intl.NumberFormat('en-US', { style: 'percent', minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const card = label => byId('tokenStats').children.find(x => x.children[0].textContent === label);
 const cardValue = label => { const c = card(label); return c && c.children[1].textContent; };
 const cardNote = label => { const c = card(label); return c && c.children[2] && c.children[2].textContent; };
+
+section('token section present');
+check(byId('tokenSection').hidden === false, 'token section is shown when the workspace has token data');
+check(page.headers.some(h => h.getAttribute('data-sort') === 'tokens'), 'Tokens column present');
 
 section('token cards');
 check(byId('tokenStats').children.length === 7, 'seven token cards');

@@ -10,15 +10,18 @@ const LOCALE = 'ar-EG';
 const page = load({ locale: LOCALE });
 const { RAW, byId } = page;
 const T = RAW.summary.tokens;
+const hasTokens = !!(T && T.per_day.length);   // the page shows no token element without data
 const int = new Intl.NumberFormat(LOCALE);
-const note = byId('tokenNote').textContent;
-const measured = byId('tokenStats').children.find(x => x.children[0].textContent === 'Measured').children[2].textContent;
 
 section('digits follow the numbering system');
 check(int.format(25) !== '25', 'sanity: ar-EG digits differ from ASCII');
-check(note.indexOf(' across ' + int.format(T.measured_days) + ' days') > 0, 'token note day count: ' + note.slice(0, 80));
-check(note.indexOf('about ' + int.format(30) + ' days') > 0, 'token note retention window');
-check(measured.indexOf(int.format(T.measured_days) + ' days from ') === 0, 'measured card day count: ' + measured);
+if (hasTokens) {
+  const note = byId('tokenNote').textContent;
+  const measured = byId('tokenStats').children.find(x => x.children[0].textContent === 'Measured').children[2].textContent;
+  check(note.indexOf(' across ' + int.format(T.measured_days) + ' days') > 0, 'token note day count: ' + note.slice(0, 80));
+  check(note.indexOf('about ' + int.format(30) + ' days') > 0, 'token note retention window');
+  check(measured.indexOf(int.format(T.measured_days) + ' days from ') === 0, 'measured card day count: ' + measured);
+}
 check(byId('allCommitsCount').textContent.indexOf(int.format(500)) > 0, 'table headline row cap');
 
 done();
