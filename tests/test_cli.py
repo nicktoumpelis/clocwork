@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stderr
 
-from clocwork import cli
+from clocwork import cli, sources
 from tests import repo_fixture as fx
 
 HAVE_CLOC = shutil.which("cloc") is not None
@@ -76,7 +76,7 @@ class TestEndToEnd(unittest.TestCase):
         fx.make_polyglot_repo(self.repo)
         self.ws = os.path.join(self.root, "poly-stats")
         self.cache = os.path.join(self.root, "cache")
-        self.projects = os.path.join(self.root, "projects")   # no transcripts in here
+        self.projects = os.path.join(self.root, "projects")   # no agent logs in here
         os.makedirs(self.projects)
 
     def tearDown(self):
@@ -86,7 +86,8 @@ class TestEndToEnd(unittest.TestCase):
         quiet = ["-q"] if args[0] == "tokens" else ["--no-open", "-q"]   # tokens has no page to open
         err = io.StringIO()
         with redirect_stderr(err):
-            code = cli.main(list(args) + quiet, projects_dir=self.projects)
+            # Every source reads the empty directory, never the real home.
+            code = cli.main(list(args) + quiet, homes={s.KEY: [self.projects] for s in sources.SOURCES})
         return code, err.getvalue()
 
     def test_jobs_reach_the_analyser(self):
@@ -136,6 +137,14 @@ class TestEndToEnd(unittest.TestCase):
         self.assertEqual(self.run_cli("tokens", self.repo), (0, ""))
         self.assertTrue(os.path.exists(os.path.join(self.ws, "clocwork.json")))
         self.assertFalse(os.path.exists(os.path.join(self.ws, "token_usage.json")))
+
+    def test_an_archive_of_an_unknown_version_is_an_error_not_a_traceback(self):
+        os.makedirs(self.ws)
+        with open(os.path.join(self.ws, "token_usage.json"), "w") as f:
+            json.dump({"version": 99, "days": {}}, f)
+        code, err = self.run_cli("tokens", self.repo)
+        self.assertEqual(code, 2)
+        self.assertIn("version 99", err)
 
     def test_render_needs_no_repository(self):
         self.assertEqual(self.run_cli(self.repo, "--cache-dir", self.cache)[0], 0)

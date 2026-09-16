@@ -9,8 +9,9 @@ and zero tokens on every commit. The page must then show nothing about tokens.
 Deterministic: the same numbers every run, so the checks in tests/dashboard
 can reason about the data they are given. Shaped like a real
 full_commit_data.json: 520 commits so the 500-row cap is exercised, three
-languages, four agents including the merge category, measured and estimated
-token days, commit bodies for the expander, and a GitHub remote for the links.
+languages, four agents including the merge category (only the Claude commits
+carry tokens, as the archive is Claude Code's), measured and estimated token
+days, commit bodies for the expander, and a GitHub remote for the links.
 When analyse.py changes the output shape, change this file in the same commit.
 """
 import json
@@ -36,7 +37,8 @@ def matrix(rng, scale):
 NO_TOKENS = {
     "measured_total": 0, "measured_days": 0, "estimated_total": 0, "lifetime_total": 0, "ratio": 0.0,
     "energy_kwh": 0.0, "co2_kg": 0.0, "cost_usd": 0.0, "lifetime_cost_usd": 0.0, "unpriced_tokens": 0,
-    "cache_read_share": 0.0, "output_per_line": 0, "coverage_start": None, "per_day": [],
+    "cache_read_share": 0.0, "output_per_line": 0, "coverage_start": None, "per_day": [], "sources": [],
+    "unmeasured_agent_commits": 0, "unmeasured_agents": [],
 }
 
 
@@ -80,7 +82,7 @@ def build(tokens=True):
     estimated = sum(t for _, t, k in per_day if k == "e")
     day_tokens = {d: t for d, t, _ in per_day}
     for c in commits:
-        if c["agent"] and c["agent"] != "Misc" and c["date"] in day_tokens:
+        if c["agent"] and c["agent"].startswith("Claude") and c["date"] in day_tokens:
             c["tokens"] = day_tokens[c["date"]] // 3
     zero = {lang: {k: 0 for k in TYPES} for lang in LANGS}
     # HEAD holds 7 more Swift code lines than the history sums to, so the page's
@@ -90,6 +92,10 @@ def build(tokens=True):
     reconciliation = json.loads(json.dumps(zero))
     reconciliation["Swift"]["code"] = -7
     ai = sum(1 for c in commits if c["agent"] and c["agent"] != "Misc")
+    ai_commits = [c for c in commits if c["agent"] and c["agent"] != "Misc"]
+    # With the archive only Copilot's commits lack token logs; without it, every agent's do.
+    unmeasured = [c for c in ai_commits if not c["agent"].startswith("Claude")] if tokens else ai_commits
+    unmeasured_names = sorted({"Claude Code" if c["agent"].startswith("Claude") else c["agent"] for c in unmeasured})
     if not tokens:
         for c in commits:
             c["tokens"] = 0
@@ -111,7 +117,15 @@ def build(tokens=True):
                 "energy_kwh": 1234.5, "co2_kg": 493.8, "cost_usd": 4321.0, "lifetime_cost_usd": 9876.0,
                 "unpriced_tokens": 0, "cache_read_share": 0.913, "output_per_line": 42,
                 "coverage_start": per_day[cut][0], "per_day": per_day,
-            } if tokens else dict(NO_TOKENS),
+                "sources": [{
+                    "key": "claude-code", "label": "Claude Code", "measured_total": measured,
+                    "measured_days": sum(1 for r in per_day if r[2] == "m"), "estimated_total": estimated,
+                    "ratio": 812.5, "coverage_start": per_day[cut][0], "top_model": "claude-fable-5-1",
+                    "per_day": per_day,
+                }],
+                "unmeasured_agent_commits": len(unmeasured), "unmeasured_agents": unmeasured_names,
+            } if tokens else dict(NO_TOKENS, unmeasured_agent_commits=len(unmeasured),
+                                  unmeasured_agents=unmeasured_names),
         },
     }
 

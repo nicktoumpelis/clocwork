@@ -15,6 +15,11 @@ __pycache__/
 
 .DS_Store
 
+# The maintainer's global excludes file ignores `*claude*`; the Claude Code
+# token reader is source, not agent configuration. tests/test_repository.py
+# fails if any published file is ignored.
+!/src/clocwork/sources/claude_code.py
+
 # Packaging
 *.egg-info/
 build/

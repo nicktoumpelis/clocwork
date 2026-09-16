@@ -17,7 +17,7 @@ import pathlib
 import sys
 import webbrowser
 
-from clocwork import __version__, analyse, cloc, config, paths, render, tokens
+from clocwork import __version__, analyse, cloc, config, paths, render, sources, tokens
 
 COMMANDS = ("run", "tokens", "render")
 EXIT_ERROR = 2
@@ -120,14 +120,14 @@ def cmd_render(args, log):
     _open(html, args.no_open)
 
 
-def cmd_tokens(args, log, projects_dir):
+def cmd_tokens(args, log, homes):
     repo = paths.find_repo(args.repo or os.getcwd())
     ws = _workspace_for(args, repo)
     paths.check_identity(ws, repo, __version__)
-    tokens.archive(repo, os.path.join(ws, "token_usage.json"), projects_dir=projects_dir, log=log)
+    tokens.archive(repo, os.path.join(ws, "token_usage.json"), sources.SOURCES, homes=homes, log=log)
 
 
-def cmd_run(args, log, projects_dir):
+def cmd_run(args, log, homes):
     cloc.require_cloc()
     repo = paths.find_repo(args.repo or os.getcwd())
     ws = _workspace_for(args, repo)
@@ -140,7 +140,7 @@ def cmd_run(args, log, projects_dir):
         log("Step 1/3: Skipping the transcript scan (--no-tokens)")
     else:
         log("Step 1/3: Archiving token usage from Claude Code transcripts...")
-        tokens.archive(repo, archive, projects_dir=projects_dir, log=log)
+        tokens.archive(repo, archive, sources.SOURCES, homes=homes, log=log)
     log("Step 2/3: Analysing commit history...")
     analyse.analyse(repo, os.path.join(ws, "full_commit_data.json"), paths.cache_path(repo, args.cache_dir),
                     archive, config=conf, branch=args.branch, max_commits=args.max_commits,
@@ -153,18 +153,20 @@ def cmd_run(args, log, projects_dir):
     _open(html, args.no_open)
 
 
-def main(argv=None, projects_dir=tokens.PROJECTS_DIR):
+def main(argv=None, homes=None):
+    """`homes` maps a token source's key to the directories to read instead
+    of its defaults; the tests use it to keep real agent logs out."""
     args = parse_args(sys.argv[1:] if argv is None else argv)
     log = _log(args.quiet)
     try:
         if args.command == "render":
             cmd_render(args, log)
         elif args.command == "tokens":
-            cmd_tokens(args, log, projects_dir)
+            cmd_tokens(args, log, homes)
         else:
-            cmd_run(args, log, projects_dir)
+            cmd_run(args, log, homes)
     except (cloc.ClocMissing, cloc.ClocError, paths.NotARepository, paths.WorkspaceMismatch,
-            config.ConfigError, analyse.NoCommits, OSError) as e:
+            config.ConfigError, analyse.NoCommits, tokens.ArchiveError, OSError) as e:
         print(f"clocwork: {e}", file=sys.stderr)
         return EXIT_ERROR
     return 0

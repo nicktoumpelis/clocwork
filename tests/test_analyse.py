@@ -1,13 +1,17 @@
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
+import types
 import unittest
+from unittest import mock
 
 from clocwork import analyse as an
 from clocwork import config as cfg
 from clocwork import paths
+from clocwork import sources as src
 from tests import repo_fixture as fx
 
 HAVE_CLOC = shutil.which("cloc") is not None
@@ -133,6 +137,9 @@ class TestAnalyse(unittest.TestCase):
         t = self.data["summary"]["tokens"]
         self.assertEqual(t["measured_total"], 0)      # no transcripts for the fixture repo
         self.assertEqual(t["per_day"], [])
+        self.assertEqual(t["sources"], [])
+        # The fixture repository has one Claude commit and no logs on this machine.
+        self.assertEqual((t["unmeasured_agent_commits"], t["unmeasured_agents"]), (1, ["Claude Code"]))
 
 
 @unittest.skipUnless(HAVE_CLOC, "cloc not installed")
@@ -173,6 +180,22 @@ class TestInputs(unittest.TestCase):
                               config=conf, log=lambda *a: None)
             self.assertEqual(data["commits"][0]["test_lines"], {"Swift": fx.SWIFT_ROW_1})
             self.assertEqual(data["summary"]["head_snapshot"]["tests"]["Swift"], fx.HEAD_SWIFT)
+
+    def test_claude_code_tokens_land_only_on_claude_commits_and_the_rest_are_named(self):
+        # The polyglot fixture credits Copilot, Cursor and Claude Opus 4.6 on
+        # three days; the archive holds Claude Code's record for Claude's day.
+        with tempfile.TemporaryDirectory() as d:
+            fx.make_polyglot_repo(d)
+            archive = os.path.join(d, "t.json")
+            with open(archive, "w") as f:
+                json.dump({"version": 2, "days": {"2025-02-03": {"claude-code": {"turns": 1, "models": {
+                    "claude-opus-4-6": {"input": 0, "output": 70, "cache_read": 0, "cache_write": 0}}}}}}, f)
+            lines = []
+            data = an.analyse(d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), archive, log=lines.append)
+            tokens = {c["agent"]: c["tokens"] for c in data["commits"] if c["agent"]}
+            self.assertEqual((tokens["Claude Opus 4.6"], tokens["Copilot"], tokens["Cursor"]), (70, 0, 0))
+            self.assertIn("  2 AI commits carry no token figure (Copilot, Cursor): "
+                          "no token logs from their agent cover their work", lines)
 
     def test_configured_agents_are_used(self):
         # The polyglot fixture's last commit credits "Jules", which no built-in
@@ -265,8 +288,8 @@ class TestTokenSummary(unittest.TestCase):
         ]
 
     def archive(self):
-        return {"2026-08-06": {"turns": 3, "models": {"claude-opus-5": {
-            "input": 0, "output": 500, "cache_read": 4500, "cache_write": 0}}}}
+        return {"2026-08-06": {"claude-code": {"turns": 3, "models": {"claude-opus-5": {
+            "input": 0, "output": 500, "cache_read": 4500, "cache_write": 0}}}}}
 
     def test_ratio_is_measured_tokens_over_covered_ai_churn(self):
         t = an.token_summary(self.archive(), self.results())
@@ -323,9 +346,9 @@ class TestEnergyEstimate(unittest.TestCase):
     """
 
     def archive(self, output, cache_read, cache_write, input_=0):
-        return {"2026-08-06": {"turns": 1, "models": {"claude-opus-5": {
+        return {"2026-08-06": {"claude-code": {"turns": 1, "models": {"claude-opus-5": {
             "input": input_, "output": output,
-            "cache_read": cache_read, "cache_write": cache_write}}}}
+            "cache_read": cache_read, "cache_write": cache_write}}}}}
 
     def results(self):
         # 100 AI lines on the archived day, so ratio == measured_total / 100.
@@ -374,25 +397,28 @@ class TestTokensByCommit(unittest.TestCase):
             {"index": 6, "date": "2026-08-08", "agent": None, "lines": {"Swift": [10, 0, 0, 0, 0, 0]}},
         ]
 
+    def split(self):
+        return an.tokens_by_commit([{"key": "claude-code", "per_day": self.PER_DAY}], self.results())
+
     def test_a_measured_day_is_split_by_lines_changed(self):
-        t = an.tokens_by_commit(self.PER_DAY, self.results())
+        t = self.split()
         # 4,000 tokens over churn of 100 and 300 lines.
         self.assertEqual((t[0], t[1]), (1000, 3000))
 
     def test_human_and_merge_commits_get_nothing(self):
-        t = an.tokens_by_commit(self.PER_DAY, self.results())
+        t = self.split()
         self.assertNotIn(2, t)
         self.assertNotIn(3, t)
 
     def test_an_estimated_day_goes_to_its_ai_commits(self):
-        t = an.tokens_by_commit(self.PER_DAY, self.results())
+        t = self.split()
         self.assertEqual(t[4], 5000)
 
     def test_a_day_without_tokens_attributes_nothing(self):
-        self.assertNotIn(5, an.tokens_by_commit(self.PER_DAY, self.results()))
+        self.assertNotIn(5, self.split())
 
     def test_measured_tokens_on_a_day_without_ai_churn_stay_unattributed(self):
-        self.assertNotIn(6, an.tokens_by_commit(self.PER_DAY, self.results()))
+        self.assertNotIn(6, self.split())
 
 
 class TestCostEstimate(unittest.TestCase):
@@ -428,11 +454,121 @@ class TestCostEstimate(unittest.TestCase):
 
 
 class TestChurnByDate(unittest.TestCase):
-    def test_splits_ai_churn_from_total_churn(self):
+    def test_counts_every_commits_lines_whoever_wrote_them(self):
         results = [
             {"date": "2026-05-01", "agent": "Claude Opus 4.8", "lines": {"Swift": [3, 1, 0, 0, 0, 0]}},
             {"date": "2026-05-01", "agent": None, "lines": {"Swift": [10, 0, 0, 0, 0, 0]}},
             {"date": "2026-05-01", "agent": an.MISC, "lines": {}},
+            {"date": "", "agent": None, "lines": {"Swift": [99, 0, 0, 0, 0, 0]}},
         ]
-        churn = an.churn_by_date(results)
-        self.assertEqual(churn["2026-05-01"], {"churn": 14, "ai_churn": 4})
+        self.assertEqual(an.churn_by_date(results), {"2026-05-01": 14})
+
+
+class TestPerSource(unittest.TestCase):
+    """Each source's tokens belong to its own agents' commits and nobody else's."""
+
+    @staticmethod
+    def entry(output, model="claude-opus-5"):
+        return {"turns": 1, "models": {model: {"input": 0, "output": output, "cache_read": 0, "cache_write": 0}}}
+
+    @staticmethod
+    def row(index, date, agent, lines):
+        return {"index": index, "date": date, "agent": agent, "lines": {"Swift": [lines, 0, 0, 0, 0, 0]}}
+
+    def probe(self):
+        # The case that exposed the bug: a Claude and a Cursor commit on a
+        # measured day, and a Devin commit on a day with no logs.
+        archive = {"2026-09-01": {"claude-code": self.entry(1000)}}
+        results = [self.row(0, "2026-09-01", "Claude Opus 5", 50),
+                   self.row(1, "2026-09-01", "Cursor", 50),
+                   self.row(2, "2026-08-01", "Devin", 50)]
+        return archive, results
+
+    def test_commits_by_agents_without_logs_are_counted_and_named(self):
+        t = an.token_summary(*self.probe())
+        self.assertEqual((t["unmeasured_agent_commits"], t["unmeasured_agents"]), (2, ["Cursor", "Devin"]))
+
+    def test_a_known_source_with_no_logs_is_named_once_by_its_label(self):
+        results = [self.row(0, "2026-09-01", "Claude Opus 5", 50),
+                   self.row(1, "2026-09-02", "Claude Opus 4.6", 5),
+                   self.row(2, "2026-09-02", an.MISC, 0),
+                   self.row(3, "2026-09-02", None, 9)]
+        t = an.token_summary({}, results)
+        self.assertEqual((t["unmeasured_agent_commits"], t["unmeasured_agents"]), (2, ["Claude Code"]))
+
+    def test_a_source_whose_logs_cover_none_of_its_commits_leaves_them_unmeasured(self):
+        # Claude Code has a record, but only for a day without a Claude
+        # commit, so it has no rate to estimate the Claude commit's day at.
+        archive = {"2026-08-10": {"claude-code": self.entry(100)}}
+        results = [self.row(0, "2026-08-01", "Claude Opus 5", 10), self.row(1, "2026-08-10", None, 5)]
+        t = an.token_summary(archive, results)
+        self.assertEqual(an.tokens_by_commit(t["sources"], results), {})
+        self.assertEqual((t["unmeasured_agent_commits"], t["unmeasured_agents"]), (1, ["Claude Code"]))
+
+    def test_a_source_whose_records_hold_no_tokens_leaves_its_commits_unmeasured(self):
+        # Claude Code writes zero-usage turns (model "<synthetic>"); a source
+        # made only of those has lines to cover but no rate to price them at.
+        archive = {"2026-01-01": {"claude-code": self.entry(0, model="<synthetic>")}}
+        results = [self.row(0, "2026-01-01", "Claude Opus 5", 10), self.row(1, "2026-01-02", "Claude Opus 5", 10)]
+        t = an.token_summary(archive, results)
+        self.assertEqual(an.tokens_by_commit(t["sources"], results), {0: 0})
+        self.assertEqual((t["unmeasured_agent_commits"], t["unmeasured_agents"]), (2, ["Claude Code"]))
+        self.assertEqual(t["ratio"], 0.0)
+
+    def test_the_ratio_counts_only_the_sources_own_lines(self):
+        self.assertEqual(an.token_summary(*self.probe())["ratio"], 20.0)   # not 1,000 over 100 lines
+
+    def test_other_agents_commits_get_none_of_its_tokens(self):
+        archive, results = self.probe()
+        t = an.token_summary(archive, results)
+        self.assertEqual(an.tokens_by_commit(t["sources"], results), {0: 1000})
+
+    def test_an_agent_without_logs_is_not_estimated_at_another_agents_ratio(self):
+        t = an.token_summary(*self.probe())
+        self.assertEqual(t["per_day"], [["2026-09-01", 1000, "m"]])
+        self.assertEqual(t["estimated_total"], 0)
+
+    def test_a_source_is_summarised_on_its_own(self):
+        archive, results = self.probe()
+        archive["2026-09-01"]["claude-code"]["models"]["claude-fable-5-1"] = {
+            "input": 0, "output": 10, "cache_read": 0, "cache_write": 0}
+        t = an.token_summary(archive, results)
+        self.assertEqual(t["sources"], [{
+            "key": "claude-code", "label": "Claude Code", "measured_total": 1010, "measured_days": 1,
+            "estimated_total": 0, "ratio": 20.2, "coverage_start": "2026-09-01",
+            "top_model": "claude-opus-5", "per_day": [["2026-09-01", 1010, "m"]]}])
+
+    def test_two_sources_on_one_day_each_split_across_their_own_commits(self):
+        fake = types.SimpleNamespace(KEY="fake", LABEL="Fake", AGENT=re.compile(r"^Cursor\b"))
+        archive = {"2026-09-01": {"claude-code": self.entry(1000), "fake": self.entry(300)}}
+        results = [self.row(0, "2026-09-01", "Claude Opus 5", 50),
+                   self.row(1, "2026-09-01", "Cursor", 10),
+                   self.row(2, "2026-09-01", "Cursor", 20)]
+        with mock.patch.object(src, "SOURCES", src.SOURCES + (fake,)):
+            t = an.token_summary(archive, results)
+            split = an.tokens_by_commit(t["sources"], results)
+        self.assertEqual(split, {0: 1000, 1: 100, 2: 200})
+        self.assertEqual([(s["key"], s["ratio"]) for s in t["sources"]], [("claude-code", 20.0), ("fake", 10.0)])
+        self.assertEqual(t["per_day"], [["2026-09-01", 1300, "m"]])
+        self.assertAlmostEqual(t["ratio"], 1300 / 80)
+
+    def test_a_day_with_any_estimated_share_is_an_estimate(self):
+        archive = {"2026-08-01": {"future-agent": self.entry(300)},
+                   "2026-09-01": {"claude-code": self.entry(1000)}}
+        results = [self.row(0, "2026-08-01", "Claude Opus 5", 50),
+                   self.row(1, "2026-09-01", "Claude Opus 5", 50)]
+        t = an.token_summary(archive, results)
+        # Claude Code's 1,000 estimated tokens plus the other source's 300 measured ones.
+        self.assertEqual(t["per_day"], [["2026-08-01", 1300, "e"], ["2026-09-01", 1000, "m"]])
+
+    def test_a_source_this_version_does_not_know_is_measured_but_lands_on_no_commit(self):
+        archive = {"2026-09-01": {"claude-code": self.entry(1000), "future-agent": self.entry(300)}}
+        results = [self.row(0, "2026-09-01", "Claude Opus 5", 50)]
+        t = an.token_summary(archive, results)
+        self.assertEqual(t["measured_total"], 1300)
+        self.assertEqual([(s["key"], s["label"], s["ratio"]) for s in t["sources"]],
+                         [("claude-code", "Claude Code", 20.0), ("future-agent", "future-agent", 0.0)])
+        # The blended ratio leaves out tokens that land on no lines, so it
+        # stays the rate the estimates were actually made at.
+        self.assertEqual(t["ratio"], 20.0)
+        self.assertEqual(an.tokens_by_commit(t["sources"], results), {0: 1000})
