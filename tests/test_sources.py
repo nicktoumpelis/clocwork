@@ -126,6 +126,16 @@ class TestClaudeCodeScan(unittest.TestCase):
             ]})
             self.assertEqual(cc.scan_directory(d).days["2026-08-06"]["turns"], 1)
 
+    def test_a_turn_that_used_no_tokens_adds_nothing(self):
+        silent = json.loads(turn("m2", "2026-08-06", model="<synthetic>", output=0, cache_read=0))
+        silent["message"]["usage"].update(input_tokens=0, cache_creation_input_tokens=0)
+        with tempfile.TemporaryDirectory() as d:
+            write_transcripts(d, {"a.jsonl": [json.dumps(dict(silent, timestamp="2026-08-05T12:00:00.000Z")),
+                                              turn("m1", "2026-08-06"), json.dumps(silent)]})
+            days = cc.scan_directory(d).days
+        self.assertEqual(sorted(days), ["2026-08-06"])
+        self.assertEqual((days["2026-08-06"]["turns"], sorted(days["2026-08-06"]["models"])), (1, ["claude-opus-5"]))
+
     def test_malformed_lines_are_skipped_and_counted(self):
         with tempfile.TemporaryDirectory() as d:
             write_transcripts(d, {"a.jsonl": [

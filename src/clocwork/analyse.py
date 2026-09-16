@@ -332,6 +332,22 @@ def source_summary(key, entries, churn):
     }
 
 
+def records_with_tokens(archive_days):
+    """The archive without records that hold no tokens.
+
+    A record of zero measured nothing: it is neither a measured day nor a
+    sign that its agent's commits cost nothing. Archives written before the
+    readers dropped zero-usage turns hold such Claude Code records, made of
+    its "<synthetic>" turns.
+    """
+    kept = {}
+    for date, day in archive_days.items():
+        records = {key: entry for key, entry in day.items() if tu.source_total(entry)}
+        if records:
+            kept[date] = records
+    return kept
+
+
 def token_summary(archive_days, results):
     """Measured and estimated token usage per day, per source and in total.
 
@@ -342,6 +358,7 @@ def token_summary(archive_days, results):
     inside the archived range - a machine change, a run skipped for six weeks -
     needs no special case.
     """
+    archive_days = records_with_tokens(archive_days)
     churn = churn_by_date(results)
     keys = source_keys(archive_days)
     entries = {key: {date: day[key] for date, day in archive_days.items() if key in day} for key in keys}

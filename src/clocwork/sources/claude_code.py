@@ -76,8 +76,12 @@ def scan_directory(directory):
                 date = tokens.day(rec.get("timestamp"))
                 if not date:
                     continue
-                tokens.record(days, date, msg.get("model"), tokens.additive(
+                counts = tokens.additive(
                     usage.get("input_tokens"), usage.get("output_tokens"),
-                    usage.get("cache_read_input_tokens"), usage.get("cache_creation_input_tokens")))
+                    usage.get("cache_read_input_tokens"), usage.get("cache_creation_input_tokens"))
+                # A turn that used no tokens, such as the "<synthetic>" turns
+                # Claude Code writes, is not a response.
+                if any(counts.values()):
+                    tokens.record(days, date, msg.get("model"), counts)
 
     return tokens.ScanResult(days, malformed)
