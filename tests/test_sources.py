@@ -6,6 +6,7 @@ import unittest
 from clocwork import agents, paths
 from clocwork import sources as src
 from clocwork.sources import claude_code as cc
+from clocwork.sources import codex
 
 
 def turn(msg_id, date, model="claude-opus-5", output=10, cache_read=1000):
@@ -40,13 +41,25 @@ class TestRegistry(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertIs(src.source_for(name), cc)
 
-    def test_other_agents_and_no_agent_belong_to_no_source_yet(self):
-        for name in [n for _needle, n in agents.VENDORS] + ["Misc", "", None]:
+    def test_codex_commits_belong_to_the_codex_reader(self):
+        self.assertIs(src.source_for("Codex"), codex)
+
+    def test_agents_without_a_reader_belong_to_no_source(self):
+        for name in ["Copilot", "Cursor", "Devin", "aider", "Misc", "", None]:
             with self.subTest(name=name):
                 self.assertIsNone(src.source_for(name))
 
+    def test_no_agent_name_matches_two_sources(self):
+        names = [n for _needle, n in agents.VENDORS] + [
+            "Claude Opus 4.6", "Claude Opus 5 (1M)", "Claude Sonnet 3.5", agents.UNKNOWN_CLAUDE,
+            "Codex Cloud", "Gemini Code Assist"]
+        for name in names:
+            with self.subTest(name=name):
+                self.assertLessEqual(sum(1 for s in src.SOURCES if s.AGENT.search(name)), 1)
+
     def test_by_key(self):
         self.assertIs(src.by_key("claude-code"), cc)
+        self.assertIs(src.by_key("codex"), codex)
         self.assertIsNone(src.by_key("an-agent-from-the-future"))
 
 
