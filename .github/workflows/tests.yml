@@ -14,8 +14,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Every cloc release before 2.06 misreads per-file diffs; Python 3.11 runs
-  # against the oldest supported release, the rest against the newest.
+  # clocwork refuses cloc before 2.06, whose extension list it misreads.
+  # Python 3.11 runs against the oldest supported release, the rest against
+  # the newest.
   CLOC_OLDEST: "2.06"
   CLOC_OLDEST_SHA256: ed9fbdd081a2ceb933ea490b3c1cfacc87d3898ae2650d0d6756439695a836c8
   CLOC_NEWEST: "2.10"

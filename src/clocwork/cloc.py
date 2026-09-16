@@ -14,9 +14,11 @@ Matrix row layout, used everywhere downstream:
 
 import concurrent.futures
 import csv
+import functools
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -28,6 +30,15 @@ TYPES = ("code", "comment", "blank")
 
 # git's well-known empty tree, used as the parent of the root commit.
 EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+# Before 2.06, `cloc --show-ext` printed "rb -> Ruby", which
+# parse_extension_table reads as the language "-> Ruby". That table names every
+# extension missing from the analysed ref, so a language whose files were all
+# deleted is reported as "-> Ruby", and the run still succeeds.
+MIN_VERSION = (2, 6)
+INSTALL_HINT = ("clocwork needs cloc 2.06 or later: brew install cloc (macOS), a distribution package "
+                "of 2.06 or later, or cloc-<version>.pl from https://github.com/AlDanial/cloc/releases "
+                "saved as an executable named cloc on PATH.")
 
 
 class ClocMissing(RuntimeError):
@@ -115,10 +126,26 @@ def parse_snapshot_by_file(obj, table, rules=DEFAULT_RULES):
     return all_files, test_files
 
 
+@functools.cache
+def _version(path):
+    """(major, minor) from `cloc --version`, or None when it prints no version."""
+    result = subprocess.run([path, "--version"], capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    m = re.match(r"([0-9]+)\.([0-9]+)", result.stdout.strip())
+    return (int(m[1]), int(m[2])) if m else None
+
+
 def require_cloc():
-    if shutil.which("cloc") is None:
-        raise ClocMissing("cloc is not installed or not on PATH. Install it with: brew install cloc (macOS), "
-                          "apt install cloc (Debian/Ubuntu), or see https://github.com/AlDanial/cloc")
+    """Raise ClocMissing unless the cloc on PATH is one clocwork can read.
+
+    A version that cannot be read is let through: a cloc that fails outright
+    is reported by its first real run.
+    """
+    path = shutil.which("cloc")
+    if path is None:
+        raise ClocMissing("cloc is not installed or not on PATH. " + INSTALL_HINT)
+    version = _version(path)
+    if version is not None and version < MIN_VERSION:
+        raise ClocMissing(f"cloc {version[0]}.{version[1]:02d} ({path}) is too old. " + INSTALL_HINT)
 
 
 def run_cloc(args, cwd):

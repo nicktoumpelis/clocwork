@@ -17,9 +17,9 @@ to a **workspace** next to the repository, never inside it.
 - Python 3.11 or later (standard library only)
 - [`cloc`](https://github.com/AlDanial/cloc) 2.06 or later on `PATH`. On
   macOS, `brew install cloc` gives a current release. Linux distributions
-  often package an older one (Ubuntu 24.04 has 1.98). Earlier releases
-  report per-file results in a form clocwork misreads, so check
-  `cloc --version`. If it is older, save `cloc-<version>.pl` from the
+  often package an older one (Ubuntu 24.04 has 1.98). clocwork refuses an
+  older cloc, because earlier releases list file extensions in a form it
+  misreads. If yours is older, save `cloc-<version>.pl` from the
   [cloc releases](https://github.com/AlDanial/cloc/releases) as an
   executable named `cloc` on `PATH`.
 - `git`

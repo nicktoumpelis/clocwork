@@ -16,6 +16,8 @@ First public release.
     reconciled against a `cloc` snapshot of HEAD.
   - `cloc` runs once per CPU core by default (`--jobs`), and
     `--max-commits` spreads a long history over several runs.
+  - `cloc` 2.06 or later is required. An older one is refused, because it
+    lists file extensions in a form clocwork misreads.
 - Lines per language and per type (code, comment, blank) at every commit,
   and the test-code share at HEAD.
   - Built-in test-path rules cover common ecosystems.
