@@ -113,7 +113,29 @@ jobs:
           python -m venv "$RUNNER_TEMP/venv"
           "$RUNNER_TEMP/venv/bin/pip" install dist/*.whl
           "$RUNNER_TEMP/venv/bin/clocwork" --version | grep -Fx "clocwork $(python -c 'import sys; sys.path.insert(0, "src"); import clocwork; print(clocwork.__version__)')"
+      - name: The zipapp
+        run: |
+          # The package's own __main__.py goes at the root. `zipapp -m` would
+          # write one that drops main()'s return value, so errors would exit 0.
+          stage="$RUNNER_TEMP/zipapp"
+          mkdir "$stage" pyz
+          git archive HEAD:src | tar -x -C "$stage"
+          cp "$stage/clocwork/__main__.py" "$stage/__main__.py"
+          python -m zipapp "$stage" -p "/usr/bin/env python3" -c -o pyz/clocwork.pyz
+          ./pyz/clocwork.pyz --version | grep -Fx "clocwork $(python -c 'import sys; sys.path.insert(0, "src"); import clocwork; print(clocwork.__version__)')"
+          status=0; ./pyz/clocwork.pyz "$(mktemp -d)" --no-open || status=$?
+          if [ "$status" != 2 ]; then echo "a run outside a repository exited $status, not 2"; exit 1; fi
+          R=$(python -c 'import sys, tempfile, os; sys.path[:0] = ["src", "."]
+          from tests import repo_fixture as fx
+          d = tempfile.mkdtemp(); r = os.path.join(d, "poly"); os.makedirs(r); fx.make_polyglot_repo(r); print(r)')
+          ./pyz/clocwork.pyz "$R" --no-open --cache-dir "$RUNNER_TEMP/cache" | tee run.log
+          grep -F "Test code at main: 11 of 20 code lines (55.0%)" run.log
+          if grep -q '__[A-Z_]*__' "$R-stats/index.html"; then echo "a placeholder survived in index.html"; exit 1; fi
       - uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/
+      - uses: actions/upload-artifact@v7
+        with:
+          name: zipapp
+          path: pyz/clocwork.pyz

@@ -33,12 +33,26 @@ pipx install clocwork          # or: pip install clocwork
 pip does not install the manual page; `man/clocwork.1` is in the repository
 and in the source distribution.
 
-To run from a clone instead, with no install step:
+Each release also carries `clocwork.pyz`, the whole command in one file, which
+runs with no install step:
+
+```bash
+curl -LO https://github.com/nicktoumpelis/clocwork/releases/latest/download/clocwork.pyz
+chmod +x clocwork.pyz
+./clocwork.pyz ~/code/foo
+```
+
+Or run it from a clone:
 
 ```bash
 git clone https://github.com/nicktoumpelis/clocwork.git ~/code/clocwork
 cd ~/code/foo && ~/code/clocwork/clocwork
 ```
+
+Both run under the first `python3` on `PATH`, which must be 3.11 or later.
+On macOS, `/usr/bin/python3` comes from Apple's developer tools and can be
+older (Xcode's is 3.9); name a newer interpreter instead, as in
+`python3.13 clocwork.pyz`.
 
 For development, `pip install -e ~/code/clocwork` installs the `clocwork`
 command from the clone.
