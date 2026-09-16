@@ -14,6 +14,9 @@ to a **workspace** next to the repository, never inside it.
 
 ## Requirements
 
+The Homebrew formula below brings its own Python and cloc, so with Homebrew
+only `git` is needed.
+
 - Python 3.11 or later (standard library only)
 - [`cloc`](https://github.com/AlDanial/cloc) 2.06 or later on `PATH`. On
   macOS, `brew install cloc` gives a current release. Linux distributions
@@ -25,6 +28,20 @@ to a **workspace** next to the repository, never inside it.
 - `git`
 
 ## Installing
+
+With [Homebrew](https://brew.sh), which also installs cloc and the manual
+page:
+
+```bash
+brew install nicktoumpelis/tap/clocwork
+```
+
+Installing by the full name, as above, trusts the formula. The
+[tap's README](https://github.com/nicktoumpelis/homebrew-tap#installing)
+covers a bare `brew install clocwork`, which needs `brew trust` first, and a
+`Brewfile` entry, which trusts it with `trusted: true`.
+
+From PyPI:
 
 ```bash
 pipx install clocwork          # or: pip install clocwork
@@ -110,7 +127,8 @@ Options (`clocwork run --help`):
 
 `tokens` takes only `-o` and `-q`: it writes no page. `render` takes the page
 options and `-q`, and its `-o` is required. `--version` prints the version.
-The same reference is a manual page: `man ./man/clocwork.1` from a clone.
+The same reference is a manual page: `man clocwork` after a Homebrew install,
+`man ./man/clocwork.1` from a clone.
 
 The page formats every number, date and unit for a region locale. The
 generator records it, because browsers expose only the language list: the
