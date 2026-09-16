@@ -4,6 +4,23 @@ All notable changes to clocwork are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-09-17
+
+### Added
+
+- A Homebrew formula: `brew install nicktoumpelis/tap/clocwork` installs
+  cloc and the manual page with it.
+- The README shows the top of the dashboard.
+- Releases reach PyPI from a GitHub Actions workflow with trusted
+  publishing, which uploads the files attached to the GitHub release.
+
+### Fixed
+
+- On a GitHub or GitLab repository whose path contains `bitbucket.org`,
+  commit links used Bitbucket's `/commits/` form, which opens the history
+  from that commit rather than the commit. The form now follows the remote's
+  host alone.
+
 ## [0.1.0] - 2026-09-16
 
 First public release.
@@ -40,4 +57,5 @@ First public release.
 - Every number, date and unit on the page is formatted for a region locale.
 - A `clocwork(1)` manual page.
 
+[0.1.1]: https://github.com/nicktoumpelis/clocwork/releases/tag/v0.1.1
 [0.1.0]: https://github.com/nicktoumpelis/clocwork/releases/tag/v0.1.0
