@@ -223,6 +223,13 @@ class TestCounters(unittest.TestCase):
         # Summing the four counters must not count a cached token twice.
         self.assertEqual(sum(tu.inclusive(prompt=1000, output=50, cached=700, cache_write=200).values()), 1050)
 
+    def test_a_count_that_is_not_an_integer_is_zero(self):
+        # No agent writes these; every reader gives them the same meaning.
+        self.assertEqual(tu.additive("ten", 1.5, True, [3]), tu.empty_counts())
+        self.assertEqual(tu.inclusive(prompt="100", output=5, cached=2.0, cache_write=None),
+                         {"input": 0, "output": 5, "cache_read": 0, "cache_write": 0})
+        self.assertEqual(tu.inclusive(prompt=100, output=5, cached=False)["input"], 100)
+
     def test_counters_never_go_negative(self):
         self.assertEqual(tu.inclusive(prompt=10, cached=40)["input"], 0)
         self.assertEqual(tu.additive(-3)["input"], 0)

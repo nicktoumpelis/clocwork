@@ -60,7 +60,7 @@ class TestCounters(unittest.TestCase):
         self.assertEqual(gemini.counters({"input": 100, "output": 10, "thoughts": 5})["output"], 15)
 
     def test_a_count_that_is_not_a_number_is_zero(self):
-        self.assertEqual(gemini.counters({"input": "many", "output": 10, "cached": None, "thoughts": True}),
+        self.assertEqual(gemini.counters({"input": "many", "output": 10, "cached": None, "thoughts": True, "tool": 2.5}),
                          {"input": 0, "output": 10, "cache_read": 0, "cache_write": 0})
 
     def test_nothing_goes_below_zero(self):

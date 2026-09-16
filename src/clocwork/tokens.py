@@ -37,19 +37,26 @@ def empty_counts():
     return {k: 0 for k in COUNTERS}
 
 
+def count(value):
+    """A token count as written, or 0 for anything that is not an integer:
+    no agent writes a missing, fractional or textual count, so every reader
+    gives one the same meaning."""
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
 def additive(input=0, output=0, cache_read=0, cache_write=0):
     """The four counters from a provider that reports cache reads and writes
-    beside the uncached input (Anthropic, Bedrock). Missing values are zero
-    and nothing goes below it."""
-    return {"input": max(0, input or 0), "output": max(0, output or 0),
-            "cache_read": max(0, cache_read or 0), "cache_write": max(0, cache_write or 0)}
+    beside the uncached input (Anthropic, Bedrock). A value that is not a
+    count is zero, and nothing goes below it."""
+    return {"input": max(0, count(input)), "output": max(0, count(output)),
+            "cache_read": max(0, count(cache_read)), "cache_write": max(0, count(cache_write))}
 
 
 def inclusive(prompt=0, output=0, cached=0, cache_write=0):
     """The four counters from a provider whose prompt count already contains
     its cached and cache-written tokens (OpenAI and most compatible APIs).
     Read as-is, such a prompt would count every cached token twice."""
-    uncached = (prompt or 0) - (cached or 0) - (cache_write or 0)
+    uncached = count(prompt) - count(cached) - count(cache_write)
     return additive(uncached, output, cached, cache_write)
 
 

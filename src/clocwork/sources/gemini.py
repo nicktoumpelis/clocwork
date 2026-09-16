@@ -73,11 +73,6 @@ def session_files(homes):
     return sorted(found), unreadable
 
 
-def number(value):
-    """A token count as written, or 0 for anything that is not one."""
-    return value if isinstance(value, int) and not isinstance(value, bool) else 0
-
-
 def counters(t):
     """The four archive counters from a message's tokens.
 
@@ -86,7 +81,7 @@ def counters(t):
     output + thoughts + tool. A deployment that folds them into output
     reports a total without them, and then they are not added again.
     """
-    n = {k: max(0, number(t.get(k))) for k in ("input", "output", "cached", "thoughts", "tool")}
+    n = {k: max(0, tokens.count(t.get(k))) for k in ("input", "output", "cached", "thoughts", "tool")}
     folded = t.get("total") in (n["input"] + n["output"], n["input"] + n["output"] + n["tool"])
     return tokens.additive(input=max(0, n["input"] - n["cached"]) + n["tool"],
                            output=n["output"] + (0 if folded else n["thoughts"]),

@@ -136,6 +136,14 @@ class TestClaudeCodeScan(unittest.TestCase):
             self.assertEqual(result.malformed, 1)
             self.assertEqual(result.days["2026-08-06"]["turns"], 1)
 
+    def test_a_count_that_is_not_an_integer_reads_as_zero(self):
+        rec = json.loads(turn("m1", "2026-08-06"))
+        rec["message"]["usage"].update(input_tokens="1", cache_creation_input_tokens=100.5)
+        with tempfile.TemporaryDirectory() as d:
+            write_transcripts(d, {"a.jsonl": [json.dumps(rec)]})
+            self.assertEqual(cc.scan_directory(d).days["2026-08-06"]["models"]["claude-opus-5"],
+                             {"input": 0, "output": 10, "cache_read": 1000, "cache_write": 0})
+
     def test_non_jsonl_files_are_ignored(self):
         with tempfile.TemporaryDirectory() as d:
             write_transcripts(d, {"a.jsonl": [turn("m1", "2026-08-06")]})

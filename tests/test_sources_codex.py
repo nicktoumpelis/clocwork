@@ -281,12 +281,19 @@ class TestRules(unittest.TestCase):
     def test_a_file_with_unexpected_shapes_is_unreadable_not_fatal(self):
         self.write("rollout-a.jsonl", [meta("a", self.repo), turn("t1", "gpt-5.5"), record("r1", "t1", usage(10, 0, 1))])
         self.write("rollout-b.jsonl", [{"timestamp": TS, "type": "session_meta", "payload": ["not", "a", "dict"]}])
-        self.write("rollout-c.jsonl", [meta("c", self.repo), turn("t1", "gpt-5.5"),
-                                       record("r2", "t1", dict(usage(10, 0, 1), input_tokens="ten"))])
         self.write("rollout-d.jsonl", [meta("d", self.repo), {"timestamp": 1756000000, "type": "turn_context",
                                                              "payload": {"turn_id": ["t"], "model": "gpt-5.5"}}])
         result = self.scan()
-        self.assertEqual((result.days["2026-09-01"]["turns"], result.skipped), (1, 3))
+        self.assertEqual((result.days["2026-09-01"]["turns"], result.skipped), (1, 2))
+
+    def test_a_count_that_is_not_an_integer_reads_as_zero(self):
+        self.write("rollout-a.jsonl", [meta("a", self.repo), turn("t1", "gpt-5.5"),
+                                       record("r1", "t1", dict(usage(10, 0, 1), input_tokens="ten")),
+                                       record("r2", "t1", dict(usage(10, 0, 1), output_tokens=1.5))])
+        result = self.scan()
+        self.assertEqual(result.skipped, 0)
+        self.assertEqual(result.days["2026-09-01"]["models"]["gpt-5.5"],
+                         {"input": 10, "output": 1, "cache_read": 0, "cache_write": 0})
 
     def test_other_files_in_the_homes_are_ignored(self):
         self.write("notes.jsonl", [meta("a", self.repo), turn("t1", "gpt-5.5"), record("r1", "t1", usage(10, 0, 1))])
