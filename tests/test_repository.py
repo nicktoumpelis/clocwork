@@ -28,7 +28,7 @@ class TestNothingIsSilentlyIgnored(unittest.TestCase):
     def test_no_published_file_is_ignored_by_git(self):
         result = subprocess.run(
             ["git", "ls-files", "--others", "--ignored", "--exclude-standard", "--",
-             "src", "tests", "man", "clocwork", "README.md", "pyproject.toml"],
+             "src", "tests", "man", "clocwork", "README.md", "CHANGELOG.md", "pyproject.toml"],
             cwd=ROOT, capture_output=True, text=True)
         if result.returncode != 0:
             self.skipTest("not a git checkout")
