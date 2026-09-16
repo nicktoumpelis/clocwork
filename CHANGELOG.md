@@ -19,11 +19,11 @@ First public release.
   - `cloc` 2.06 or later is required. An older one is refused, because it
     lists file extensions in a form clocwork misreads.
 - Lines per language and per type (code, comment, blank) at every commit,
-  and the test-code share at HEAD.
+  and the test-code share at the tip of the analysed branch.
   - Built-in test-path rules cover common ecosystems.
   - `clocwork.toml` can add to the rules, exclude from them or replace them.
 - AI-assisted commits, read from `Co-Authored-By` trailers, with the date
-  each model first appeared.
+  each agent, and each Claude model, first appeared.
   - Any Claude model is recognised, as are Copilot, Cursor, Codex, Devin,
     aider, Gemini and Gemini Code Assist.
   - `[agents].extra` names anything else.

@@ -13,6 +13,12 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# An explicit bash runs every step with pipefail, so `clocwork ... | tee` and
+# `--version | grep` fail when clocwork does; the default shell has no pipefail.
+defaults:
+  run:
+    shell: bash
+
 env:
   # clocwork refuses cloc before 2.06, whose extension list it misreads.
   # Python 3.11 runs against the oldest supported release, the rest against
@@ -60,6 +66,7 @@ jobs:
           d = tempfile.mkdtemp(); r = os.path.join(d, "poly"); os.makedirs(r); fx.make_polyglot_repo(r); print(r)')
           ./clocwork "$R" --no-open --cache-dir "$RUNNER_TEMP/cache" | tee run.log
           grep -F "Test code at main: 11 of 20 code lines (55.0%)" run.log
+          test -s "$R-stats/index.html"
           if grep -q '__[A-Z_]*__' "$R-stats/index.html"; then echo "a placeholder survived in index.html"; exit 1; fi
 
   macos:
@@ -130,6 +137,7 @@ jobs:
           d = tempfile.mkdtemp(); r = os.path.join(d, "poly"); os.makedirs(r); fx.make_polyglot_repo(r); print(r)')
           ./pyz/clocwork.pyz "$R" --no-open --cache-dir "$RUNNER_TEMP/cache" | tee run.log
           grep -F "Test code at main: 11 of 20 code lines (55.0%)" run.log
+          test -s "$R-stats/index.html"
           if grep -q '__[A-Z_]*__' "$R-stats/index.html"; then echo "a placeholder survived in index.html"; exit 1; fi
       - uses: actions/upload-artifact@v7
         with:
