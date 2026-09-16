@@ -6,6 +6,7 @@ import unittest
 from clocwork import tokens as tu
 from clocwork.sources import gemini
 from tests import agent_logs
+from tests import repo_fixture as fx
 
 # The four Irrlicht recordings, computed before reduction and without the
 # reader: token-bearing messages de-duplicated by id, input less cached plus
@@ -37,8 +38,8 @@ class TestHomes(unittest.TestCase):
         self.assertEqual(gemini.default_homes({"GEMINI_CLI_HOME": "/h"}), ["/h/.gemini/tmp", "/h/.cache/.gemini/tmp"])
 
     def test_the_default_is_under_the_home_directory(self):
-        self.assertEqual([h.split(os.sep)[-2:] for h in gemini.default_homes({})],
-                         [[".gemini", "tmp"], [".gemini", "tmp"]])
+        self.assertEqual(gemini.default_homes({}), [os.path.expanduser(os.path.join("~", ".gemini", "tmp")),
+                                                    os.path.expanduser(os.path.join("~", ".cache", ".gemini", "tmp"))])
 
 
 class TestCounters(unittest.TestCase):
@@ -57,6 +58,10 @@ class TestCounters(unittest.TestCase):
 
     def test_without_a_total_thoughts_are_added(self):
         self.assertEqual(gemini.counters({"input": 100, "output": 10, "thoughts": 5})["output"], 15)
+
+    def test_a_count_that_is_not_a_number_is_zero(self):
+        self.assertEqual(gemini.counters({"input": "many", "output": 10, "cached": None, "thoughts": True}),
+                         {"input": 0, "output": 10, "cache_read": 0, "cache_write": 0})
 
     def test_nothing_goes_below_zero(self):
         self.assertEqual(gemini.counters({"input": 10, "cached": 30, "output": -4}),
@@ -105,6 +110,22 @@ class TestRecordings(unittest.TestCase):
         other = os.path.join(self.root, "other-home")
         agent_logs.install("gemini", os.path.join(other, ".gemini"), link)
         self.assertEqual(gemini.scan(link, gemini.default_homes({"GEMINI_CLI_HOME": other})).days, RECORDED)
+
+    def test_a_session_started_in_a_tracked_subdirectory_matches(self):
+        fx._git(self.repo, "init", "-q", "-b", "main")
+        fx._write(self.repo, "src/app/main.py", "print()\n")
+        fx._git(self.repo, "add", ".")
+        fx._git(self.repo, "commit", "-q", "-m", "Initial")
+        agent_logs.install("gemini", os.path.join(self.home, ".gemini"), os.path.join(self.repo, "src", "app"))
+        self.assertEqual(self.scan().days, RECORDED)
+
+    def test_a_session_started_in_an_untracked_directory_does_not_match(self):
+        fx._git(self.repo, "init", "-q", "-b", "main")
+        fx._write(self.repo, "src/app/main.py", "print()\n")
+        fx._git(self.repo, "add", ".")
+        fx._git(self.repo, "commit", "-q", "-m", "Initial")
+        agent_logs.install("gemini", os.path.join(self.home, ".gemini"), os.path.join(self.repo, "build"))
+        self.assertIsNone(self.scan())
 
     def test_no_sessions_is_none(self):
         self.assertIsNone(self.scan())
@@ -191,6 +212,27 @@ class TestRules(unittest.TestCase):
         self.write("a.jsonl", [reply("m1")])
         self.write("b.jsonl", [meta("/elsewhere"), reply("m2")])
         self.assertIsNone(self.scan())
+
+    @unittest.skipIf(os.geteuid() == 0, "root reads any directory")
+    def test_an_unreadable_runtime_directory_is_counted_not_fatal(self):
+        tmp = os.path.join(self.home, ".gemini", "tmp")
+        os.makedirs(tmp)
+        os.chmod(tmp, 0)
+        self.addCleanup(os.chmod, tmp, 0o755)
+        result = self.scan()
+        self.assertEqual((result.days, result.skipped), ({}, 1))
+
+    def test_unexpected_shapes_do_not_stop_the_scan(self):
+        dated = dict(reply("m2"), timestamp=1756000000)
+        listed = dict(reply("m3"), id=["m3"])
+        worded = reply("m4")
+        worded["tokens"] = dict(worded["tokens"], input="many")
+        self.write("a.jsonl", [meta(self.repo), reply("m1"), dated, listed, worded])
+        self.write("b.jsonl", [dict(meta(self.repo), projectHash=["not", "a", "hash"]), reply("m5")])
+        result = self.scan()
+        day = result.days["2026-09-01"]
+        # m1's 110 tokens and m4's 10 output tokens; b.jsonl cannot be read.
+        self.assertEqual((day["turns"], tu.source_total(day), result.skipped), (2, 120, 1))
 
     def test_files_outside_chats_are_ignored(self):
         path = os.path.join(self.home, ".gemini", "tmp", "proj", "logs.json")

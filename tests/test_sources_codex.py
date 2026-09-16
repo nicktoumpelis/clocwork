@@ -98,6 +98,23 @@ class TestRecordings(unittest.TestCase):
         # event in both files would give 146,187.
         self.assertEqual(tu.source_total(self.scan().days["2026-05-29"]), 87_723)
 
+    def test_a_fork_whose_parent_is_gone_counts_only_its_own_usage(self):
+        for path in agent_logs.install("codex", self.home, self.repo):
+            if path.endswith("-019e7583-0b33-7912-a209-4c0407cfa243.jsonl"):
+                os.remove(path)
+        # The parent's 58,464 went with its file; the fork's copy of them is
+        # recognised by its turns, which began before the fork did.
+        day = self.scan().days["2026-05-29"]
+        self.assertEqual((day["turns"], tu.source_total(day)), (1, 29_259))
+
+    def test_sub_agents_whose_parent_is_gone_keep_their_own_usage(self):
+        for path in agent_logs.install("codex", self.home, self.repo):
+            if path.endswith("-01a03eb1-6b82-78e3-87e0-2578e88e80cf.jsonl"):
+                os.remove(path)
+        # 708,804 less the parent's 392,189 over 18 responses.
+        day = self.scan().days["2026-08-26"]
+        self.assertEqual((day["turns"], tu.source_total(day)), (17, 316_615))
+
     def test_archived_sessions_are_read(self):
         agent_logs.install("codex", self.home, self.repo)
         shutil.rmtree(os.path.join(self.home, "sessions"))
@@ -139,8 +156,8 @@ class TestRules(unittest.TestCase):
         os.makedirs(self.repo)
         self.home = os.path.join(tmp.name, "codex")
 
-    def write(self, name, lines, opener=open):
-        path = os.path.join(self.home, "sessions", "2026", "09", "01", name)
+    def write(self, name, lines, opener=open, where=("sessions", "2026", "09", "01")):
+        path = os.path.join(self.home, *where, name)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with opener(path, "wt", encoding="utf-8") as f:
             f.write("\n".join(line if isinstance(line, str) else json.dumps(line) for line in lines) + "\n")
@@ -157,11 +174,21 @@ class TestRules(unittest.TestCase):
         self.assertEqual(self.day()["models"]["gpt-5.6-sol"],
                          {"input": 50, "output": 5, "cache_read": 30, "cache_write": 20})
 
-    def test_a_file_with_both_formats_counts_only_its_records(self):
+    def test_a_response_written_in_both_formats_counts_once(self):
+        # CLI 0.153.4 writes each response's record, then its token_count.
         u = usage(100, 40, 10)
-        self.write("rollout-a.jsonl", [meta("a", self.repo), turn("t1", "gpt-5.6-sol"), count(u, u), record("r1", "t1", u)])
+        self.write("rollout-a.jsonl", [meta("a", self.repo), turn("t1", "gpt-5.6-sol"), record("r1", "t1", u), count(u, u)])
         self.assertEqual(self.day(), {"turns": 1, "models": {
             "gpt-5.6-sol": {"input": 60, "output": 10, "cache_read": 40, "cache_write": 0}}})
+
+    def test_a_session_resumed_after_the_upgrade_keeps_its_earlier_usage(self):
+        # Resuming appends to the same rollout: token_count events written by
+        # the older CLI, then records written by the newer one.
+        u1, u2, u3 = usage(100, 0, 1), usage(200, 0, 2), usage(300, 0, 3)
+        t2 = plus(u1, u2)
+        self.write("rollout-a.jsonl", [meta("a", self.repo), turn("t1", "gpt-5.5"), count(u1, u1), count(t2, u2),
+                                       turn("t2", "gpt-5.5"), record("r1", "t2", u3), count(plus(t2, u3), u3)])
+        self.assertEqual((self.day()["turns"], tu.source_total(self.day())), (3, 606))
 
     def test_a_response_recorded_in_two_files_counts_once(self):
         for name in ("rollout-a.jsonl", "rollout-b.jsonl"):
@@ -186,6 +213,27 @@ class TestRules(unittest.TestCase):
                                        turn("t", "gpt-5.5"), count(u1, u1), count(t2, u2), count(t3, u3)])
         # 101 + 202 + 303; every event in every file would be 1,010.
         self.assertEqual((self.day()["turns"], tu.source_total(self.day())), (3, 606))
+
+    def test_a_fork_whose_parent_cannot_be_read_counts_only_its_own_usage(self):
+        # Codex ids are UUIDv7, ordered by creation time: the parent's turns,
+        # copied into the fork, began before the fork's own id was made.
+        parent, fork = "019e0000-0000-7000-8000-000000000001", "019e0000-0000-7000-8000-000000000005"
+        u1, u2 = usage(100, 0, 1), usage(200, 0, 2)
+        self.write("rollout-1.jsonl.zst", ["compressed, unreadable here"])
+        self.write("rollout-2.jsonl", [meta(fork, self.repo, forked_from=parent), meta(parent, self.repo),
+                                       turn("019e0000-0000-7000-8000-000000000002", "gpt-5.5"), count(u1, u1),
+                                       turn("019e0000-0000-7000-8000-000000000009", "gpt-5.5"), count(plus(u1, u2), u2)])
+        with mock.patch.object(codex, "zstd", None):
+            result = self.scan()
+        day = result.days["2026-09-01"]
+        self.assertEqual((day["turns"], tu.source_total(day), result.skipped), (1, 202, 1))
+
+    def test_a_session_kept_in_two_places_counts_once(self):
+        u = usage(100, 0, 1)
+        lines = [meta("a", self.repo), turn("t", "gpt-5.5"), count(u, u)]
+        self.write("rollout-a.jsonl", lines)
+        self.write("rollout-a.jsonl", lines, where=("archived_sessions",))
+        self.assertEqual(self.day()["turns"], 1)
 
     def test_events_without_new_usage_add_nothing(self):
         u = usage(100, 0, 1)
@@ -224,6 +272,22 @@ class TestRules(unittest.TestCase):
         result = self.scan()
         self.assertEqual((result.malformed, result.days["2026-09-01"]["turns"]), (2, 1))
 
+    def test_an_empty_rollout_is_not_malformed(self):
+        self.write("rollout-a.jsonl", [meta("a", self.repo), turn("t1", "gpt-5.5"), record("r1", "t1", usage(10, 0, 1))])
+        path = os.path.join(self.home, "sessions", "2026", "09", "01", "rollout-b.jsonl")
+        open(path, "w").close()
+        self.assertEqual(self.scan().malformed, 0)
+
+    def test_a_file_with_unexpected_shapes_is_unreadable_not_fatal(self):
+        self.write("rollout-a.jsonl", [meta("a", self.repo), turn("t1", "gpt-5.5"), record("r1", "t1", usage(10, 0, 1))])
+        self.write("rollout-b.jsonl", [{"timestamp": TS, "type": "session_meta", "payload": ["not", "a", "dict"]}])
+        self.write("rollout-c.jsonl", [meta("c", self.repo), turn("t1", "gpt-5.5"),
+                                       record("r2", "t1", dict(usage(10, 0, 1), input_tokens="ten"))])
+        self.write("rollout-d.jsonl", [meta("d", self.repo), {"timestamp": 1756000000, "type": "turn_context",
+                                                             "payload": {"turn_id": ["t"], "model": "gpt-5.5"}}])
+        result = self.scan()
+        self.assertEqual((result.days["2026-09-01"]["turns"], result.skipped), (1, 3))
+
     def test_other_files_in_the_homes_are_ignored(self):
         self.write("notes.jsonl", [meta("a", self.repo), turn("t1", "gpt-5.5"), record("r1", "t1", usage(10, 0, 1))])
         self.assertIsNone(self.scan())
@@ -245,7 +309,7 @@ class TestRules(unittest.TestCase):
         with mock.patch.object(codex, "zstd", None):
             result = self.scan()
         self.assertEqual((result.days, result.skipped), ({}, 1))
-        self.assertIn("Python 3.14", codex.SKIPPED)
+        self.assertIn("3.14", codex.SKIPPED)
 
 
 if __name__ == "__main__":

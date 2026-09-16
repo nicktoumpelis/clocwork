@@ -5,12 +5,19 @@ moved flat into archived_sessions/ when archived, and compressed to
 Two usage formats exist. From CLI 0.153.4 every model response writes a
 token_usage_record with that response's usage and id; earlier versions write
 only token_count events, each carrying the session's running total and the
-increment just added to it. A forked session starts with a copy of its
-parent's token_count events, re-timestamped. Those copies are recognised by
-their (total, increment) pair and dropped, but only when the fork's parent
-holds the pair: unrelated sessions that open with the same prompt report
-identical first pairs, and those are real usage. The public
-recordings in tests/fixtures/codex hold both formats, sub-agents and a fork.
+increment just added to it. A session resumed across the upgrade holds both:
+the older events first, then records.
+
+A forked session starts with a copy of its parent's history, token_count
+events included and re-timestamped, and those copies must not count twice.
+They are recognised two ways. The parent's own file holds the same
+(total, increment) pairs; unrelated sessions that open with the same prompt
+report identical pairs too, so only the parent's pairs count as copies.
+Without the parent's file (deleted, or compressed on an older Python), the
+turns tell: Codex ids are UUIDv7, ordered by creation time, so the copied
+turns sort before the fork's own id and the fork's own turns after it. The
+public recordings in tests/fixtures/codex hold both formats, sub-agents and
+a fork.
 """
 
 import json
@@ -28,12 +35,15 @@ KEY = "codex"
 LABEL = "Codex CLI"
 # Codex asks for "Co-authored-by: Codex <noreply@openai.com>" on its commits.
 AGENT = re.compile(r"^Codex\b")
-SKIPPED = "compressed rollouts need Python 3.14 or later"
+SKIPPED = "damaged, or compressed and this Python is older than 3.14"
 
-READ_ERRORS = (OSError, EOFError, UnicodeError) + ((zstd.ZstdError,) if zstd else ())
+# A file that cannot be opened, or holds a shape no Codex version writes, is
+# counted as unreadable rather than stopping the run.
+READ_ERRORS = (OSError, EOFError, UnicodeError, TypeError, AttributeError) + ((zstd.ZstdError,) if zstd else ())
 # Only these lines matter; messages, tool calls and other events are skipped
 # before they are parsed.
 WANTED = ('"turn_context"', '"token_usage_record"', '"token_count"')
+UUID7 = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
 
 def default_homes(env):
@@ -71,17 +81,26 @@ def counts(usage):
                             usage.get("cached_input_tokens"), usage.get("cache_write_input_tokens"))
 
 
+def uuid7(value):
+    return value if isinstance(value, str) and UUID7.match(value) else None
+
+
 def read_session(lines, repo_real, remote):
     """(session, malformed lines) for one rollout, or (None, n) when it is
     not the repository's or does not open with its session_meta.
 
-    A session is {"id", "forked_from", "records", "events"}: records are
-    (response_id, date, model, counts) from token_usage_record lines, events
-    are (pair, date, model, counts) from token_count lines whose running
-    total moved.
+    A session is {"id", "forked_from", "records", "events", "before_records"}:
+    records are (response_id, date, model, counts) from token_usage_record
+    lines; events are (pair, date, model, counts, inherited) from token_count
+    lines whose running total moved, where inherited says a fork's own turns
+    had not begun yet; before_records is how many events precede the first
+    record.
     """
+    first = next(lines, "")
+    if not first.strip():
+        return None, 0              # a rollout Codex has only just created
     try:
-        head = json.loads(next(lines, ""))
+        head = json.loads(first)
     except ValueError:
         return None, 1
     if not isinstance(head, dict) or head.get("type") != "session_meta":
@@ -89,8 +108,10 @@ def read_session(lines, repo_real, remote):
     meta = head.get("payload") or {}
     if not belongs(meta, repo_real, remote):
         return None, 0
-    session = {"id": meta.get("id"), "forked_from": meta.get("forked_from_id"), "records": [], "events": []}
-    turn_models, model, previous, malformed = {}, None, None, 0
+    own = uuid7(meta.get("id")) if meta.get("forked_from_id") else None
+    session = {"id": meta.get("id"), "forked_from": meta.get("forked_from_id"),
+               "records": [], "events": [], "before_records": None}
+    turn_models, model, previous, own_turns, malformed = {}, None, None, False, 0
     for line in lines:
         if not any(marker in line for marker in WANTED):
             continue
@@ -105,9 +126,14 @@ def read_session(lines, repo_real, remote):
         date = (rec.get("timestamp") or "")[:10]
         if kind == "turn_context":
             model = payload.get("model") or model
-            if payload.get("turn_id"):
-                turn_models[payload["turn_id"]] = payload.get("model")
+            turn_id = payload.get("turn_id")
+            if turn_id:
+                turn_models[turn_id] = payload.get("model")
+                if own and (uuid7(turn_id) or "") > own:
+                    own_turns = True
         elif kind == "token_usage_record":
+            if not session["records"]:
+                session["before_records"] = len(session["events"])
             session["records"].append((payload.get("response_id"), date,
                                        turn_models.get(payload.get("turn_id")) or model,
                                        counts(payload.get("usage") or {})))
@@ -117,19 +143,22 @@ def read_session(lines, repo_real, remote):
             if not total or not last or total == previous:
                 continue            # no usage yet, or the running total repeated
             previous = total
-            session["events"].append((json.dumps([total, last], sort_keys=True), date, model, counts(last)))
+            session["events"].append((json.dumps([total, last], sort_keys=True), date, model, counts(last),
+                                      bool(own) and not own_turns))
     return session, malformed
 
 
 def replayed(session, by_id):
     """How many of a session's leading token_count events were copied from
-    its parent when it was forked. A fork's file holds its whole inherited
-    history, so the parent's events already include every earlier
-    generation's."""
+    its parent when it was forked: those the parent's file also holds, or,
+    without that file, those written before the fork's own first turn. A
+    fork's file holds its whole inherited history, so one generation is
+    enough."""
     parent = by_id.get(session["forked_from"])
     inherited = {pair for pair, *_rest in parent["events"]} if parent else set()
     n = 0
-    while n < len(session["events"]) and session["events"][n][0] in inherited:
+    events = session["events"]
+    while n < len(events) and (events[n][0] in inherited or (parent is None and events[n][4])):
         n += 1
     return n
 
@@ -139,7 +168,7 @@ def scan(repo, homes):
     belongs to it and none was unreadable."""
     repo_real = os.path.realpath(repo)
     remote = paths.remote_key(repo) if os.path.isdir(repo) else None
-    sessions, malformed, skipped = [], 0, 0
+    found, malformed, skipped = {}, 0, 0
     for path in rollouts(homes):
         compressed = path.endswith(".zst")
         if compressed and zstd is None:
@@ -152,12 +181,20 @@ def scan(repo, homes):
             skipped += 1
             continue
         malformed += bad
-        if session is not None:
-            sessions.append(session)
-    if not sessions and not skipped:
+        if session is None:
+            continue
+        # The same session can sit in two places (sessions/ and
+        # archived_sessions/, or plain and compressed); the fuller copy wins.
+        key = session["id"] or path
+        kept = found.get(key)
+        if kept is None or (len(session["records"]) + len(session["events"])
+                            > len(kept["records"]) + len(kept["events"])):
+            found[key] = session
+    if not found and not skipped:
         return None
 
     days, responses = {}, set()
+    sessions = list(found.values())
     by_id = {s["id"]: s for s in sessions if s["id"]}
 
     def add(date, model, c):
@@ -166,14 +203,15 @@ def scan(repo, homes):
             tokens.record(days, date, model, c)
 
     for s in sessions:
-        if s["records"]:
-            for response_id, date, model, c in s["records"]:
-                if response_id is not None:
-                    if response_id in responses:
-                        continue
-                    responses.add(response_id)
-                add(date, model, c)
-        else:
-            for _pair, date, model, c in s["events"][replayed(s, by_id):]:
-                add(date, model, c)
+        for response_id, date, model, c in s["records"]:
+            if response_id is not None:
+                if response_id in responses:
+                    continue
+                responses.add(response_id)
+            add(date, model, c)
+        # With records, only the events written before them are usage the
+        # records do not already cover.
+        end = s["before_records"] if s["records"] else len(s["events"])
+        for _pair, date, model, c, _inherited in s["events"][replayed(s, by_id):end]:
+            add(date, model, c)
     return tokens.ScanResult(days, malformed, skipped)

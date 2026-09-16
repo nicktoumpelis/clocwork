@@ -69,6 +69,8 @@ Chart.defaults = { font: {} };
 Chart.register = function () {};
 Chart.prototype.update = function () { this.updates++; };
 Chart.prototype.resetZoom = function () {};
+Chart.prototype.isDatasetVisible = function (i) { return !(this.hidden || {})[i]; };
+Chart.prototype.setDatasetVisibility = function (i, visible) { (this.hidden = this.hidden || {})[i] = !visible; };
 
 function load(opts) {
   opts = opts || {};

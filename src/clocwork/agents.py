@@ -47,6 +47,9 @@ VENDORS = (
     ("Codex", "Codex"),
     ("Devin", "Devin"),
     ("aider", "aider"),
+    # GitHub credits accepted review suggestions to gemini-code-assist[bot]. It
+    # comes before the next row, which would otherwise claim it.
+    ("gemini-code-assist", "Gemini Code Assist"),
     # Gemini CLI adds no trailer of its own; this catches the one a person adds.
     ("Gemini", "Gemini"),
 )

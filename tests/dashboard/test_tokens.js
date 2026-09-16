@@ -92,13 +92,14 @@ if (charted(T).length > 1) {
   check(measured.data.length === T.per_day.filter(r => r[2] === 'm').length, 'measured points match the m rows');
   check(measured.data.every(p => typeof p.x === 'string' && typeof p.y === 'number'), 'measured points are {x,y}');
   check(measured.backgroundColor === 'rgba(88,166,255,0.6)' && token.options.scales.y.stacked !== true, 'one source keeps the unstacked blue bars');
+  check(token.options.interaction.mode === 'x', 'the tooltip matches bars by date, not by position');
 }
 
 section('independent of the selection');
-const before = [cardValue('Tokens (lifetime est.)'), cardValue('Measured'), cardValue('Output per Line')];
+const before = [cardValue('Tokens (lifetime est. ceiling)'), cardValue('Measured'), cardValue('Output per Line')];
 const updatesBefore = token.updates;
 page.run('SEL.set({ lang: "' + RAW.languages[0] + '", type: "comment" })');
-const after = [cardValue('Tokens (lifetime est.)'), cardValue('Measured'), cardValue('Output per Line')];
+const after = [cardValue('Tokens (lifetime est. ceiling)'), cardValue('Measured'), cardValue('Output per Line')];
 check(before.join('|') === after.join('|'), 'token cards ignore the Language and Line type selection');
 check(token.updates === updatesBefore, 'token chart does not re-render on selection change');
 

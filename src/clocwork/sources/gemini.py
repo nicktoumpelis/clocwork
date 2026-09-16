@@ -9,21 +9,28 @@ checkpoint repeating earlier messages. A message is written again whenever it
 changes, so messages are counted once per id. Older sessions are a single
 JSON document with the same metadata and a messages list. The project
 directory's name comes from a registry and says nothing reliable, so the
-metadata hash decides which sessions belong to a repository.
+metadata hash decides which sessions belong to a repository. The hash is of
+the directory Gemini CLI was started in, so every directory the repository
+tracks is a candidate, not only its root.
 """
 
 import hashlib
 import json
 import os
 import re
+import subprocess
 
 from clocwork import tokens
 
 KEY = "gemini"
 LABEL = "Gemini CLI"
 # Gemini CLI writes no co-author trailer; this matches the agents.VENDORS row
-# for commits whose author credited Gemini by hand.
-AGENT = re.compile(r"^Gemini\b")
+# for commits whose author credited Gemini by hand, and not Gemini Code
+# Assist, which is a different product with no logs here.
+AGENT = re.compile(r"^Gemini$")
+# A session file that cannot be read, or holds a shape no Gemini CLI version
+# writes, is counted as unreadable rather than stopping the run.
+READ_ERRORS = (OSError, TypeError, AttributeError)
 
 
 def default_homes(env):
@@ -31,22 +38,44 @@ def default_homes(env):
     return [os.path.join(home, ".gemini", "tmp"), os.path.join(home, ".cache", ".gemini", "tmp")]
 
 
+def tracked_directories(repo):
+    """Every directory the repository tracks at HEAD, relative to its root;
+    none when it is not a repository or has no commits."""
+    result = subprocess.run(["git", "-C", repo, "ls-tree", "-r", "-d", "-z", "--name-only", "HEAD"],
+                            capture_output=True, text=True)
+    return [d for d in result.stdout.split("\0") if d] if result.returncode == 0 else []
+
+
 def project_hashes(repo):
-    """The hashes Gemini CLI could have recorded for the repository: of its
-    path as given and of its real path."""
-    return {hashlib.sha256(p.encode("utf-8")).hexdigest()
-            for p in (os.path.abspath(repo), os.path.realpath(repo))}
+    """The hashes Gemini CLI could have recorded for a session started in the
+    repository or a directory it tracks: of each path as given and as real."""
+    roots = {os.path.abspath(repo), os.path.realpath(repo)}
+    paths = set(roots)
+    for directory in tracked_directories(repo):
+        paths.update(os.path.join(root, directory) for root in roots)
+    return {hashlib.sha256(p.encode("utf-8")).hexdigest() for p in paths}
 
 
 def session_files(homes):
-    found = []
+    """Every session file under the homes, and how many homes could not be listed."""
+    found, unreadable = [], 0
     for home in homes:
         if not os.path.isdir(home):
             continue
-        for project in os.listdir(home):
+        try:
+            projects = os.listdir(home)
+        except OSError:
+            unreadable += 1
+            continue
+        for project in projects:
             for directory, _dirs, files in os.walk(os.path.join(home, project, "chats")):
                 found += [os.path.join(directory, name) for name in files if name.endswith((".jsonl", ".json"))]
-    return sorted(found)
+    return sorted(found), unreadable
+
+
+def number(value):
+    """A token count as written, or 0 for anything that is not one."""
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
 
 
 def counters(t):
@@ -57,7 +86,7 @@ def counters(t):
     output + thoughts + tool. A deployment that folds them into output
     reports a total without them, and then they are not added again.
     """
-    n = {k: max(0, t.get(k) or 0) for k in ("input", "output", "cached", "thoughts", "tool")}
+    n = {k: max(0, number(t.get(k))) for k in ("input", "output", "cached", "thoughts", "tool")}
     folded = t.get("total") in (n["input"] + n["output"], n["input"] + n["output"] + n["tool"])
     return tokens.additive(input=max(0, n["input"] - n["cached"]) + n["tool"],
                            output=n["output"] + (0 if folded else n["thoughts"]),
@@ -104,13 +133,15 @@ def read_session(path, hashes):
 
 
 def scan(repo, homes):
-    """The repository's Gemini CLI usage, or None when no session belongs to it."""
+    """The repository's Gemini CLI usage, or None when no session belongs to it
+    and nothing was unreadable."""
     hashes = project_hashes(repo)
-    latest, found, malformed, skipped = {}, False, 0, 0
-    for path in session_files(homes):
+    files, skipped = session_files(homes)
+    latest, found, malformed = {}, False, 0
+    for path in files:
         try:
             messages, bad = read_session(path, hashes)
-        except OSError:
+        except READ_ERRORS:
             skipped += 1
             continue
         malformed += bad
@@ -120,13 +151,14 @@ def scan(repo, homes):
         for m in messages:
             # Later writes of a message carry the same tokens or ones that
             # arrived late; a write without tokens never replaces one with.
-            if m.get("type") == "gemini" and m.get("id") and isinstance(m.get("tokens"), dict):
+            if m.get("type") == "gemini" and isinstance(m.get("id"), str) and isinstance(m.get("tokens"), dict):
                 latest[m["id"]] = m
-    if not found:
+    if not found and not skipped:
         return None
     days = {}
     for m in latest.values():
-        date = (m.get("timestamp") or "")[:10]
+        stamp = m.get("timestamp")
+        date = stamp[:10] if isinstance(stamp, str) else ""
         c = counters(m["tokens"])
         if date and any(c.values()):
             tokens.record(days, date, m.get("model"), c)

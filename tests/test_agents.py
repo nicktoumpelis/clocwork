@@ -27,7 +27,9 @@ class TestClaude(unittest.TestCase):
 class TestVendors(unittest.TestCase):
     def test_each_vendor(self):
         for text, name in (("GitHub Copilot", "Copilot"), ("Cursor Agent", "Cursor"), ("Codex", "Codex"),
-                           ("Devin AI", "Devin"), ("aider (gpt-4o)", "aider"), ("Gemini CLI", "Gemini")):
+                           ("Devin AI", "Devin"), ("aider (gpt-4o)", "aider"), ("Gemini CLI", "Gemini"),
+                           ("gemini-code-assist[bot] <176961590+gemini-code-assist[bot]@users.noreply.github.com>",
+                            "Gemini Code Assist")):
             with self.subTest(text=text):
                 self.assertEqual(ag.detect_agent(TRAILER.format(text)), name)
 

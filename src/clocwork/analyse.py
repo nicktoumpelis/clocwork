@@ -246,11 +246,18 @@ PRICE_CHANGES = {
 }
 
 
+# An id that extends a row's with one of these words names another model
+# ('gpt-5.1-codex-mini' is not 'gpt-5.1'), whose price the table does not know.
+VARIANT_WORDS = {"mini", "nano", "pro", "lite", "max", "codex", "spark", "cyber", "flash",
+                 "image", "audio", "native", "tts", "live", "transcribe"}
+
+
 def price_for(model, date=""):
     """The price row for a model id on a date ('YYYY-MM-DD'), or None when
     the table does not know the model. Without a date, the table's row."""
     for key in sorted(PRICE_USD_PER_MTOK, key=len, reverse=True):
-        if model == key or model.startswith(key + "-"):
+        if model == key or (model.startswith(key + "-")
+                            and not VARIANT_WORDS.intersection(model[len(key) + 1:].split("-"))):
             row = PRICE_USD_PER_MTOK[key]
             for since, later in PRICE_CHANGES.get(key, ()):
                 if date >= since:

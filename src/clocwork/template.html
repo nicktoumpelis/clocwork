@@ -1317,10 +1317,21 @@ function resetMainZoom() {
         data: { datasets: datasets },
         options: {
             responsive: true, maintainAspectRatio: true,
-            interaction: { intersect: false, mode: 'index' },
+            // Each series holds only its own days, so the tooltip must match
+            // bars by date; 'index' would pair unrelated days by position.
+            interaction: { intersect: false, mode: 'x' },
             plugins: {
                 legend: { display: true, labels: { boxWidth: 10, padding: 12,
-                    filter: function(item, data) { return data.datasets[item.datasetIndex].inLegend !== false; } } },
+                    filter: function(item, data) { return data.datasets[item.datasetIndex].inLegend !== false; } },
+                    // A source's one legend entry stands for both its series.
+                    onClick: function(e, item, legend) {
+                        var chart = legend.chart, label = chart.data.datasets[item.datasetIndex].label;
+                        var show = !chart.isDatasetVisible(item.datasetIndex);
+                        chart.data.datasets.forEach(function(d, i) {
+                            if (d.label === label || d.label === label + ' (estimated)') chart.setDatasetVisibility(i, show);
+                        });
+                        chart.update();
+                    } },
                 tooltip: {
                     backgroundColor: '#1c2129', borderColor: '#30363d', borderWidth: 1,
                     titleColor: '#e6edf3', bodyColor: '#8b949e', padding: 12, cornerRadius: 8,

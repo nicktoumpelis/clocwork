@@ -48,7 +48,7 @@ class TestRegistry(unittest.TestCase):
         self.assertIs(src.source_for("Gemini"), gemini)
 
     def test_agents_without_a_reader_belong_to_no_source(self):
-        for name in ["Copilot", "Cursor", "Devin", "aider", "Misc", "", None]:
+        for name in ["Copilot", "Cursor", "Devin", "aider", "Gemini Code Assist", "Misc", "", None]:
             with self.subTest(name=name):
                 self.assertIsNone(src.source_for(name))
 

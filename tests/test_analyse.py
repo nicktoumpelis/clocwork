@@ -483,6 +483,10 @@ class TestCostEstimate(unittest.TestCase):
         ("gemini-2.5-pro", "gemini-2.5-pro"), ("gemini-2.5-flash", "gemini-2.5-flash"),
         ("gemini-2.5-flash-lite", "gemini-2.5-flash-lite"),
         ("gpt-5.6", None), ("gpt-4o", None), ("o3", None), ("gemini-3.5", None), ("gemini-3-pro-preview", None),
+        # Variants the pages do not list: another model, not a dated copy.
+        ("gpt-5.1-codex-mini", None), ("gpt-5-codex", None), ("gpt-5.3-codex-spark", None),
+        ("gemini-2.5-flash-image", None), ("gemini-2.5-flash-preview-tts", None),
+        ("claude-sonnet-4-5-20250929", "claude-sonnet-4"),
     )
 
     def test_each_variant_resolves_to_its_own_row(self):
