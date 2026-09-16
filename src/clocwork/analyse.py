@@ -290,10 +290,11 @@ def token_summary(archive_days, results):
     measured_total = sum(s["measured_total"] for s in sources)
     estimated_total = sum(s["estimated_total"] for s in sources)
     lifetime_total = measured_total + estimated_total
-    # The blended ratio covers only sources whose tokens land on lines, so it
-    # is the rate the estimates were made at, not diluted by the rest.
+    # A source with a rate prices every commit of its agents that changed a
+    # line; the blended ratio covers only those sources, so it is the rate the
+    # estimates were made at, not diluted by tokens that land on no commit.
     covered = {key: sum(churns[key].get(date, 0) for date in entries[key]) for key in keys}
-    rated = [s for s in sources if covered[s["key"]]]
+    rated = [s for s in sources if s["ratio"]]
     covered_ai = sum(covered[s["key"]] for s in rated)
     covered_all = sum(churn.get(date, 0) for date in archive_days)
 
@@ -372,11 +373,11 @@ def tokens_by_commit(sources, results):
 def unmeasured_agents(results, measured_keys):
     """How many AI-attributed commits carry no token figure, and by whom.
 
-    `measured_keys` are the sources whose logs cover some of their agents'
-    lines, which is what gives a source a rate to price its commits at. A
-    commit is unmeasured when its agent has no source, or its source is not
-    among those: no logs for this repository, or logs only for days its agents
-    changed nothing. Known sources are named by their label, so a history of
+    `measured_keys` are the sources with a rate to price their commits at:
+    archived tokens on days their agents changed lines. A commit is
+    unmeasured when its agent has no source, or its source has no rate: no
+    logs for this repository, logs only for days its agents changed nothing,
+    or logs that recorded no tokens. Known sources are named by their label, so a history of
     Claude models reads as "Claude Code".
     """
     count, names = 0, set()

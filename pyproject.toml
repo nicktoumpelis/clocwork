@@ -16,7 +16,7 @@ clocwork = "clocwork.cli:main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
-packages = ["clocwork"]
+packages = ["clocwork", "clocwork.sources"]
 
 [tool.setuptools.package-data]
 clocwork = ["template.html"]

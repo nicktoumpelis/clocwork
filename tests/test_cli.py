@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stderr
 
-from clocwork import cli
+from clocwork import cli, sources
 from tests import repo_fixture as fx
 
 HAVE_CLOC = shutil.which("cloc") is not None
@@ -76,7 +76,7 @@ class TestEndToEnd(unittest.TestCase):
         fx.make_polyglot_repo(self.repo)
         self.ws = os.path.join(self.root, "poly-stats")
         self.cache = os.path.join(self.root, "cache")
-        self.projects = os.path.join(self.root, "projects")   # no transcripts in here
+        self.projects = os.path.join(self.root, "projects")   # no agent logs in here
         os.makedirs(self.projects)
 
     def tearDown(self):
@@ -86,7 +86,8 @@ class TestEndToEnd(unittest.TestCase):
         quiet = ["-q"] if args[0] == "tokens" else ["--no-open", "-q"]   # tokens has no page to open
         err = io.StringIO()
         with redirect_stderr(err):
-            code = cli.main(list(args) + quiet, homes={"claude-code": [self.projects]})
+            # Every source reads the empty directory, never the real home.
+            code = cli.main(list(args) + quiet, homes={s.KEY: [self.projects] for s in sources.SOURCES})
         return code, err.getvalue()
 
     def test_jobs_reach_the_analyser(self):

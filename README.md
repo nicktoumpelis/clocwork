@@ -102,7 +102,7 @@ the repository it reports on. Pass `-o DIR` to put it elsewhere.
 foo-stats/
   clocwork.json           which repository this workspace belongs to
   clocwork.toml           optional configuration (see below)
-  token_usage.json        the per-day token archive; cannot be regenerated
+  token_usage.json        the per-day, per-agent token archive; cannot be regenerated
   full_commit_data.json   the analysis
   index.html              the dashboard
   commit_bodies.js        full commit messages, loaded when a row is expanded
@@ -186,7 +186,9 @@ credited to Copilot, Cursor, Codex, Devin or any other agent carries no token
 figure and is never priced at Claude Code's rate; when the repository has
 token data, the run summary counts those commits and names their agents. An
 archive written by an earlier version is read as Claude Code's and rewritten
-in the per-agent shape the next time a scan finds logs.
+in the per-agent shape the next time a scan finds logs; an archive of a
+version this clocwork does not know is refused with an error rather than read
+or overwritten.
 
 ## Development
 

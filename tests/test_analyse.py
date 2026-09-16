@@ -505,6 +505,16 @@ class TestPerSource(unittest.TestCase):
         self.assertEqual(an.tokens_by_commit(t["sources"], results), {})
         self.assertEqual((t["unmeasured_agent_commits"], t["unmeasured_agents"]), (1, ["Claude Code"]))
 
+    def test_a_source_whose_records_hold_no_tokens_leaves_its_commits_unmeasured(self):
+        # Claude Code writes zero-usage turns (model "<synthetic>"); a source
+        # made only of those has lines to cover but no rate to price them at.
+        archive = {"2026-01-01": {"claude-code": self.entry(0, model="<synthetic>")}}
+        results = [self.row(0, "2026-01-01", "Claude Opus 5", 10), self.row(1, "2026-01-02", "Claude Opus 5", 10)]
+        t = an.token_summary(archive, results)
+        self.assertEqual(an.tokens_by_commit(t["sources"], results), {0: 0})
+        self.assertEqual((t["unmeasured_agent_commits"], t["unmeasured_agents"]), (2, ["Claude Code"]))
+        self.assertEqual(t["ratio"], 0.0)
+
     def test_the_ratio_counts_only_the_sources_own_lines(self):
         self.assertEqual(an.token_summary(*self.probe())["ratio"], 20.0)   # not 1,000 over 100 lines
 
