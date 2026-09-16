@@ -449,6 +449,57 @@ class TestCostEstimate(unittest.TestCase):
         self.assertEqual(cost["measured_usd"], 0)
         self.assertEqual(cost["unpriced_tokens"], 1500)
 
+    # Every id the two vendors list for the families Codex CLI and Gemini CLI
+    # report, and the row it must be priced by. A variant whose id extends a
+    # shorter one's takes the shorter price unless it has a row of its own.
+    VARIANTS = (
+        ("gpt-6-astra", "gpt-6-astra"),
+        ("gpt-5.6-sol", "gpt-5.6-sol"), ("gpt-5.6-terra", "gpt-5.6-terra"), ("gpt-5.6-luna", "gpt-5.6-luna"),
+        ("gpt-5.6-cyber", "gpt-5.6-cyber"),
+        ("gpt-5.5", "gpt-5.5"), ("gpt-5.5-pro", "gpt-5.5-pro"), ("gpt-5.5-cyber", "gpt-5.5-cyber"),
+        ("gpt-5.4", "gpt-5.4"), ("gpt-5.4-mini", "gpt-5.4-mini"), ("gpt-5.4-nano", "gpt-5.4-nano"),
+        ("gpt-5.4-pro", "gpt-5.4-pro"),
+        ("gpt-5.3-codex", "gpt-5.3-codex"),
+        ("gpt-5.2", "gpt-5.2"), ("gpt-5.2-pro", "gpt-5.2-pro"), ("gpt-5.1", "gpt-5.1"),
+        ("gpt-5", "gpt-5"), ("gpt-5-mini", "gpt-5-mini"), ("gpt-5-nano", "gpt-5-nano"), ("gpt-5-pro", "gpt-5-pro"),
+        ("gpt-5-search-api", "gpt-5"),                              # listed at gpt-5's price
+        ("gpt-5-mini-2025-08-07", "gpt-5-mini"),                    # a dated snapshot
+        ("gemini-3.8-flash", "gemini-3.8-flash"), ("gemini-3.7-flash", "gemini-3.7-flash"),
+        ("gemini-3.6-flash", "gemini-3.6-flash"),
+        ("gemini-3.5-flash", "gemini-3.5-flash"), ("gemini-3.5-flash-lite", "gemini-3.5-flash-lite"),
+        ("gemini-3.1-pro-preview", "gemini-3.1-pro-preview"),
+        ("gemini-3.1-pro-preview-customtools", "gemini-3.1-pro-preview"),   # listed together
+        ("gemini-3.1-flash-lite", "gemini-3.1-flash-lite"),
+        ("gemini-3-flash-preview", "gemini-3-flash-preview"),
+        ("gemini-2.5-pro", "gemini-2.5-pro"), ("gemini-2.5-flash", "gemini-2.5-flash"),
+        ("gemini-2.5-flash-lite", "gemini-2.5-flash-lite"),
+        ("gpt-5.6", None), ("gpt-4o", None), ("o3", None), ("gemini-3.5", None), ("gemini-3-pro-preview", None),
+    )
+
+    def test_each_variant_resolves_to_its_own_row(self):
+        for model, row in self.VARIANTS:
+            with self.subTest(model=model):
+                self.assertIs(an.price_for(model), an.PRICE_USD_PER_MTOK[row] if row else None)
+
+    def test_openai_cache_writes_have_their_own_rate(self):
+        # gpt-5.6-sol: $4 input, $5 cache write, $0.40 cached input, $20 output per MTok.
+        a = self.archive("gpt-5.6-sol", input=1_000_000, cache_write=1_000_000, cache_read=1_000_000, output=1_000_000)
+        self.assertAlmostEqual(an.cost_estimate(a)["measured_usd"], 4 + 5 + 0.4 + 20)
+
+    def test_gemini_is_priced_at_its_base_tier(self):
+        # gemini-2.5-pro up to 200k tokens: $1.25 input, $0.125 cached, $10 output.
+        a = self.archive("gemini-2.5-pro", input=1_000_000, cache_read=1_000_000, output=1_000_000)
+        self.assertAlmostEqual(an.cost_estimate(a)["measured_usd"], 1.25 + 0.125 + 10)
+
+    def test_a_scheduled_price_change_applies_from_its_date(self):
+        before = self.archive("gemini-3.8-flash", input=1_000_000, output=1_000_000)
+        after = {"2027-01-01": before["2026-08-06"]}
+        self.assertAlmostEqual(an.cost_estimate(before)["measured_usd"], 0.75 + 3.75)
+        self.assertAlmostEqual(an.cost_estimate(after)["measured_usd"], 1.50 + 7.50)
+        self.assertEqual(an.price_for("gemini-3.7-flash", "2026-12-31")["cache_read"], 0.075)
+        self.assertEqual(an.price_for("gemini-3.7-flash", "2027-01-01")["cache_read"], 0.15)
+        self.assertIs(an.price_for("gemini-3.5-flash", "2027-06-01"), an.PRICE_USD_PER_MTOK["gemini-3.5-flash"])
+
     def test_empty_archive_costs_nothing(self):
         self.assertEqual(an.cost_estimate({}), {"measured_usd": 0.0, "unpriced_tokens": 0})
 

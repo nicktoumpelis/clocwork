@@ -171,30 +171,91 @@ def energy_estimate(counters, measured_total, lifetime_total):
     return kwh, kwh * GRID_G_CO2E_PER_KWH / 1000
 
 
-# API list prices in US dollars per million tokens, from
-# platform.claude.com/docs/en/about-claude/pricing on 2026-09-07. Cache writes
-# are priced at the one-hour rate: Claude Code writes its cache with that TTL
-# (98% of cache-write tokens in the current transcripts) and the archive keeps
-# one cache-write counter. Long context carries no premium on these models.
-# Keys are matched as prefixes, longest first, so dated ids and whole
-# generations ('claude-opus-4-6') resolve without a row each.
+# API list prices in US dollars per million tokens, from each vendor's pricing
+# page on the date given. Keys are matched as prefixes, longest first, so dated
+# ids and whole generations ('claude-opus-4-6') resolve without a row each; a
+# variant whose id extends another's ('gpt-5-mini', 'gemini-2.5-flash-lite')
+# needs a row of its own, or it is priced as the shorter id.
+#
+# Anthropic: platform.claude.com/docs/en/about-claude/pricing, 2026-09-07.
+# Cache writes are priced at the one-hour rate: Claude Code writes its cache
+# with that TTL (98% of cache-write tokens in the current transcripts) and the
+# archive keeps one cache-write counter. Long context carries no premium on
+# these models.
+#
+# OpenAI: developers.openai.com/api/docs/pricing, standard tier, 2026-09-16.
+# Cache writes have a price of their own from GPT-5.6 on; earlier models list
+# none and report none, so their rows repeat the input price, as do the cached
+# prices of the pro models, which list no caching. gpt-5.6-sol's price is
+# promotional "at least through November 21, 2026": check it then.
+#
+# Google: ai.google.dev/gemini-api/docs/pricing, standard paid tier, text,
+# 2026-09-16. The context caching price is the cached-token rate; Gemini CLI
+# reports no cache writes, so that column repeats the input price.
+#
+# GPT-5.5 and GPT-5.4 cost more above 272K tokens of context and the Gemini
+# Pro models above 200K. Those tiers are not applied: the archive holds daily
+# sums, not request sizes, so every model is priced at its base tier.
 PRICE_USD_PER_MTOK = {
-    "claude-fable-5-1": {"input": 10.0, "cache_write": 20.0, "cache_read": 0.25, "output": 50.0},
-    "claude-fable-5":   {"input": 10.0, "cache_write": 20.0, "cache_read": 1.0,  "output": 50.0},
-    "claude-opus-5":    {"input": 5.0,  "cache_write": 10.0, "cache_read": 0.5,  "output": 25.0},
-    "claude-opus-4-1":  {"input": 15.0, "cache_write": 30.0, "cache_read": 1.5,  "output": 75.0},
-    "claude-opus-4":    {"input": 5.0,  "cache_write": 10.0, "cache_read": 0.5,  "output": 25.0},
-    "claude-sonnet-5":  {"input": 2.0,  "cache_write": 4.0,  "cache_read": 0.2,  "output": 10.0},
-    "claude-sonnet-4":  {"input": 3.0,  "cache_write": 6.0,  "cache_read": 0.3,  "output": 15.0},
-    "claude-haiku-4-5": {"input": 1.0,  "cache_write": 2.0,  "cache_read": 0.1,  "output": 5.0},
+    "claude-fable-5-1": {"input": 10.0,  "cache_write": 20.0,   "cache_read": 0.25,   "output": 50.0},
+    "claude-fable-5":   {"input": 10.0,  "cache_write": 20.0,   "cache_read": 1.0,    "output": 50.0},
+    "claude-opus-5":    {"input": 5.0,   "cache_write": 10.0,   "cache_read": 0.5,    "output": 25.0},
+    "claude-opus-4-1":  {"input": 15.0,  "cache_write": 30.0,   "cache_read": 1.5,    "output": 75.0},
+    "claude-opus-4":    {"input": 5.0,   "cache_write": 10.0,   "cache_read": 0.5,    "output": 25.0},
+    "claude-sonnet-5":  {"input": 2.0,   "cache_write": 4.0,    "cache_read": 0.2,    "output": 10.0},
+    "claude-sonnet-4":  {"input": 3.0,   "cache_write": 6.0,    "cache_read": 0.3,    "output": 15.0},
+    "claude-haiku-4-5": {"input": 1.0,   "cache_write": 2.0,    "cache_read": 0.1,    "output": 5.0},
+    "gpt-6-astra":      {"input": 10.0,  "cache_write": 12.5,   "cache_read": 1.0,    "output": 50.0},
+    "gpt-5.6-sol":      {"input": 4.0,   "cache_write": 5.0,    "cache_read": 0.4,    "output": 20.0},
+    "gpt-5.6-terra":    {"input": 2.0,   "cache_write": 2.5,    "cache_read": 0.2,    "output": 12.0},
+    "gpt-5.6-luna":     {"input": 0.2,   "cache_write": 0.25,   "cache_read": 0.02,   "output": 1.2},
+    "gpt-5.6-cyber":    {"input": 12.5,  "cache_write": 15.625, "cache_read": 1.25,   "output": 75.0},
+    "gpt-5.5":          {"input": 5.0,   "cache_write": 5.0,    "cache_read": 0.5,    "output": 30.0},
+    "gpt-5.5-pro":      {"input": 30.0,  "cache_write": 30.0,   "cache_read": 30.0,   "output": 180.0},
+    "gpt-5.5-cyber":    {"input": 12.5,  "cache_write": 12.5,   "cache_read": 1.25,   "output": 75.0},
+    "gpt-5.4":          {"input": 2.5,   "cache_write": 2.5,    "cache_read": 0.25,   "output": 15.0},
+    "gpt-5.4-mini":     {"input": 0.75,  "cache_write": 0.75,   "cache_read": 0.075,  "output": 4.5},
+    "gpt-5.4-nano":     {"input": 0.2,   "cache_write": 0.2,    "cache_read": 0.02,   "output": 1.25},
+    "gpt-5.4-pro":      {"input": 30.0,  "cache_write": 30.0,   "cache_read": 30.0,   "output": 180.0},
+    "gpt-5.3-codex":    {"input": 1.75,  "cache_write": 1.75,   "cache_read": 0.175,  "output": 14.0},
+    "gpt-5.2":          {"input": 1.75,  "cache_write": 1.75,   "cache_read": 0.175,  "output": 14.0},
+    "gpt-5.2-pro":      {"input": 21.0,  "cache_write": 21.0,   "cache_read": 21.0,   "output": 168.0},
+    "gpt-5.1":          {"input": 1.25,  "cache_write": 1.25,   "cache_read": 0.125,  "output": 10.0},
+    "gpt-5":            {"input": 1.25,  "cache_write": 1.25,   "cache_read": 0.125,  "output": 10.0},
+    "gpt-5-mini":       {"input": 0.25,  "cache_write": 0.25,   "cache_read": 0.025,  "output": 2.0},
+    "gpt-5-nano":       {"input": 0.05,  "cache_write": 0.05,   "cache_read": 0.005,  "output": 0.4},
+    "gpt-5-pro":        {"input": 15.0,  "cache_write": 15.0,   "cache_read": 15.0,   "output": 120.0},
+    "gemini-3.8-flash":      {"input": 0.75, "cache_write": 0.75, "cache_read": 0.075, "output": 3.75},
+    "gemini-3.7-flash":      {"input": 0.75, "cache_write": 0.75, "cache_read": 0.075, "output": 3.75},
+    "gemini-3.6-flash":      {"input": 0.75, "cache_write": 0.75, "cache_read": 0.075, "output": 3.75},
+    "gemini-3.5-flash":      {"input": 1.5,  "cache_write": 1.5,  "cache_read": 0.15,  "output": 9.0},
+    "gemini-3.5-flash-lite": {"input": 0.3,  "cache_write": 0.3,  "cache_read": 0.03,  "output": 2.5},
+    "gemini-3.1-pro-preview": {"input": 2.0, "cache_write": 2.0,  "cache_read": 0.2,   "output": 12.0},
+    "gemini-3.1-flash-lite": {"input": 0.25, "cache_write": 0.25, "cache_read": 0.025, "output": 1.5},
+    "gemini-3-flash-preview": {"input": 0.5, "cache_write": 0.5,  "cache_read": 0.05,  "output": 3.0},
+    "gemini-2.5-pro":        {"input": 1.25, "cache_write": 1.25, "cache_read": 0.125, "output": 10.0},
+    "gemini-2.5-flash":      {"input": 0.3,  "cache_write": 0.3,  "cache_read": 0.03,  "output": 2.5},
+    "gemini-2.5-flash-lite": {"input": 0.1,  "cache_write": 0.1,  "cache_read": 0.01,  "output": 0.4},
+}
+
+# List prices already announced to change: {row key: [(first day, row), ...]},
+# oldest first. Each archived day is priced at the row in force on it.
+PRICE_CHANGES = {
+    key: [("2027-01-01", {"input": 1.5, "cache_write": 1.5, "cache_read": 0.15, "output": 7.5})]
+    for key in ("gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.8-flash")
 }
 
 
-def price_for(model):
-    """The price row for a model id, or None when the table does not know it."""
+def price_for(model, date=""):
+    """The price row for a model id on a date ('YYYY-MM-DD'), or None when
+    the table does not know the model. Without a date, the table's row."""
     for key in sorted(PRICE_USD_PER_MTOK, key=len, reverse=True):
         if model == key or model.startswith(key + "-"):
-            return PRICE_USD_PER_MTOK[key]
+            row = PRICE_USD_PER_MTOK[key]
+            for since, later in PRICE_CHANGES.get(key, ()):
+                if date >= since:
+                    row = later
+            return row
     return None
 
 
@@ -203,9 +264,9 @@ def cost_estimate(archive_days):
     dollars, plus the tokens of any model the table does not know, which are
     left out of the figure rather than priced at a guess."""
     usd, unpriced = 0.0, 0
-    for day in archive_days.values():
+    for date, day in archive_days.items():
         for model, counters in day["models"].items():
-            price = price_for(model)
+            price = price_for(model, date)
             if price is None:
                 unpriced += sum(counters.values())
                 continue
