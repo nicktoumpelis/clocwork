@@ -35,7 +35,8 @@ function checkSources(page, check, section) {
   const claude = sources.findIndex(s => s.key === 'claude-code');
   if (claude >= 0) check(sets[2 * claude].backgroundColor === 'rgba(88,166,255,0.6)', 'Claude Code keeps its blue');
   check(new Set(sources.map((s, i) => sets[2 * i].borderColor)).size === sources.length, 'each source has its own hue');
-  check(token.options.interaction.mode === 'x', 'the tooltip matches bars by date, not by position');
+  check(token.options.interaction.mode === 'nearest' && token.options.interaction.axis === 'x' && token.options.interaction.intersect === false,
+        'the tooltip shows the date nearest the pointer, not a position or only a bar under it');
   const click = i => token.options.plugins.legend.onClick({}, { datasetIndex: i }, { chart: token });
   click(2);
   check(!token.isDatasetVisible(2) && !token.isDatasetVisible(3) && token.isDatasetVisible(0) && token.isDatasetVisible(1),

@@ -15,6 +15,12 @@ def entry(output, model="claude-opus-5"):
     return {"turns": 1, "models": {model: {"input": 0, "output": output, "cache_read": 0, "cache_write": 0}}}
 
 
+def claude_only(projects):
+    """Homes that point Claude Code at `projects` and every other agent at
+    nothing, so the machine's own logs never reach a test."""
+    return {s.KEY: [] for s in src.SOURCES} | {"claude-code": [projects]}
+
+
 class TestMerge(unittest.TestCase):
     def test_new_days_are_added(self):
         merged = tu.merge({"2026-08-06": {"claude-code": entry(10)}}, {"2026-08-07": {"claude-code": entry(20)}})
@@ -82,7 +88,7 @@ class TestArchiveRoundTrip(unittest.TestCase):
                               {"a.jsonl": [turn("m1", "2026-08-06", output=7)]})
             path = os.path.join(d, "token_usage.json")
             tu.save(path, {"2026-07-01": {"claude-code": entry(5)}})
-            days = tu.archive(repo, path, src.SOURCES, homes={"claude-code": [projects]}, log=lambda *a: None)
+            days = tu.archive(repo, path, src.SOURCES, homes=claude_only(projects), log=lambda *a: None)
             self.assertEqual(sorted(days), ["2026-07-01", "2026-08-06"])
             self.assertEqual(tu.load(path), days)
 
@@ -93,7 +99,7 @@ class TestArchiveRoundTrip(unittest.TestCase):
             tu.save(path, existing)
             before = os.stat(path).st_mtime_ns
             days = tu.archive(os.path.join(d, "Absent"), path, src.SOURCES,
-                              homes={"claude-code": [os.path.join(d, "projects")]}, log=lambda *a: None)
+                              homes=claude_only(os.path.join(d, "projects")), log=lambda *a: None)
             self.assertEqual(days, existing)
             self.assertEqual(os.stat(path).st_mtime_ns, before)
 

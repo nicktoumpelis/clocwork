@@ -1318,8 +1318,10 @@ function resetMainZoom() {
         options: {
             responsive: true, maintainAspectRatio: true,
             // Each series holds only its own days, so the tooltip must match
-            // bars by date; 'index' would pair unrelated days by position.
-            interaction: { intersect: false, mode: 'x' },
+            // bars by date: 'index' would pair unrelated days by position, and
+            // 'x' finds nothing between bars a few pixels wide. The nearest bar
+            // along x brings every stacked segment of its date with it.
+            interaction: { intersect: false, mode: 'nearest', axis: 'x' },
             plugins: {
                 legend: { display: true, labels: { boxWidth: 10, padding: 12,
                     filter: function(item, data) { return data.datasets[item.datasetIndex].inLegend !== false; } },

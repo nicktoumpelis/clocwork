@@ -3,8 +3,9 @@
 Real Codex CLI and Gemini CLI session logs, reduced to what clocwork's token
 readers use: session identity, working directory, remote, model, token
 usage and timestamps. Prompts, replies, reasoning, tool calls, instructions,
-branch names, commit hashes and time zones were removed, and Codex lines
-that carry no usage were left out.
+branch names, commit hashes and time zones were removed, and only Codex's
+`session_meta`, `turn_context`, `token_usage_record`, `token_count` and
+`compacted` lines were kept.
 
 Every session is rewritten to a placeholder repository: its working
 directory is `/work/agent-sample`, a Codex remote is
