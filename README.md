@@ -49,9 +49,10 @@ git clone https://github.com/nicktoumpelis/clocwork.git ~/code/clocwork
 cd ~/code/foo && ~/code/clocwork/clocwork
 ```
 
-Both run under the first `python3` on `PATH`, which must be 3.11 or later.
-On macOS, `/usr/bin/python3` comes from Apple's developer tools and can be
-older (Xcode's is 3.9); name a newer interpreter instead, as in
+Both run under the first `python3` on `PATH`, which must be 3.11 or later;
+an older one is refused with a message naming it. On macOS,
+`/usr/bin/python3` comes from Apple's developer tools and can be older
+(Xcode's is 3.9); name a newer interpreter instead, as in
 `python3.13 clocwork.pyz`.
 
 For development, `pip install -e ~/code/clocwork` installs the `clocwork`

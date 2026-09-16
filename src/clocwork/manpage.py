@@ -151,7 +151,7 @@ def render(parser=None, version=__version__, date=None):
                  ".TP\n.IR index.html \", \" commit_bodies.js\nThe dashboard and its sidecar of full commit messages.\n"
                  ".TP\n.I ~/.cache/clocwork/<name>\\-<hash>/cloc_cache.json\nPer\\-file cloc results keyed by commit, so a changed test rule or language table re\\-reads the cache instead of re\\-running cloc.")
     lines.append(".SH EXIT STATUS\n.TP\n.B 0\nSuccess.\n"
-                 f".TP\n.B {EXIT_ERROR}\nAn error the command reported: cloc missing or failing, no git repository, a repository with no commits, "
+                 f".TP\n.B {EXIT_ERROR}\nAn error the command reported: Python older than 3.11, cloc missing, older than 2.06 or failing, no git repository, a repository with no commits, "
                  "a workspace belonging to another repository, invalid configuration, or an unreadable, unwritable or corrupt file. "
                  "A usage error also exits 2, with the usage line on standard error.")
     lines.append(".SH SEE ALSO\n.BR cloc (1),\n.BR git (1),\n.BR git\\-log (1)")
