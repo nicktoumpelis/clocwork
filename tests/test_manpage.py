@@ -101,9 +101,13 @@ class TestRender(unittest.TestCase):
             self.assertNotIn(absent, synopsis, absent)
 
     def test_environment_files_and_exit_status_are_documented(self):
-        for text in ("CLOCWORK_LOCALE", "XDG_CACHE_HOME", "clocwork.json", "token_usage.json", "clocwork.toml"):
+        for text in ("CLOCWORK_LOCALE", "XDG_CACHE_HOME", "clocwork.json", "token_usage.json", "clocwork.toml", "CODEX_HOME", "GEMINI_CLI_HOME"):
             self.assertIn(text, self.page, text)
         self.assertRegex(self.page, r"\.TP\n\.B 2\n")
+
+    def test_the_page_speaks_of_agent_logs(self):
+        self.assertNotIn("transcript", self.page)
+        self.assertIn("Codex CLI", self.sh_section("DESCRIPTION"))
 
     def test_roff_safe(self):
         # A line starting with . or ' is a request; only known macros may start one.

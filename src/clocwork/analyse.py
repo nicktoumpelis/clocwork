@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Analyse every commit in a repository's history: lines per language and type
-via cloc, AI agent detection, and token usage from the transcript archive.
+via cloc, AI agent detection, and token usage from the agent log archive.
 
 The repository, the output path, the cache, the archive and the classification
 rules are all inputs; nothing here knows which repository it is measuring.
