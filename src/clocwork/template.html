@@ -1350,7 +1350,7 @@ function resetMainZoom() {
         return items.length > 1 ? items.slice(0, -1).join(', ') + ' and ' + items[items.length - 1] : items.join('');
     }
     function measuredText(s) {
-        return fmt(s.measured_total) + ' tokens across ' + fmt(s.measured_days) + ' days';
+        return fmt(s.measured_total) + ' tokens across ' + fmt(s.measured_days) + (s.measured_days === 1 ? ' day' : ' days');
     }
     function sinceText(s) {
         return 'from ' + FMT.date(s.coverage_start) + (s.top_model ? ', mostly ' + s.top_model : '') + '. ';

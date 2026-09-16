@@ -222,7 +222,7 @@ class TestEndToEnd(unittest.TestCase):
         self.assertEqual({key for day in archive.values() for key in day}, {"codex", "gemini"})
         self.assertEqual(sorted(archive), ["2026-05-23", "2026-05-29", "2026-06-12", "2026-08-26", "2026-09-07"])
         for line in ("Step 1/3: Archiving token usage from agent logs...",
-                     "  Scanned 4 days of Codex CLI logs", "  Scanned 1 days of Gemini CLI logs",
+                     "  Scanned 4 days of Codex CLI logs", "  Scanned 1 day of Gemini CLI logs",
                      # 1,866,762 from Codex CLI and 238,144 from Gemini CLI (tests/test_sources_*.py).
                      "  Archive now 5 days, 2,104,906 tokens (+5 days, +2,104,906 tokens)",
                      # The polyglot history credits Claude, Copilot and Cursor, never Codex or Gemini.

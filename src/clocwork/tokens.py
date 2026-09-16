@@ -152,7 +152,8 @@ def archive(repo_path, archive_path, sources, homes=None, log=print):
             continue
         for date, day in result.days.items():
             scanned.setdefault(date, {})[source.KEY] = day
-        log(f"  Scanned {len(result.days)} days of {source.LABEL} logs")
+        n = len(result.days)
+        log(f"  Scanned {n} {'day' if n == 1 else 'days'} of {source.LABEL} logs")
         if result.malformed:
             log(f"  NOTE: skipped {result.malformed} unparseable {source.LABEL} lines")
         if result.skipped:

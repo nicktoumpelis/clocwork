@@ -14,6 +14,7 @@ section('a source whose tokens land on no commit');
 const note = byId('tokenNote').textContent;
 check(/No commit credited to Gemini CLI changed a line[^.]*land on no commit/.test(note), 'the note says Gemini CLI\u2019s tokens land on no commit');
 check(note.indexOf('adds no co-author trailer') > 0, 'and why');
+check(note.indexOf('Gemini CLI: ' + new Intl.NumberFormat('en-US').format(2000000) + ' tokens across 1 day from ') >= 0, 'one day is a day, not days');
 check(note.indexOf('Across the agents with a rate, that is ' + new Intl.NumberFormat('en-US').format(700)) > 0, 'the blended rate is stated');
 
 section('the tokens column follows each commit\u2019s own kind');

@@ -9,10 +9,10 @@ about tokens.
 
 --sources writes a workspace measured from three agents' logs. Claude Code is
 as in the default. Codex CLI covers the commits credited to Codex, which
-replace the Claude Fable 5.1 ones. Gemini CLI's tokens land on no commit,
-because no commit credits Gemini. On some days Claude Code measured and Codex
-CLI estimated, so the day's total is an estimate while the Claude commits'
-shares are measured.
+replace the Claude Fable 5.1 ones. Gemini CLI's tokens, from a single day,
+land on no commit, because no commit credits Gemini. On some days Claude Code
+measured and Codex CLI estimated, so the day's total is an estimate while the
+Claude commits' shares are measured.
 
 Deterministic: the same numbers every run, so the checks in tests/dashboard
 can reason about the data they are given. Shaped like a real
@@ -114,7 +114,7 @@ def build(tokens=True, sources=False):
     per_day, ratio = claude, 812.5
     if sources:
         codex = [[d, 3_000_000, "m" if i >= cut + 30 else "e"] for i, d in enumerate(days) if i % 3 == 0]
-        gemini = [[d, 2_000_000, "m"] for d in days[-5:]]
+        gemini = [[days[-1], 2_000_000, "m"]]
         entries += [source("codex", "Codex CLI", codex, 406.0, "gpt-5.6-terra"),
                     source("gemini", "Gemini CLI", gemini, 0.0, "gemini-3.5-flash")]
         shares["Codex"] = (codex, 2)
