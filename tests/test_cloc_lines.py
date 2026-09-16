@@ -114,6 +114,7 @@ import shutil
 import tempfile
 import threading
 import time
+from unittest import mock
 
 from tests import repo_fixture as fx
 
@@ -381,6 +382,48 @@ class TestRealCloc(unittest.TestCase):
 
     def test_require_cloc_passes(self):
         cl.require_cloc()
+
+
+class TestRequireCloc(unittest.TestCase):
+    """require_cloc against stand-in `cloc` scripts, each alone on PATH."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def path_with_cloc(self, script):
+        # A directory per script: the version lookup is memoised by path.
+        d = tempfile.mkdtemp(dir=self.tmp.name)
+        with open(os.path.join(d, "cloc"), "w") as f:
+            f.write("#!/bin/sh\n" + script + "\n")
+        os.chmod(os.path.join(d, "cloc"), 0o755)
+        return mock.patch.dict(os.environ, {"PATH": d})
+
+    def test_a_missing_cloc_is_refused(self):
+        with mock.patch.dict(os.environ, {"PATH": self.tmp.name}):
+            with self.assertRaisesRegex(cl.ClocMissing, "not installed or not on PATH"):
+                cl.require_cloc()
+
+    def test_a_cloc_older_than_2_06_is_refused(self):
+        for version in ("1.64", "1.98", "2.04", "2.05"):
+            with self.subTest(version=version), self.path_with_cloc(f"echo {version}"):
+                with self.assertRaises(cl.ClocMissing) as caught:
+                    cl.require_cloc()
+                self.assertIn(f"cloc {version} ", str(caught.exception))
+                self.assertIn("2.06 or later", str(caught.exception))
+
+    def test_cloc_2_06_and_later_is_accepted(self):
+        # 10.00 sorts before 2.06 as a string; the comparison must be numeric.
+        for version in ("2.06", "2.07", "2.10", "3.00", "10.00"):
+            with self.subTest(version=version), self.path_with_cloc(f"echo {version}"):
+                cl.require_cloc()
+
+    def test_a_version_cloc_does_not_print_plainly_is_not_held_against_it(self):
+        # A build that prints something else is let through; a cloc that
+        # fails outright is reported by the first real run instead.
+        for script in ("echo 'cloc development build'", "exit 2"):
+            with self.subTest(script=script), self.path_with_cloc(script):
+                cl.require_cloc()
 
 
 BY_FILE_CSV = '''language,filename,blank,comment,code,"github.com/AlDanial/cloc v 2.10  T=0.5 s"

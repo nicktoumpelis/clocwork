@@ -2,6 +2,8 @@ import io
 import json
 import os
 import shutil
+import subprocess
+import sys
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -11,6 +13,7 @@ from clocwork.sources import codex, gemini
 from tests import agent_logs, repo_fixture as fx
 
 HAVE_CLOC = shutil.which("cloc") is not None
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 class TestParseArgs(unittest.TestCase):
@@ -243,6 +246,43 @@ class TestEndToEnd(unittest.TestCase):
         self.assertEqual(self.run_cli(self.repo, "-o", ws, "--no-tokens", "--cache-dir", self.cache)[0], 0)
         self.assertTrue(os.path.exists(os.path.join(ws, "index.html")))
         self.assertFalse(os.path.exists(self.ws))
+
+
+class TestOldPython(unittest.TestCase):
+    """A Python older than 3.11 is refused before any module that needs a
+    newer one is read. Each case runs a fresh interpreter whose
+    sys.version_info is replaced before clocwork is imported; below 3.11,
+    tomllib is hidden too, as it is on a real 3.10."""
+
+    def run_as(self, version, code):
+        prelude = f"import sys; sys.version_info = {version!r}; sys.path.insert(0, 'src'); "
+        if version < (3, 11):
+            prelude += "sys.modules['tomllib'] = None; "
+        return subprocess.run([sys.executable, "-c", prelude + code], cwd=ROOT,
+                              capture_output=True, text=True, stdin=subprocess.DEVNULL)
+
+    def assert_refused(self, result, shown):
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertEqual(result.stdout, "")
+        self.assertEqual(result.stderr, f"clocwork: needs Python 3.11 or later; this is Python {shown} "
+                                        f"({sys.executable})\n")
+
+    def test_every_way_in_is_refused(self):
+        ways = {
+            "the clone's shim": "import runpy; sys.argv = ['clocwork', '--version']; "
+                                "runpy.run_path('clocwork', run_name='__main__')",
+            "python -m clocwork and the zipapp": "import runpy; sys.argv = ['clocwork', '--version']; "
+                                                 "runpy.run_module('clocwork', run_name='__main__')",
+            "the console script": "from clocwork.cli import main",
+        }
+        for way, code in ways.items():
+            with self.subTest(way=way):
+                self.assert_refused(self.run_as((3, 9, 6, "final", 0), code), "3.9.6")
+
+    def test_3_10_is_refused_and_3_11_accepted(self):
+        self.assert_refused(self.run_as((3, 10, 14, "final", 0), "import clocwork"), "3.10.14")
+        result = self.run_as((3, 11, 0, "final", 0), "import clocwork; print(clocwork.__version__)")
+        self.assertEqual((result.returncode, result.stdout, result.stderr), (0, cli.__version__ + "\n", ""))
 
 
 if __name__ == "__main__":
