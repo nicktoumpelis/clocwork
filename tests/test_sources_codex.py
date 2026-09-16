@@ -183,8 +183,10 @@ class TestRules(unittest.TestCase):
 
     def committed(self, remote, object_format="sha1"):
         """Make the repository a clone of `remote` with one commit, and return its hash."""
+        # One init with an explicit format: a second, plain one would let a
+        # global init.defaultObjectFormat convert the still-empty repository.
         fx._git(os.path.dirname(self.repo), "init", "-q", f"--object-format={object_format}", self.repo)
-        git_repo(self.repo, remote)
+        fx._git(self.repo, "remote", "add", "origin", remote)
         fx._git(self.repo, "commit", "-q", "--allow-empty", "-m", "Start")
         return fx._git(self.repo, "rev-parse", "HEAD")
 
