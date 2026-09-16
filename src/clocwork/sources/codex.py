@@ -70,7 +70,9 @@ def rollouts(homes):
 
 def commit_lookup(repo):
     """A test of whether a full hash names a commit in the repository,
-    asking git once per hash.
+    asking git once per hash. git resolves the hash and must give back the
+    same name: in a SHA-256 repository it would otherwise take a 40-digit
+    value as an abbreviation.
 
     The hashes asked about are mostly another repository's, so a partial
     clone must not fetch them from its remote, and nothing may wait on a
@@ -85,8 +87,8 @@ def commit_lookup(repo):
     def lookup(sha):
         if sha not in known:
             known[sha] = bool(COMMIT.fullmatch(sha)) and subprocess.run(
-                ["git", "-C", repo, "cat-file", "-e", sha + "^{commit}"],
-                stdin=subprocess.DEVNULL, capture_output=True, env=env).returncode == 0
+                ["git", "-C", repo, "rev-parse", "--verify", "--quiet", sha + "^{commit}"],
+                stdin=subprocess.DEVNULL, capture_output=True, text=True, env=env).stdout.strip() == sha.lower()
         return known[sha]
     return lookup
 
