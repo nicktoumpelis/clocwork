@@ -9,6 +9,7 @@ rules are all inputs; nothing here knows which repository it is measuring.
 import json
 import re
 import subprocess
+from collections import namedtuple
 
 from clocwork import classify as cf
 from clocwork import cloc as cl
@@ -37,28 +38,35 @@ def git(repo, *args):
     return result.stdout
 
 
+Rename = namedtuple("Rename", "commit old new old_blob new_blob")
+
+
 def path_history(repo, rev):
-    """From one walk of rev's history: every rename as (old, new), newest
-    first, with git's default rename detection, and every path that was a
-    symlink at any point."""
+    """From one walk of rev's history: every rename of a regular file as a
+    Rename (the commit, both names and both blob ids), newest first, with
+    git's default rename detection, and every path that was a symlink at
+    any point."""
     # -z: NUL after every field and no newline between commits, so names
-    # come through as written. Each change is ":<modes, ids> <status>", then
-    # its path, or two for a rename or copy.
-    fields = git(repo, "log", "-M", "--raw", "--no-abbrev", "-z", "--format=", rev, "--").split("\0")
+    # come through as written. Each commit is its hash, then per change
+    # ":<modes> <ids> <status>" and its path, or two for a rename or copy.
+    # Merges list no changes without -m.
+    fields = git(repo, "log", "-M", "--raw", "--no-abbrev", "-z", "--format=%H", rev, "--").split("\0")
     renames, symlinks = [], set()
+    commit = None
     i = 0
     while i < len(fields):
-        meta = fields[i]
+        meta = fields[i].lstrip("\n")
         if not meta.startswith(":"):
+            commit = meta or commit
             i += 1
             continue
-        modes, status = meta[1:].split()[:2], meta.split()[-1]
+        old_mode, new_mode, old_blob, new_blob, status = meta[1:].split()[:5]
         count = 2 if status[:1] in "RC" else 1
         names = fields[i + 1:i + 1 + count]
-        if status.startswith("R") and len(names) == 2:
-            renames.append((names[0], names[1]))
-        if "120000" in modes:
+        if "120000" in (old_mode, new_mode):
             symlinks.update(names)
+        elif status.startswith("R") and len(names) == 2 and old_mode.startswith("100") and new_mode.startswith("100"):
+            renames.append(Rename(commit, names[0], names[1], old_blob, new_blob))
         i += 1 + count
     return renames, symlinks
 
@@ -594,7 +602,7 @@ def analyse(repo_dir, output_path, cache_path, archive_path, *, config=None, bra
 
     log(f"Step 2: Measuring lines per commit with cloc, {jobs} at a time (cache: {cache_path})...")
     show_ext_table = cl.load_extension_table()
-    renamed, symlinks = path_history(repo_dir, rev)
+    renames, symlinks = path_history(repo_dir, rev)
     # One per-file report of rev serves the language table here and the
     # snapshot in step 3.
     report = cl.by_file_report(repo_dir, rev, symlinks)
@@ -602,7 +610,18 @@ def analyse(repo_dir, output_path, cache_path, archive_path, *, config=None, bra
     table = cl.merge_language_tables(show_ext_table, learned)
     table.update({cf.path_key(path): cf.UNCOUNTED for path in symlinks})
     present = {path for path in report if path != "header"}
-    table.update(cf.renamed_languages(renamed, table, present))
+    # One more cloc run counts both sides of every rename, for the names'
+    # languages and for the rows that replace cloc's at a language change.
+    counted = cl.count_blobs(repo_dir, [(r.old_blob, r.old) for r in renames] +
+                             [(r.new_blob, r.new) for r in renames])
+    before, after = counted[:len(renames)], counted[len(renames):]
+    renamed_names, changed = cf.rename_plan(
+        [(r.old, r.new, before[i][1], after[i][1]) for i, r in enumerate(renames)], table, present)
+    table.update(renamed_names)
+    adjustments = cl.rename_adjustments(
+        [(renames[i].commit, renames[i].old, renames[i].new, before[i][0], after[i][0]) for i in changed])
+    if renames:
+        log(f"  {len(renames)} renames, {len(changed)} of them changing language")
     # Single files are learned too, under path keys ("/Makefile"); they are not extensions.
     new_extensions = sorted(ext for ext in learned if ext not in show_ext_table and not ext.startswith("/"))
     if new_extensions:
@@ -612,7 +631,7 @@ def analyse(repo_dir, output_path, cache_path, archive_path, *, config=None, bra
                       "is_merge": is_merge_commit(c)} for c in commits]
     log(f"  {sum(1 for m in measure_input if not m['is_merge'] and cache.get(m['hash']) is None)} commits not yet cached")
     measured = cl.measure_commits(repo_dir, measure_input, cache, table, rules, max_commits=max_commits,
-                                  jobs=jobs, log=log)
+                                  jobs=jobs, log=log, adjustments=adjustments)
 
     log(f"Step 3: Snapshot of {branch} for reconciliation...")
     by_lang, by_file_all, by_file_tests = cl.snapshot(repo_dir, rev, table, rules, report)

@@ -93,6 +93,47 @@ class TestClassifyRows(unittest.TestCase):
         self.assertNotEqual(lines, cl.classify_rows(self.rows, self.table, cf.DEFAULT_RULES)[0])
 
 
+class TestRenameAdjustments(unittest.TestCase):
+    """At a rename that changes language, the rows cloc gave the old path are
+    replaced by the whole file leaving the old name and arriving at the new."""
+
+    OLD = {"code": 2, "comment": 2, "blank": 1}
+    NEW = {"code": 5, "comment": 0, "blank": 1}
+
+    def test_adjustments_are_grouped_by_commit(self):
+        adj = cl.rename_adjustments([("c1", "a.rst", "a.inc", self.OLD, self.NEW),
+                                     ("c1", "b.txt", "b.md", None, self.NEW),
+                                     ("c2", "x.py", "x.rb", self.NEW, None)])
+        self.assertEqual(adj, {
+            "c1": ({"a.rst", "a.inc", "b.txt", "b.md"}, {"a.inc": self.NEW, "b.md": self.NEW}, {"a.rst": self.OLD}),
+            "c2": ({"x.py", "x.rb"}, {}, {"x.py": self.NEW}),
+        })
+
+    def test_rows_for_the_renamed_paths_are_replaced_and_the_rest_kept(self):
+        rows = {"added": {"a.rst": {"code": 1, "comment": 0, "blank": 0},
+                          "other.py": {"code": 3, "comment": 0, "blank": 0}},
+                "removed": {"a.rst": {"code": 0, "comment": 1, "blank": 0}}}
+        adj = cl.rename_adjustments([("c", "a.rst", "a.inc", self.OLD, self.NEW)])["c"]
+        self.assertEqual(cl.adjust_rows(rows, adj), {
+            "added": {"other.py": {"code": 3, "comment": 0, "blank": 0}, "a.inc": self.NEW},
+            "removed": {"a.rst": self.OLD},
+        })
+        # The rows passed in, which are the cache's, are left as they were.
+        self.assertEqual(rows["added"]["a.rst"], {"code": 1, "comment": 0, "blank": 0})
+
+    def test_names_swapped_in_one_commit_each_get_both_sides(self):
+        a, b = {"code": 1, "comment": 0, "blank": 0}, {"code": 4, "comment": 0, "blank": 0}
+        adj = cl.rename_adjustments([("c", "p.md", "p.txt", a, a), ("c", "p.txt", "p.md", b, b)])["c"]
+        self.assertEqual(cl.adjust_rows({"added": {"p.md": b}, "removed": {}}, adj),
+                         {"added": {"p.txt": a, "p.md": b}, "removed": {"p.md": a, "p.txt": b}})
+
+    def test_classified_the_old_name_loses_what_the_new_name_gains(self):
+        table = {"rst": "reStructuredText", "inc": "BitBake"}
+        adj = cl.rename_adjustments([("c", "a.rst", "a.inc", self.OLD, self.NEW)])["c"]
+        lines, _ = cl.classify_rows(cl.adjust_rows({"added": {}, "removed": {}}, adj), table, cf.DEFAULT_RULES)
+        self.assertEqual(lines, {"BitBake": [5, 0, 0, 0, 1, 0], "reStructuredText": [0, 2, 0, 2, 0, 1]})
+
+
 class TestParseSnapshots(unittest.TestCase):
     def test_by_language_sums_the_files_by_the_language_cloc_gave_each(self):
         snap = cl.parse_snapshot_by_language(SNAPSHOT_FILE_JSON)
@@ -237,6 +278,19 @@ class TestMeasureCommits(unittest.TestCase):
                                  differ=self.differ, log=lambda *a: None)
         self.assertEqual(self.calls, [])
         self.assertEqual(res.measured["a"][1], {"Swift": [1, 0, 0, 0, 0, 0]})
+
+    def test_adjustments_apply_to_fresh_and_cached_rows_but_not_to_the_cache(self):
+        table = {"swift": "Swift", "md": "Markdown"}
+        adj = cl.rename_adjustments([("b", "a.swift", "a.md", {"code": 1, "comment": 0, "blank": 0},
+                                      {"code": 2, "comment": 0, "blank": 0})])
+        expected = {"Markdown": [2, 0, 0, 0, 0, 0], "Swift": [0, 1, 0, 0, 0, 0]}
+        for run in ("fresh", "cached"):
+            with self.subTest(run=run):
+                res = cl.measure_commits("/nowhere", self.COMMITS, self.cache, table, cf.DEFAULT_RULES,
+                                         differ=self.differ, log=lambda *a: None, adjustments=adj)
+                self.assertEqual(res.measured["b"], (expected, {}))
+                self.assertEqual(res.measured["a"], ({"Swift": [1, 0, 0, 0, 0, 0]}, {}))
+                self.assertEqual(self.cache.get("b"), self.differ("/nowhere", "a", "b"))
 
     def test_failure_is_reported_and_not_cached(self):
         self.fail_b = True
@@ -395,6 +449,31 @@ class TestRealCloc(unittest.TestCase):
         self.assertEqual(by_lang, {"Swift": fx.HEAD_SWIFT, "Markdown": fx.HEAD_MARKDOWN})
         self.assertEqual(all_files, by_lang)
         self.assertEqual(tests, {"Swift": fx.HEAD_TEST_SWIFT})
+
+    def test_count_blobs_counts_each_blob_under_its_own_name(self):
+        def blob(text):
+            return subprocess.run(["git", "-C", self.tmp.name, "hash-object", "-w", "--stdin"], input=text,
+                                  capture_output=True, text=True, check=True).stdout.strip()
+        rst = blob(".. a comment\n.. another\n\nText line one\nText line two\n")
+        script = blob("#!/bin/sh\necho a\n")
+        self.assertEqual(cl.count_blobs(self.tmp.name, [
+            (rst, "docs/a.rst"),
+            (rst, "docs/a.inc"),                      # the same content, split by another parser
+            (script, "bin/run"),                      # no extension: cloc reads the shebang
+            (script, "bin/run\nnext"),                # a newline cannot split the file list
+            (blob("\x00\x01"), "data.bin"),          # binary: cloc counts nothing
+            ("0" * 39 + "1", "gone.py"),              # not in the repository
+        ]), [
+            ({"code": 2, "comment": 2, "blank": 1}, "reStructuredText"),
+            ({"code": 4, "comment": 0, "blank": 1}, "BitBake"),
+            ({"code": 2, "comment": 0, "blank": 0}, "Bourne Shell"),   # the shebang is code
+            ({"code": 2, "comment": 0, "blank": 0}, "Bourne Shell"),
+            (None, None),
+            (None, None),
+        ])
+
+    def test_count_blobs_of_nothing_runs_nothing(self):
+        self.assertEqual(cl.count_blobs("/nowhere", []), [])
 
     def test_require_cloc_passes(self):
         cl.require_cloc()

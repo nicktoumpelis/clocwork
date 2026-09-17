@@ -211,6 +211,26 @@ def make_recreated_name_repo(root):
     return _git(root, "log", "--reverse", "--format=%H", "main").splitlines()
 
 
+def make_language_change_repo(root):
+    """Renames whose sides cloc counts differently: a reStructuredText page
+    with two comment lines renamed to .inc (BitBake to cloc 2.10, all code)
+    and later deleted, and a file cloc does not count renamed, with an edit,
+    to Python."""
+    _git(root, "init", "-q", "-b", "main")
+    _write(root, "docs/contents.rst", ".. a comment\n.. another\n\nText line one\nText line two\n")
+    _write(root, "tool.xyz", "x = 1\ny = 2\n")
+    _write(root, "keep.md", "# Keep\n")
+    _git(root, "add", ".")
+    _git(root, "commit", "-q", "-m", "Pages", date="2025-01-01T10:00:00+00:00")
+    _git(root, "mv", "docs/contents.rst", "docs/contents.inc")
+    _git(root, "mv", "tool.xyz", "tool.py")
+    _write(root, "tool.py", "x = 1\ny = 2\nz = 3\n")
+    _git(root, "commit", "-q", "-am", "Rename", date="2025-01-02T10:00:00+00:00")
+    _git(root, "rm", "-q", "docs/contents.inc")
+    _git(root, "commit", "-q", "-m", "Drop the page", date="2025-01-03T10:00:00+00:00")
+    return _git(root, "log", "--reverse", "--format=%H", "main").splitlines()
+
+
 def make_symlink_repo(root):
     """A Markdown file, a symlink to it, and a symlink to a directory."""
     _git(root, "init", "-q", "-b", "main")
