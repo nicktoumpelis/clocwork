@@ -174,7 +174,7 @@ def energy_estimate(counters, measured_total, lifetime_total):
 
 # API list prices in US dollars per million tokens, from each vendor's pricing
 # page on the date given. Keys are matched as prefixes, longest first, so dated
-# ids and whole generations ('claude-opus-4-6') resolve without a row each; a
+# ids ('claude-sonnet-4-5-20250929') resolve without a row each; a
 # variant whose id extends another's ('gpt-5-mini', 'gemini-2.5-flash-lite')
 # needs a row of its own, or it is priced as the shorter id.
 #
@@ -268,6 +268,8 @@ BEDROCK_PREFIX = re.compile(r"^(?:[a-z]+(?:-[a-z]+)?\.)?[a-z]+\.(?=[a-z])")
 # A colon is a router's price marker (':free', ':thinking') unless it is the
 # minor part of Bedrock's version tail ('-v1:0').
 BEDROCK_VERSION = re.compile(r"-v\d+:\d+$")
+# Claude Code's model alias for the 1M context window, if an id ever carries it.
+CONTEXT_ALIAS = re.compile(r"\[\w+\]$")
 
 
 def price_id(model):
@@ -279,10 +281,11 @@ def price_id(model):
     ('us.anthropic.claude-…'; its '-v1:0' suffix stays, a tail the prefix
     rule accepts), as does Vertex's '@version'. A Claude id written with a dotted
     version ('claude-opus-4.1', as OpenRouter does) takes the hyphens of
-    Anthropic's own. A router's ':free' or ':thinking' suffix stays: it names
-    another price, so the id stays unpriced.
+    Anthropic's own. A context alias ('claude-opus-4-6[1m]') goes: the 1M
+    window costs the same per token. A router's ':free' or ':thinking' suffix
+    stays: it names another price, so the id stays unpriced.
     """
-    bare = BEDROCK_PREFIX.sub("", model.rsplit("/", 1)[-1].split("@", 1)[0])
+    bare = BEDROCK_PREFIX.sub("", CONTEXT_ALIAS.sub("", model.rsplit("/", 1)[-1].split("@", 1)[0]))
     return bare.replace(".", "-") if bare.startswith("claude-") else bare
 
 

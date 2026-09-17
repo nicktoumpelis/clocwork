@@ -518,16 +518,24 @@ class TestCostEstimate(unittest.TestCase):
         ("claude-opus-4-6", "claude-opus-4-6"), ("claude-opus-4-7", "claude-opus-4-7"),
         ("claude-opus-4-8", "claude-opus-4-8"),
         ("claude-sonnet-4-20250514", "claude-sonnet-4"), ("claude-sonnet-4-6", "claude-sonnet-4"),
+        # Claude Code's 1M context alias costs the same as the model.
+        ("claude-opus-4-6[1m]", "claude-opus-4-6"), ("claude-opus-5[1m]", "claude-opus-5"),
     )
 
     def test_the_claude_4_generation_is_priced_at_its_list_prices(self):
         # platform.claude.com/docs/en/about-claude/pricing, read 2026-09-17.
-        for model, input_, output in (("claude-opus-4-20250514", 15, 75), ("claude-opus-4-1", 15, 75),
-                                      ("claude-opus-4-5", 5, 25), ("claude-opus-4-8", 5, 25),
-                                      ("claude-sonnet-4-20250514", 3, 15), ("claude-sonnet-4-5", 3, 15)):
+        # Input, one-hour cache write, cache hit, output.
+        original, later, sonnet = (15, 30, 1.5, 75), (5, 10, 0.5, 25), (3, 6, 0.3, 15)
+        for model, row in (("claude-opus-4-20250514", original), ("claude-opus-4-1", original),
+                           ("claude-opus-4", original),
+                           ("claude-opus-4-5", later), ("claude-opus-4-6", later),
+                           ("claude-opus-4-7", later), ("claude-opus-4-8", later),
+                           ("claude-opus-4-6[1m]", later),
+                           ("claude-sonnet-4-20250514", sonnet), ("claude-sonnet-4-5", sonnet),
+                           ("claude-sonnet-4-6", sonnet)):
             with self.subTest(model=model):
                 price = an.price_for(model)
-                self.assertEqual((price["input"], price["output"]), (input_, output))
+                self.assertEqual(tuple(price[k] for k in ("input", "cache_write", "cache_read", "output")), row)
 
     def test_each_variant_resolves_to_its_own_row(self):
         for model, row in self.VARIANTS:
