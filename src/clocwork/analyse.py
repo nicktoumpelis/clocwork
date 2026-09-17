@@ -268,8 +268,8 @@ def price_id(model):
 
     A path keeps its last part ('openrouter/openai/gpt-5.5', 'models/…',
     Vertex's 'publishers/google/models/…'), Bedrock's vendor and region go
-    ('us.anthropic.claude-…'; its '-v1:0' suffix is a dated id's tail
-    already), as does Vertex's '@version'. A Claude id written with a dotted
+    ('us.anthropic.claude-…'; its '-v1:0' suffix stays, a tail the prefix
+    rule accepts), as does Vertex's '@version'. A Claude id written with a dotted
     version ('claude-opus-4.1', as OpenRouter does) takes the hyphens of
     Anthropic's own. A router's ':free' or ':thinking' suffix stays: it names
     another price, so the id stays unpriced.
@@ -281,9 +281,12 @@ def price_id(model):
 def price_for(model, date=""):
     """The price row for a model id on a date ('YYYY-MM-DD'), or None when
     the table does not know the model. Without a date, the table's row."""
+    # Checked on the last path part as written, before price_id drops an
+    # '@version' that a suffix may follow, and before the prefix rule, which
+    # would read the suffix as a dated tail.
+    if ":" in BEDROCK_VERSION.sub("", model.rsplit("/", 1)[-1]):
+        return None
     model = price_id(model)
-    if ":" in BEDROCK_VERSION.sub("", model):
-        return None     # checked before the prefix rule, which would read the suffix as a dated tail
     for key in sorted(PRICE_USD_PER_MTOK, key=len, reverse=True):
         if model == key or (model.startswith(key + "-")
                             and not VARIANT_WORDS.intersection(model[len(key) + 1:].split("-"))):

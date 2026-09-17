@@ -529,8 +529,8 @@ class TestCostEstimate(unittest.TestCase):
         ("anthropic/claude-opus-4.1:thinking", None), ("anthropic/claude-sonnet-4.5:free", None),
         ("claude-opus-4-1:thinking", None), ("gpt-5.5:online", None),
         # Bedrock's version tail is the one colon that is not a router suffix.
-        ("anthropic.claude-opus-4-1-20250805-v1:0", "claude-opus-4-1"),
         ("us.anthropic.claude-opus-4-1-20250805-v1:0", "claude-opus-4-1"),
+        ("claude-opus-4-1@20250805:thinking", None),
         ("anthropic.claude-opus-4-1-20250805-v12:0", "claude-opus-4-1"), ("claude-opus-4-1:0", None),
         # Not a provider spelling of a known model.
         ("openai/", None), ("anthropic.", None), ("@20260101", None), ("mystery/claude-mystery-9", None),
