@@ -32,10 +32,12 @@ So `counters()` asks the record before it asks anything else: when `total`
 is there, `total == input + output + cache` means reasoning is already
 inside the output and `total == that + reasoning` means it is not. That is
 the only evidence which does not depend on knowing the release, and it
-settles all 8 recorded records that have any reasoning. Only a record
-without a `total` - the key arrived in v1.1.57, and the v1.17.9 rows do not
-carry it - falls back to the version, and then to the provider for the
-releases where the provider decided.
+settles every recorded record that has any reasoning. A record without a
+`total` - the key arrived in v1.1.57, and the v1.17.9 rows do not carry it -
+falls back to the version, and then to the provider for the releases where
+the provider decided. So does a record from the two windows below whose
+input still holds the cache, because then `input + output + cache` counts
+the cache twice and neither reading can match.
 
 The prompt count is version-keyed, because nothing in a record reveals it:
 before v1.0.62 it held cache reads for every provider but Anthropic, and in
@@ -295,19 +297,21 @@ def describe_session(sessions, session_id, project=None, directory=None, version
 
 
 def json_value(value):
-    """A JSON data column as a dict: sqlite3 hands it back as text or bytes,
-    and the file stores hold it already parsed."""
+    """(a JSON data column as a dict, whether it was damaged). sqlite3 hands
+    the column back as text or bytes. A row whose JSON will not parse is
+    counted rather than passed over in silence, as the other readers count a
+    line they cannot parse."""
     if isinstance(value, dict):
-        return value
+        return value, False
     if isinstance(value, (bytes, bytearray)):
         value = value.decode("utf-8", "replace")
     if isinstance(value, str) and value:
         try:
             doc = json.loads(value)
         except ValueError:
-            return {}
-        return doc if isinstance(doc, dict) else {}
-    return {}
+            return {}, True
+        return (doc, False) if isinstance(doc, dict) else ({}, True)
+    return {}, False
 
 
 def pick(fields, data, *names):
@@ -326,34 +330,40 @@ def pick(fields, data, *names):
     return None
 
 
-def table_rows(conn, table):
+def table_rows(conn, table, damaged=None):
     """Each row of a table as (columns dict, parsed data), lazily, so a large
-    store is never held in memory at once."""
+    store is never held in memory at once. A row whose JSON column will not
+    parse is counted in `damaged`, a one-element list used as a counter."""
     columns = [row[1] for row in conn.execute(f"PRAGMA table_info({table})")]
     for row in conn.execute(f"SELECT * FROM {table}"):
         fields = dict(zip(columns, row))
-        yield fields, json_value(fields.get("data"))
+        data, bad = json_value(fields.get("data"))
+        if bad and damaged is not None:
+            damaged[0] += 1
+        yield fields, data
 
 
 def read_database(path):
-    """(sessions, records, unreadable) from one OpenCode database.
+    """(sessions, records, unreadable, damaged rows) from one database.
 
     The database is opened read-only through a URI, which reads a consistent
     snapshot while OpenCode is writing; `immutable` is not used, because it
     would ignore the write-ahead log. A file that will not open, or that
     holds no session table, counts as unreadable rather than raising.
     """
-    sessions, records = {}, []
+    sessions, records, damaged = {}, [], [0]
     try:
         uri = "file:" + urllib.request.pathname2url(os.path.abspath(path)) + "?mode=ro"
         conn = sqlite3.connect(uri, uri=True)
     except (sqlite3.Error, OSError, ValueError):
-        return sessions, records, 1
+        return sessions, records, 1, 0
     try:
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        if not {"session", "message"} <= tables:
-            return sessions, records, 1
-        for fields, data in table_rows(conn, "session"):
+        # A fresh channel database can hold the V2 tables alone, so either
+        # message table makes this a store rather than a damaged file.
+        if "session" not in tables or not tables & {"message", "session_message"}:
+            return sessions, records, 1, 0
+        for fields, data in table_rows(conn, "session", damaged):
             session_id = tokens.text(pick(fields, data, "id"))
             if session_id:
                 describe_session(sessions, session_id,
@@ -362,13 +372,13 @@ def read_database(path):
                                  version=version_of(pick(fields, data, "version")))
         parts = {}
         if "part" in tables:
-            for fields, data in table_rows(conn, "part"):
+            for fields, data in table_rows(conn, "part", damaged):
                 usage = step_tokens(data)
                 part_id = tokens.text(pick(fields, data, "id"))
                 message_id = tokens.text(pick(fields, data, "message_id", "messageID"))
                 if usage is not None and part_id and message_id:
                     parts.setdefault(message_id, []).append((part_id, usage))
-        for fields, data in table_rows(conn, "message"):
+        for fields, data in (table_rows(conn, "message", damaged) if "message" in tables else ()):
             message_id = tokens.text(pick(fields, data, "id"))
             session_id = tokens.text(pick(fields, data, "session_id", "sessionID"))
             if not message_id or not session_id:
@@ -377,27 +387,27 @@ def read_database(path):
             slot["roots"] |= message_roots(data)
             records += message_records(session_id, message_id, data, parts.get(message_id, []))
         if "session_message" in tables:
-            records += read_v2_messages(conn, sessions)
+            records += read_v2_messages(conn, sessions, damaged)
     except READ_ERRORS:
-        return sessions, records, 1
+        return sessions, records, 1, damaged[0]
     finally:
         conn.close()
-    return sessions, records, 0
+    return sessions, records, 0, damaged[0]
 
 
-def read_v2_messages(conn, sessions):
+def read_v2_messages(conn, sessions, damaged=None):
     """The assistant rows of the experimental session_message table.
 
     These are a projection of the V1 rows and carry different ids, so
     nothing merges them: scan() keeps them only for a session whose V1
-    tables hold no assistant message, which is what a session written by the
-    V2 runner alone looks like. The table exists from v1.14.34, so a row is
-    read as that release's counter rule when its session row names no
-    version of its own. A fork's copies are skipped here as they are in the
+    tables hold no usage, which is what a session written by the V2 runner
+    alone looks like. The table exists from v1.14.34, so a row in it is
+    never read under an older release's counter rule, whatever version its
+    session row names. A fork's copies are skipped here as they are in the
     V1 tables, or a forked V2 session would count every call twice.
     """
     records = []
-    for fields, data in table_rows(conn, "session_message"):
+    for fields, data in table_rows(conn, "session_message", damaged):
         session_id = tokens.text(pick(fields, data, "session_id", "sessionID"))
         row_id = tokens.text(pick(fields, data, "id"))
         kind = tokens.text(pick(fields, data, "type")) or tokens.text(data.get("role"))
@@ -412,7 +422,7 @@ def read_v2_messages(conn, sessions):
             records.append(Record(key=row_id, session=session_id, message_id=row_id,
                                   time_ms=created, provider=tokens.text(data.get("providerID")),
                                   model=tokens.text(data.get("modelID")), tokens=usage,
-                                  version=slot["version"] or V2_TABLE_FROM, v2=True))
+                                  version=max(slot["version"], V2_TABLE_FROM), v2=True))
     return records
 
 
@@ -478,7 +488,11 @@ def read_file_store(sessions_glob, messages_glob, parts_glob, project_from_path=
 
 
 def read_j1(home):
-    """The v0.6.0 to v1.1.65 store: storage/{session,message,part}/..."""
+    """The v0.6.0 to v1.1.65 store: storage/{session,message,part}/...
+
+    A file that will not parse is counted as unreadable rather than as a
+    damaged row: in a file store the file is the record.
+    """
     root = os.path.join(home, "storage")
     return read_file_store(os.path.join(root, "session", "*", "*.json"),
                            os.path.join(root, "message", "*", "*.json"),
@@ -582,33 +596,34 @@ def model_key(record):
 
 
 def read_home(home):
-    """(sessions, records, unreadable) from one home: a data directory with
-    any of the four stores in it, or a database file.
+    """(sessions, records, unreadable, damaged rows) from one home: a data
+    directory with any of the four stores in it, or a database file.
 
     The stores are read oldest first, so that where two hold the same record,
     the newest copy is the one kept.
     """
-    sessions, records, unreadable = {}, [], 0
+    sessions, records, unreadable, damaged = {}, [], 0, 0
 
-    def take(found, rows, bad):
-        nonlocal unreadable
+    def take(found, rows, bad, rows_damaged=0):
+        nonlocal unreadable, damaged
         for session_id, slot in found.items():
             target = session_slot(sessions, session_id)
             target.update({k: v for k, v in slot.items() if k != "roots" and v})
             target["roots"] |= slot["roots"]
         records.extend(rows)
         unreadable += bad
+        damaged += rows_damaged
 
     if os.path.isfile(home):
         take(*read_database(home))
-        return sessions, records, unreadable
+        return sessions, records, unreadable, damaged
     if not os.path.isdir(home):
-        return sessions, records, unreadable
+        return sessions, records, unreadable, damaged
     take(*read_j0(home))
     take(*read_j1(home))
     for path in sorted(glob.glob(os.path.join(home, "opencode*.db"))):
         take(*read_database(path))
-    return sessions, records, unreadable
+    return sessions, records, unreadable, damaged
 
 
 def scan(repo, homes):
@@ -616,10 +631,11 @@ def scan(repo, homes):
     and nothing was unreadable."""
     repo_real = os.path.realpath(repo)
     ids, known_commit = known_ids(repo), commit_lookup(repo)
-    sessions, records, skipped = {}, {}, 0
+    sessions, records, skipped, malformed = {}, {}, 0, 0
     for home in homes:
-        found, rows, bad = read_home(home)
+        found, rows, bad, bad_rows = read_home(home)
         skipped += bad
+        malformed += bad_rows
         for session_id, slot in found.items():
             target = session_slot(sessions, session_id)
             target.update({k: v for k, v in slot.items() if k != "roots" and v})
@@ -632,17 +648,33 @@ def scan(repo, homes):
             if belongs(slot, repo_real, ids, known_commit)}
     if not mine and not skipped:
         return None
-    # The V2 table projects the V1 rows under different ids, so a session
-    # described by both would be counted twice. This is decided once every
-    # store has been read, because the two can sit in different databases.
-    v1_sessions = {r.session for r in records.values() if not r.v2}
-    days = {}
+    counted = []
     for record in records.values():
-        if record.session not in mine or (record.v2 and record.session in v1_sessions):
+        if record.session not in mine:
             continue
         date = tokens.day_ms(record.time_ms)
         version = record.version or sessions[record.session]["version"]
         c = counters(record.tokens, record.provider, record.model, version)
         if date and any(c.values()):
-            tokens.record(days, date, model_key(record), c)
-    return tokens.ScanResult(days, 0, skipped)
+            counted.append((record, date, c))
+    # The V2 table projects the V1 rows under different ids, so a session
+    # described by both would be counted twice. Only a V1 record that
+    # carries usage may stand in for the V2 rows: the v1.17.9 recordings
+    # hold assistant messages whose every count is zero, and dropping a
+    # session's V2 usage because of one of those would lose the session
+    # altogether. The decision waits until every store has been read,
+    # because the two tables can sit in different channel databases.
+    v1_sessions = {r.session for r, _date, _c in counted if not r.v2}
+    # A message read from one generation with its step-finish parts and from
+    # another without them yields two records, under a part id and under the
+    # message's own. The parts are the finer reading, so the message-level
+    # fallback gives way to them.
+    by_part = {r.message_id for r, _date, _c in counted if r.key != r.message_id}
+    days = {}
+    for record, date, c in counted:
+        if record.v2 and record.session in v1_sessions:
+            continue
+        if not record.v2 and record.key == record.message_id and record.message_id in by_part:
+            continue
+        tokens.record(days, date, model_key(record), c)
+    return tokens.ScanResult(days, malformed, skipped)

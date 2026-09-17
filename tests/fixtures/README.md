@@ -37,9 +37,12 @@ and `tests/agent_logs.py` builds the database from them. Three buckets keep
 provenance straight, and every row of all three is installed into one
 database:
 
-- **`s1/`: rows as recorded.** Identity, counts and timestamps are all as
-  the recording holds them; only the project id and the working directory
-  are swapped for the placeholders.
+- **`s1/`: rows as recorded.** Identity, counts and timestamps are as the
+  recording holds them; only the project id and the working directory are
+  swapped for the placeholders. Two of the recordings carry no session row
+  of their own - kimaki's is an event stream and codor's a run stream - so
+  those session rows are assembled here from what the stream does say, and
+  codor's version comes from the name of the file it ships in.
 - **`s1-derived/`: recorded counts, minted ids.** Irrlicht's recorder
   strips ids, model providers and session rows, so the token counts and
   timestamps are real and everything that identifies them was minted here.
@@ -58,8 +61,8 @@ reader is shown counting a migrated record once.
 
 ### Sources
 
-- `s1/`, the v1.17.9 rows (five zero-usage calls, and the shape of every
-  table including `session_message`):
+- `s1/`, the v1.17.9 rows (nine step-finish parts, every count in them
+  zero, and the shape of every table including `session_message`):
   [OpenAgentsInc/openagents](https://github.com/OpenAgentsInc/openagents) at
   `8f84d05896ef14edee491621bf977ee5315cc8ed`, `docs/opencode/raw/`.
   Apache-2.0.
@@ -81,11 +84,14 @@ reader is shown counting a migrated record once.
   `replaydata/agents/opencode/scenarios/{5-3_model-switch-midsession,1-1_session-start}/`.
   MIT.
 
-Of the 234 records read while building these, 8 carried any reasoning
-tokens, and they decided the rule the reader uses: 3 OpenAI records where
-`total` equals input + output + cache, and 5 where it equals that plus the
-reasoning. Every real record found has a `cache.write` of 0, which is why
-the only cache-write case here is hand-written.
+Across the four recordings, **8 records carry any reasoning tokens at all**,
+and they are what decided the rule the reader uses: 3 whose `total` equals
+input + output + cache, so the reasoning is already inside the output
+(kimaki's OpenAI records, 50,769 / 46,737 / 47,319), and 5 where it equals
+that plus the reasoning (kimaki's Gemini 39,176 / 39,110 / 43,610, codor's
+10,134 and Irrlicht's 21,781). Every record in all four recordings has a
+`cache.write` of 0, which is why the only cache-write case here is
+hand-written.
 
 ## Licences
 

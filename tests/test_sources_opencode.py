@@ -7,6 +7,7 @@ from cache, is 800 uncached input and 200 cache_read whatever the era stored.
 """
 
 import datetime
+import json
 import os
 import sqlite3
 import subprocess
@@ -455,9 +456,11 @@ class TestTheV2Table(unittest.TestCase):
 
     def test_a_row_with_no_session_version_is_read_as_the_release_it_arrived_in(self):
         # session_message exists from v1.14.34, which is past v1.3.16, so the
-        # reasoning is outside the output even when the session names no
-        # version: 1,100 = 1,000 + 100, and the 40 reasoning tokens are added.
-        usage = {"total": 1_140, "input": 1_000, "output": 100, "reasoning": 40,
+        # reasoning is outside the output whatever the session row says - and
+        # an Anthropic record would otherwise read it as inside.
+        # No `total`, so the version is what decides; with one, the record
+        # would settle the question itself and the floor would never run.
+        usage = {"input": 1_000, "output": 100, "reasoning": 40,
                  "cache": {"read": 0, "write": 0}}
         sid = make_id("ses", AT, 1, "v2case0001")
         agent_logs.build_database(os.path.join(self.home, "opencode.db"), {
@@ -495,6 +498,126 @@ class TestTheV2Table(unittest.TestCase):
         days, _ = scanned(self.repo, [self.home])
         self.assertEqual([day["turns"] for day in days.values()], [1])
         self.assertEqual(days[utc_day(AT)]["models"]["anthropic/claude-sonnet-5"]["input"], 1_000)
+
+
+    def test_a_v1_record_with_no_usage_does_not_hide_the_v2_rows(self):
+        # The v1.17.9 recordings hold assistant messages whose every count is
+        # zero. One of those must not stand in for the session's V2 usage, or
+        # the session is lost: 1,000 input and 100 output here.
+        sid = make_id("ses", AT, 1, "v2case0001")
+        zero = {"input": 0, "output": 0, "reasoning": 0, "cache": {"read": 0, "write": 0}}
+        self.v2_db(os.path.join(self.home, "opencode.db"),
+                   [(make_id("msg", AT, 1, "v2case0001"), AT)],
+                   v1=[{"id": make_id("msg", AT, 7, "zerousage0"), "session_id": sid,
+                        "time_created": AT,
+                        "data": {"role": "assistant", "modelID": "khala", "providerID": "openagents",
+                                 "time": {"created": AT}, "tokens": zero,
+                                 "path": {"cwd": self.repo, "root": self.repo}}}])
+        days, _ = scanned(self.repo, [self.home])
+        self.assertEqual(days[utc_day(AT)]["models"]["anthropic/claude-sonnet-5"]["input"], 1_000)
+
+    def test_a_database_of_only_the_v2_tables_is_read(self):
+        # A channel database a V2-only release wrote has no message table at
+        # all, which is a store rather than a damaged file.
+        sid = make_id("ses", AT, 1, "v2case0001")
+        agent_logs.build_database(os.path.join(self.home, "opencode.db"), {
+            "session": [{"id": sid, "project_id": PROJECT_ID, "directory": self.repo,
+                         "version": "1.18.0", "parent_id": None, "path": "", "time_created": AT}],
+            "session_message": [{"id": make_id("msg", AT, 1, "v2case0001"), "session_id": sid,
+                                 "type": "assistant", "seq": 1, "time_created": AT,
+                                 "data": {"role": "assistant", "modelID": "claude-sonnet-5",
+                                          "providerID": "anthropic", "time": {"created": AT},
+                                          "tokens": USAGE,
+                                          "path": {"cwd": self.repo, "root": self.repo}}}],
+        })
+        days, skipped = scanned(self.repo, [self.home])
+        self.assertEqual(skipped, 0)
+        self.assertEqual(days[utc_day(AT)]["models"]["anthropic/claude-sonnet-5"]["input"], 1_000)
+
+
+class TestDamagedAndDuplicated(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = make_repo(os.path.join(self.tmp.name, "repo"))
+        self.home = os.path.join(self.tmp.name, "home")
+        os.makedirs(self.home)
+
+    def test_a_row_whose_json_will_not_parse_is_counted(self):
+        # Losing a row silently would leave the run saying it scanned
+        # everything, so it is reported the way the other readers report a
+        # line they cannot parse.
+        sid = make_id("ses", AT, 1, "damaged001")
+        path = os.path.join(self.home, "opencode.db")
+        agent_logs.build_database(path, {
+            "session": [{"id": sid, "project_id": PROJECT_ID, "directory": self.repo,
+                         "version": "1.14.50", "parent_id": None, "path": "", "time_created": AT}],
+            "message": [{"id": make_id("msg", AT, 1, "damaged001"), "session_id": sid,
+                         "time_created": AT, "data": None}],
+        })
+        with sqlite3.connect(path) as conn:
+            conn.execute("UPDATE message SET data = ?", ('{"role": "assistant", "tok',))
+        result = oc.scan(self.repo, [self.home])
+        self.assertEqual((result.days, result.malformed, result.skipped), ({}, 1, 0))
+
+    def test_a_message_read_with_and_without_its_parts_is_one_call(self):
+        # A pruned part file in the older store, and the part in the newer
+        # one: the same call under a message id and under a part id.
+        sid = make_id("ses", AT, 1, "dupcase001")
+        mid = make_id("msg", AT, 1, "dupcase001")
+        j1 = os.path.join(self.home, "storage")
+        for rel, doc in (
+            (os.path.join("session", PROJECT_ID, sid + ".json"),
+             {"id": sid, "projectID": PROJECT_ID, "directory": self.repo, "version": "1.1.13",
+              "time": {"created": AT}}),
+            (os.path.join("message", sid, mid + ".json"),
+             {"id": mid, "sessionID": sid, "role": "assistant", "modelID": "gpt-5.3-codex",
+              "providerID": "openai", "path": {"cwd": self.repo, "root": self.repo},
+              "time": {"created": AT}, "tokens": USAGE}),
+        ):
+            os.makedirs(os.path.dirname(os.path.join(j1, rel)), exist_ok=True)
+            with open(os.path.join(j1, rel), "w") as f:
+                json.dump(doc, f)
+        agent_logs.build_database(os.path.join(self.home, "opencode.db"), {
+            "session": [{"id": sid, "project_id": PROJECT_ID, "directory": self.repo,
+                         "version": "1.1.13", "parent_id": None, "path": "", "time_created": AT}],
+            "message": [{"id": mid, "session_id": sid, "time_created": AT,
+                         "data": {"role": "assistant", "modelID": "gpt-5.3-codex",
+                                  "providerID": "openai", "time": {"created": AT},
+                                  "tokens": USAGE,
+                                  "path": {"cwd": self.repo, "root": self.repo}}}],
+            "part": [{"id": make_id("prt", AT, 1, "dupcase001"), "message_id": mid,
+                      "session_id": sid, "time_created": AT,
+                      "data": {"type": "step-finish", "tokens": USAGE}}],
+        })
+        days, _ = scanned(self.repo, [self.home])
+        self.assertEqual([day["turns"] for day in days.values()], [1])
+        self.assertEqual(days[utc_day(AT)]["models"]["openai/gpt-5.3-codex"]["input"], 1_000)
+
+    def test_every_step_of_a_message_is_counted(self):
+        # A message's own tokens are overwritten by its latest step, so the
+        # steps are what is summed: two parts of 1,000 are 2,000, not 1,000.
+        sid, mid = make_id("ses", AT, 1, "steps00001"), make_id("msg", AT, 1, "steps00001")
+        agent_logs.build_database(os.path.join(self.home, "opencode.db"), {
+            "session": [{"id": sid, "project_id": PROJECT_ID, "directory": self.repo,
+                         "version": "1.14.50", "parent_id": None, "path": "", "time_created": AT}],
+            "message": [{"id": mid, "session_id": sid, "time_created": AT,
+                         "data": {"role": "assistant", "modelID": "gpt-5.3-codex",
+                                  "providerID": "openai", "time": {"created": AT},
+                                  "tokens": USAGE,
+                                  "path": {"cwd": self.repo, "root": self.repo}}}],
+            "part": [{"id": make_id("prt", AT, n, "steps00001"), "message_id": mid,
+                      "session_id": sid, "time_created": AT,
+                      "data": {"type": "step-finish", "tokens": USAGE}} for n in (1, 2)] +
+                    # A part of another type carrying a tokens block must not
+                    # be counted: only a step-finish is a model call.
+                    [{"id": make_id("prt", AT, 3, "steps00001"), "message_id": mid,
+                      "session_id": sid, "time_created": AT,
+                      "data": {"type": "step-start", "tokens": USAGE}}],
+        })
+        days, _ = scanned(self.repo, [self.home])
+        self.assertEqual(days[utc_day(AT)]["models"]["openai/gpt-5.3-codex"]["input"], 2_000)
+        self.assertEqual(days[utc_day(AT)]["turns"], 2)
 
 
 class TestHomes(unittest.TestCase):

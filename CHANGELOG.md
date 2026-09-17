@@ -16,7 +16,7 @@ All notable changes to clocwork are recorded here. The format follows
   note, and on selected or hovered controls.
 
 - Token usage from OpenCode, read from `~/.local/share/opencode` on every
-  system (`$XDG_DATA_HOME/opencode`, or the database `OPENCODE_DB` names).
+  system (`$XDG_DATA_HOME/opencode`, plus any database `OPENCODE_DB` names).
   All four of its storage layouts are read — the `opencode*.db` databases,
   the experimental `session_message` table for sessions only it holds, and
   the two file stores older releases wrote — and a record the migrations

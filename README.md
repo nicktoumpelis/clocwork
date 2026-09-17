@@ -3,10 +3,10 @@
 Run `clocwork` inside any git repository and get a dashboard of its whole
 history: lines per language and type (code, comment, blank) at every commit,
 which commits an AI agent co-authored and when each model first appeared, and,
-when the repository was worked on with Claude Code, Codex CLI or Gemini CLI,
-what that work cost in tokens, dollars and electricity. Every commit is
-measured with `cloc --git --diff`, cached per file, and reconciled against a
-`cloc` snapshot of HEAD so drift is visible rather than silent.
+when the repository was worked on with Claude Code, Codex CLI, Gemini CLI or
+OpenCode, what that work cost in tokens, dollars and electricity. Every
+commit is measured with `cloc --git --diff`, cached per file, and reconciled
+against a `cloc` snapshot of HEAD so drift is visible rather than silent.
 
 <!-- To regenerate: run clocwork on this repository with `--locale en-GB`,
 open index.html in headless Chrome at 1200x1300 CSS px and a device scale
@@ -255,7 +255,7 @@ archives per-day totals, per agent and model, into `token_usage.json`:
 | Claude Code | `~/.claude/projects/`, the directory named after the repository's path | none |
 | Codex CLI | `~/.codex/sessions/` and `~/.codex/archived_sessions/` | `CODEX_HOME` replaces `~/.codex` |
 | Gemini CLI | `~/.gemini/tmp/` and `~/.cache/.gemini/tmp/`, sessions started in the repository or a directory it tracks | `GEMINI_CLI_HOME` replaces `~` |
-| OpenCode | `~/.local/share/opencode`, on macOS and Windows as well: its `opencode*.db` databases and the file stores older releases wrote | `XDG_DATA_HOME` replaces `~/.local/share`; `OPENCODE_DB` names one database |
+| OpenCode | `~/.local/share/opencode`, on macOS and Windows as well: its `opencode*.db` databases and the file stores older releases wrote | `XDG_DATA_HOME` replaces `~/.local/share`; `OPENCODE_DB` adds the database it names |
 
 A Codex session belongs to the repository when it records the same remote
 as the repository's `origin`, so sessions from any clone or worktree count.
@@ -343,9 +343,11 @@ exercise the token-less page and the page with several agents render their
 own synthetic variants regardless. Checks that assume the fixture's size,
 such as the 500-row cap, fail over a short history.
 
-`tests/fixtures/` holds real Codex CLI and Gemini CLI sessions from two
-MIT-licensed repositories, reduced to identity, model, usage and timestamps;
-its README names the sources and carries their licence notices.
+`tests/fixtures/` holds real Codex CLI, Gemini CLI and OpenCode sessions
+from five public repositories, four MIT-licensed and one Apache-2.0, reduced
+to identity, model, usage and timestamps; its README names each source with
+the commit it was taken at, carries their licence notices, and says which
+rows are as recorded and which are hand-written.
 
 `man/clocwork.1` is generated from the argparse parsers, and a test checks the
 committed page is current. After changing any help text or the version,
