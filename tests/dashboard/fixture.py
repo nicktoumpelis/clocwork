@@ -81,6 +81,10 @@ def build(tokens=True, sources=False):
         agent = "Misc" if is_merge else (AGENTS[i % len(AGENTS)] if i > 60 else None)
         if sources and agent == "Claude Fable 5.1":
             agent = "Codex"
+        # Half of Copilot's slots go to an agent the page has no fixed colour
+        # for (an [agents].extra name), so its fallback colour is drawn too.
+        if agent == "Copilot" and i % 2:
+            agent = "MyBot"
         lines, tests = {}, {}
         if not is_merge:
             for lang in LANGS:
