@@ -9,16 +9,20 @@ measured with `cloc --git --diff`, cached per file, and reconciled against a
 `cloc` snapshot of HEAD so drift is visible rather than silent.
 
 <!-- To regenerate: run clocwork on this repository with `--locale en-GB`,
-capture index.html with headless Chrome (`--window-size=1200,1300
---force-device-scale-factor=2 --virtual-time-budget=15000 --screenshot`; the
-charts load from a CDN), crop just below the Code Lines Over Time card (2092
-px down at 2×, for this image), and quantise with Pillow's
-`Image.quantize(256)`. -->
-![The top of the clocwork dashboard for clocwork's own history: counts of commits and lines, then a chart of code lines at every commit, with each commit coloured by agent and a dashed line where each model first appeared](https://raw.githubusercontent.com/nicktoumpelis/clocwork/main/.github/dashboard.png)
+open index.html in headless Chrome at 1200x1300 CSS px and a device scale
+factor of 2 (the charts load from a CDN), once with prefers-color-scheme
+light and once dark, capture from the top to 24 px below the Code Lines Over
+Time card, and quantise with Pillow's `Image.quantize(256)`. -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/nicktoumpelis/clocwork/main/.github/dashboard-dark.png">
+  <img alt="The top of the clocwork dashboard for clocwork's own history: counts of commits and lines, then a chart of code lines at every commit, with each commit coloured by agent and a dashed line where each model first appeared" src="https://raw.githubusercontent.com/nicktoumpelis/clocwork/main/.github/dashboard.png">
+</picture>
 
 The top of the page clocwork writes for its own history. Each point on the
 chart is a commit, coloured by the agent that co-authored it (grey when none
-did), and each dashed line marks the first commit of a new model.
+did), and each dashed line marks the first commit of a new model. The page
+comes in Solarized Light and Solarized Dark: the switch at its top right picks
+one, or follows the system, and the browser remembers the choice.
 
 The output is one `index.html` (its charts load Chart.js and its plugins from
 a CDN) plus a `commit_bodies.js` sidecar for the full commit messages, written

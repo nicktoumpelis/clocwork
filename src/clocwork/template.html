@@ -10,34 +10,9 @@
     <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.2.0"></script>
     <style>
-        :root {
-            --bg: #0d1117;
-            --surface: #161b22;
-            --surface-hover: #1c2129;
-            --border: #30363d;
-            --text: #e6edf3;
-            --text-muted: #8b949e;
-            --accent: #58a6ff;
-            --human: #8b949e;
-            --opus46: #58a6ff;
-            --opus46-1m: #79c0ff;
-            --opus45: #d2a8ff;
-            --sonnet46: #3fb950;
-            --sonnet45: #f0883e;
-            --opus47: #39c5cf;
-            --opus47-1m: #56d4dd;
-            --opus48: #db61a2;
-            --opus48-1m: #f778ba;
-            --fable5: #e3b341;
-            --haiku45: #56d364;
-            --opus5: #ff7b72;
-            --opus5-1m: #ffa198;
-            --sonnet5: #7ee787;
-            --fable51: #f2cc60;
-            --unknown: #484f58;
-            --danger: #f85149;
-            --success: #3fb950;
-        }
+        /* Every colour is a custom property set on <html> by the theme script
+           below (THEMES), so the stylesheet names roles, never values. */
+        :root { color-scheme: light dark; }
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -65,7 +40,23 @@
             margin-bottom: 0.25rem;
         }
 
+        header { position: relative; }
         header h1 span { color: var(--accent); }
+
+        /* Light, system, dark: top right of the page. */
+        .theme-switch { position: absolute; top: 0; right: 0; display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+        .theme-switch button {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 2rem; height: 1.75rem; padding: 0;
+            border: none; border-right: 1px solid var(--border);
+            background: var(--surface); color: var(--text-muted);
+            cursor: pointer; transition: all 0.15s;
+        }
+        .theme-switch button:last-child { border-right: none; }
+        .theme-switch button:hover { color: var(--text); }
+        .theme-switch button[aria-checked="true"] { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); }
+        .theme-switch button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+        .theme-switch svg { width: 1rem; height: 1rem; }
         header p { color: var(--text-muted); font-size: 0.95rem; }
 
         .stats-grid {
@@ -108,7 +99,7 @@
             padding: 0.35rem 0.85rem;
             border-radius: 6px;
             border: 1px solid var(--accent);
-            background: rgba(88,166,255,0.1);
+            background: color-mix(in srgb, var(--accent) 10%, transparent);
             color: var(--accent);
             font-size: 0.78rem;
             font-weight: 500;
@@ -119,12 +110,12 @@
         }
 
         .reset-btn:hover {
-            background: rgba(88,166,255,0.25);
+            background: color-mix(in srgb, var(--accent) 25%, transparent);
         }
 
         .chart-actions { display: flex; gap: 0.5rem; flex-shrink: 0; }
         .toggle-btn { border-color: var(--border); background: var(--surface); color: var(--text-muted); }
-        .toggle-btn.active { border-color: #3fb950; background: rgba(63,185,80,0.12); color: #3fb950; }
+        .toggle-btn.active { border-color: var(--success); background: color-mix(in srgb, var(--success) 12%, transparent); color: var(--success); }
         .recon-note { color: var(--text-muted); font-size: 0.78rem; margin-top: 0.5rem; }
 
         .chart-container {
@@ -165,9 +156,14 @@
 
         @media (max-width: 1100px) { .chart-row-3 { grid-template-columns: 1fr; } }
         @media (max-width: 900px) { .chart-row { grid-template-columns: 1fr; } }
+        /* The title keeps clear of the switch beside it; on a phone the
+           switch gets a line of its own above it. */
+        header h1 { margin-left: 6.5rem; margin-right: 6.5rem; }
         @media (max-width: 600px) {
             body { padding: 1rem; }
             .chart-container { padding: 1rem; }
+            header { padding-top: 2.5rem; }
+            header h1 { margin-left: 0; margin-right: 0; }
         }
 
         canvas { max-height: 380px; }
@@ -184,10 +180,11 @@
             border: 1px solid var(--border);
             border-radius: 12px;
             padding: 1.15rem;
-            border-left: 4px solid var(--accent);
+            border-left: 4px solid var(--agent, var(--accent));
         }
 
         .agent-card .agent-name {
+            color: color-mix(in srgb, var(--agent, var(--accent)) 60%, var(--text));
             font-size: 0.95rem;
             font-weight: 600;
             margin-bottom: 0.4rem;
@@ -278,7 +275,7 @@
             position: absolute; top: 0; right: -3px; width: 7px; height: 100%;
             cursor: col-resize; user-select: none; z-index: 1;
         }
-        .col-resizer:hover, .col-resizer.dragging { background: rgba(88,166,255,0.35); }
+        .col-resizer:hover, .col-resizer.dragging { background: color-mix(in srgb, var(--accent) 35%, transparent); }
         /* Hidden probe used once to measure natural column widths. */
         .all-commits.measure { position: absolute; top: 0; left: 0; visibility: hidden; pointer-events: none; table-layout: auto; width: auto; }
 
@@ -295,37 +292,21 @@
             font-weight: 500;
         }
 
-        .badge.positive { background: rgba(63,185,80,0.15); color: var(--success); }
-        .badge.negative { background: rgba(248,81,73,0.15); color: var(--danger); }
+        .badge.positive { background: color-mix(in srgb, var(--success) 15%, transparent); color: var(--success); }
+        .badge.negative { background: color-mix(in srgb, var(--danger) 15%, transparent); color: var(--danger); }
 
+        /* --agent is the badge's agent colour, set per badge as var(--c-<token>).
+           Text takes some of the text colour, so a pale or deep agent colour
+           still reads at 4.5:1 in either theme. */
         .agent-badge {
             display: inline-block;
             padding: 0.1rem 0.45rem;
             border-radius: 4px;
             font-size: 0.72rem;
             font-weight: 500;
-            background: rgba(88,166,255,0.15);
-            color: var(--accent);
+            background: color-mix(in srgb, var(--agent, var(--accent)) 15%, transparent);
+            color: color-mix(in srgb, var(--agent, var(--accent)) 60%, var(--text));
         }
-
-        .agent-badge.human { background: rgba(139,148,158,0.15); color: var(--human); }
-        .agent-badge.opus46 { background: rgba(88,166,255,0.15); color: var(--opus46); }
-        .agent-badge.opus46-1m { background: rgba(121,192,255,0.15); color: var(--opus46-1m); }
-        .agent-badge.opus45 { background: rgba(210,168,255,0.15); color: var(--opus45); }
-        .agent-badge.sonnet46 { background: rgba(63,185,80,0.15); color: var(--sonnet46); }
-        .agent-badge.sonnet45 { background: rgba(240,136,62,0.15); color: var(--sonnet45); }
-        .agent-badge.opus47 { background: rgba(57,197,207,0.15); color: var(--opus47); }
-        .agent-badge.opus47-1m { background: rgba(86,212,221,0.15); color: var(--opus47-1m); }
-        .agent-badge.opus48 { background: rgba(219,97,162,0.15); color: var(--opus48); }
-        .agent-badge.opus48-1m { background: rgba(247,120,186,0.15); color: var(--opus48-1m); }
-        .agent-badge.fable5 { background: rgba(227,179,65,0.15); color: var(--fable5); }
-        .agent-badge.haiku45 { background: rgba(86,211,100,0.15); color: var(--haiku45); }
-        .agent-badge.opus5 { background: rgba(255,123,114,0.15); color: var(--opus5); }
-        .agent-badge.opus5-1m { background: rgba(255,161,152,0.15); color: var(--opus5-1m); }
-        .agent-badge.sonnet5 { background: rgba(126,231,135,0.15); color: var(--sonnet5); }
-        .agent-badge.fable51 { background: rgba(242,204,96,0.15); color: var(--fable51); }
-        .agent-badge.unknown { background: rgba(72,79,88,0.25); color: #8b949e; }
-        .agent-badge.misc { background: rgba(110,118,129,0.15); color: #6e7681; }
 
         .selector-bar {
             display: flex;
@@ -351,10 +332,10 @@
         }
         .segmented button:last-child { border-right: none; }
         .segmented button:hover { color: var(--text); }
-        .segmented button.active { background: rgba(88,166,255,0.15); color: var(--accent); }
+        .segmented button.active { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); }
 
         .timeline-note {
-            background: rgba(88,166,255,0.08);
+            background: color-mix(in srgb, var(--accent) 8%, transparent);
             border-left: 3px solid var(--accent);
             padding: 0.75rem 1rem;
             border-radius: 0 8px 8px 0;
@@ -384,7 +365,7 @@
         }
 
         .filter-btn:hover { border-color: var(--accent); color: var(--text); }
-        .filter-btn.active { background: rgba(88,166,255,0.15); border-color: var(--accent); color: var(--accent); }
+        .filter-btn.active { background: color-mix(in srgb, var(--accent) 15%, transparent); border-color: var(--accent); color: var(--accent); }
 
         .table-header {
             display: flex;
@@ -444,10 +425,116 @@
             font-size: 0.8rem;
         }
     </style>
+    <script>
+// --- Colour themes ---
+// Solarized Light and Solarized Dark (Ethan Schoonover's palette). The viewer
+// picks light, dark or system; the choice is kept in this browser, and system
+// follows the operating system as it changes. This runs in <head>, before the
+// page is drawn, so the first paint is already in the right theme.
+var SOLARIZED = {
+    base03: '#002b36', base02: '#073642', base01: '#586e75', base00: '#657b83',
+    base0: '#839496', base1: '#93a1a1', base2: '#eee8d5', base3: '#fdf6e3',
+    yellow: '#b58900', orange: '#cb4b16', red: '#dc322f', magenta: '#d33682',
+    violet: '#6c71c4', blue: '#268bd2', cyan: '#2aa198', green: '#859900'
+};
+var ACCENTS = ['yellow', 'orange', 'red', 'magenta', 'violet', 'blue', 'cyan', 'green'];
+// `a` moved `t` of the way to `b`, as #rrggbb.
+function mixHex(a, b, t) {
+    var x = parseInt(a.slice(1), 16), y = parseInt(b.slice(1), 16), out = '#';
+    [16, 8, 0].forEach(function(shift) {
+        var v = Math.round((x >> shift & 255) * (1 - t) + (y >> shift & 255) * t);
+        out += (v < 16 ? '0' : '') + v.toString(16);
+    });
+    return out;
+}
+// The roles the stylesheet and the charts use. Cards sit on base3 or base02,
+// the raised tone of each theme. Solarized's own body greys fall short of
+// WCAG AA (4.5:1) for small text on these backgrounds, so text takes the
+// next tone out: base02 and base01 on light, base2 and base1 on dark. Each
+// accent has two further tones, toward the text end of the scale (deeper on
+// light, paler on dark), for series that need more hues than Solarized has;
+// the accent, success and danger roles, which text and controls use, take
+// whichever tone reads at 4.5:1 on both backgrounds.
+var S = SOLARIZED;
+var THEMES = {
+    light: { bg: mixHex(S.base3, S.base2, 0.55), surface: S.base3, 'surface-hover': mixHex(S.base3, S.base2, 0.35),
+             border: mixHex(S.base2, S.base1, 0.35), grid: mixHex(S.base3, S.base2, 0.9),
+             text: S.base02, 'text-muted': S.base01, faint: S.base0,
+             toward: S.base03, tones: [0.3, 0.5],
+             roles: { accent: 'blue-2', success: 'green-3', danger: 'red-2' } },
+    dark:  { bg: S.base03, surface: S.base02, 'surface-hover': mixHex(S.base02, S.base01, 0.12),
+             border: mixHex(S.base02, S.base01, 0.35), grid: mixHex(S.base02, S.base01, 0.2),
+             text: S.base2, 'text-muted': S.base1, faint: S.base01,
+             toward: S.base3, tones: [0.35, 0.6],
+             roles: { accent: 'blue-2', success: 'green-2', danger: 'red-2' } }
+};
+// Every colour of a theme by name: the roles (CSS --<role>), and the series
+// colours (CSS --c-<name>): the accents as 'blue', 'blue-2', 'blue-3', a
+// fourth tone toward the background ('blue-4', for agents the page does not
+// list), and three greys.
+var THEME_ROLES = ['bg', 'surface', 'surface-hover', 'border', 'grid', 'text', 'text-muted', 'faint',
+                   'accent', 'success', 'danger', 'human'];
+function themeColours(name) {
+    var t = THEMES[name], c = {};
+    ['bg', 'surface', 'surface-hover', 'border', 'grid', 'text', 'text-muted', 'faint'].forEach(function(k) { c[k] = t[k]; });
+    ACCENTS.forEach(function(a) {
+        c[a] = S[a];
+        c[a + '-2'] = mixHex(S[a], t.toward, t.tones[0]);
+        c[a + '-3'] = mixHex(S[a], t.toward, t.tones[1]);
+        c[a + '-4'] = mixHex(S[a], t.bg, 0.4);
+    });
+    c.grey = t['text-muted'];
+    c['grey-2'] = t.faint;
+    c['grey-3'] = mixHex(t.faint, t['text-muted'], 0.5);
+    Object.keys(t.roles).forEach(function(k) { c[k] = c[t.roles[k]]; });
+    c.human = c.grey;
+    return c;
+}
+var THEME = (function() {
+    var KEY = 'clocwork-theme', CHOICES = ['light', 'system', 'dark'];
+    var listeners = [], colours = {};
+    var query = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+    // Storage can be missing or refuse (a private window, blocked site data).
+    function stored() {
+        try { var v = window.localStorage.getItem(KEY); return CHOICES.indexOf(v) >= 0 ? v : 'system'; } catch (e) { return 'system'; }
+    }
+    var choice = stored();
+    function name() { return choice === 'system' ? (query && query.matches ? 'dark' : 'light') : choice; }
+    function apply() {
+        var root = document.documentElement;
+        colours = themeColours(name());
+        root.setAttribute('data-theme', name());
+        root.style.setProperty('color-scheme', name());
+        Object.keys(colours).forEach(function(k) {
+            root.style.setProperty((THEME_ROLES.indexOf(k) >= 0 ? '--' : '--c-') + k, colours[k]);
+        });
+    }
+    function changed() { apply(); listeners.forEach(function(f) { f(); }); }
+    if (query) {
+        var follow = function() { if (choice === 'system') changed(); };
+        if (query.addEventListener) query.addEventListener('change', follow); else if (query.addListener) query.addListener(follow);
+    }
+    apply();
+    return {
+        CHOICES: CHOICES,
+        choice: function() { return choice; },
+        name: name,
+        colour: function(k) { return colours[k]; },
+        on: function(f) { listeners.push(f); },
+        set: function(c) {
+            if (CHOICES.indexOf(c) < 0 || c === choice) return;
+            choice = c;
+            try { window.localStorage.setItem(KEY, c); } catch (e) { /* kept for this page only */ }
+            changed();
+        }
+    };
+})();
+    </script>
 </head>
 <body>
 
 <header>
+    <div class="theme-switch" id="themeSwitch" role="radiogroup" aria-label="Colour theme"></div>
     <h1><span>__REPO_NAME__</span> Full Commit History</h1>
     <p>Every commit analysed &middot; <span id="headerCommits"></span> commits from <span id="headerFrom"></span> to <span id="headerTo"></span></p>
 </header>
@@ -557,7 +644,10 @@ var ANNOTATIONS = __ANNOTATIONS__;   // [[date, label, colourIndex], ...] from f
 
 // Chart annotations are data: one dashed line per first appearance, coloured
 // by index into a fixed palette so the assignment is stable across runs.
-var ANNOTATION_PALETTE = ['#d2a8ff', '#58a6ff', '#f0883e', '#79c0ff', '#56d4dd', '#f778ba', '#e3b341', '#7ee787', '#ffa198', '#f2cc60'];
+var ANNOTATION_PALETTE = ['violet', 'blue', 'orange', 'blue-2', 'cyan-2', 'magenta-2', 'yellow', 'green-2', 'red-2', 'yellow-2'];
+// A theme colour by name (THEME, in <head>): a role such as 'surface' or a
+// series colour such as 'blue-2'.
+function themeColour(name) { return THEME.colour(name); }
 function hexToRgba(hex, alpha) {
     var n = parseInt(hex.slice(1), 16);
     return 'rgba(' + (n >> 16 & 255) + ',' + (n >> 8 & 255) + ',' + (n & 255) + ',' + alpha + ')';
@@ -565,7 +655,6 @@ function hexToRgba(hex, alpha) {
 // A tint of `hex` at `alpha` over `base`, as an opaque colour: what the
 // translucent fill looks like on that background, without letting anything
 // drawn beneath show through.
-var SURFACE = '#161b22';   // --surface, the chart cards' background
 function blend(hex, alpha, base) {
     var a = parseInt(hex.slice(1), 16), b = parseInt(base.slice(1), 16);
     function mix(shift) { return Math.round((b >> shift & 255) * (1 - alpha) + (a >> shift & 255) * alpha); }
@@ -702,22 +791,29 @@ function showDroppedLabel(i, show) {
     };
 }
 
+// The first-appearance line and label colours for the current theme. The
+// label is opaque, a tint of its colour over the card's surface, so its line
+// does not show through.
+function paintAnnotation(annotation, colourIndex) {
+    var colour = themeColour(ANNOTATION_PALETTE[colourIndex % ANNOTATION_PALETTE.length]);
+    annotation.borderColor = colour;
+    annotation.label.backgroundColor = blend(colour, 0.15, themeColour('surface'));
+    annotation.label.color = colour;
+    return annotation;
+}
 function annotationObjects(list) {
     var out = {};
     (list || []).forEach(function(a, i) {
-        var colour = ANNOTATION_PALETTE[a[2] % ANNOTATION_PALETTE.length];
-        out['first' + i] = {
+        out['first' + i] = paintAnnotation({
             type: 'line', xMin: a[0], xMax: a[0],
-            borderColor: colour, borderWidth: 1.5, borderDash: [6, 3],
+            borderWidth: 1.5, borderDash: [6, 3],
             hitTolerance: 12,
             enter: showDroppedLabel(i, true), click: showDroppedLabel(i, true),
             leave: showDroppedLabel(i, false),
             label: { display: true, content: a[1], position: 'start',
-                     // Opaque: the label sits on its own dashed line.
-                     backgroundColor: blend(colour, 0.15, SURFACE), color: colour,
                      font: LABEL_FONT,
                      padding: { top: 3, bottom: 3, left: LABEL_PAD_X, right: LABEL_PAD_X }, borderRadius: 4 }
-        };
+        }, a[2]);
     });
     return out;
 }
@@ -976,62 +1072,81 @@ function monthTick(value) { return FMT.monthShort(value); }
 // Tooltip title for charts whose points are { x: 'YYYY-MM-DD', y }.
 function dateTitle(items) { return FMT.date(items[0].raw.x); }
 
+// Each agent's series colour, by name (THEME), so it follows the theme.
 var AGENT_COLORS = {
-    'Human': '#8b949e',
-    'Claude Opus 4.5': '#d2a8ff',
-    'Claude Opus 4.6': '#58a6ff',
-    'Claude Opus 4.6 (1M)': '#79c0ff',
-    'Claude Opus 4.7': '#39c5cf',
-    'Claude Opus 4.7 (1M)': '#56d4dd',
-    'Claude Opus 4.8': '#db61a2',
-    'Claude Opus 4.8 (1M)': '#f778ba',
-    'Claude Fable 5': '#e3b341',
-    'Claude Fable 5.1': '#f2cc60',
-    'Claude Opus 5': '#ff7b72',
-    'Claude Opus 5 (1M)': '#ffa198',
-    'Claude Sonnet 4.5': '#f0883e',
-    'Claude Sonnet 4.6': '#3fb950',
-    'Claude Sonnet 5': '#7ee787',
-    'Claude Haiku 4.5': '#56d364',
-    'Claude (unknown version)': '#484f58',
-    'Misc': '#6e7681',
+    'Human': 'grey',
+    'Claude Opus 4.5': 'violet',
+    'Claude Opus 4.6': 'blue',
+    'Claude Opus 4.6 (1M)': 'blue-2',
+    'Claude Opus 4.7': 'cyan',
+    'Claude Opus 4.7 (1M)': 'cyan-2',
+    'Claude Opus 4.8': 'magenta',
+    'Claude Opus 4.8 (1M)': 'magenta-2',
+    'Claude Fable 5': 'yellow',
+    'Claude Fable 5.1': 'yellow-2',
+    'Claude Opus 5': 'red',
+    'Claude Opus 5 (1M)': 'red-2',
+    'Claude Sonnet 4.5': 'orange',
+    'Claude Sonnet 4.6': 'green',
+    'Claude Sonnet 5': 'green-2',
+    'Claude Haiku 4.5': 'green-3',
+    'Claude (unknown version)': 'grey-3',
+    'Misc': 'grey-2',
     // The agents.py vendors, so the common ones never depend on the hash below.
-    'Copilot': '#a371f7',
-    'Cursor': '#ffab70',
-    'Codex': '#10a37f',
-    'Devin': '#bf8700',
-    'aider': '#e05d44',
-    'Gemini Code Assist': '#1a73e8',
-    'Gemini': '#8ab4f8'
+    'Copilot': 'violet-2',
+    'Cursor': 'orange-2',
+    'Codex': 'cyan-3',
+    'Devin': 'yellow-3',
+    'aider': 'red-3',
+    'Gemini Code Assist': 'violet-3',
+    'Gemini': 'blue-3'
 };
 // Any other agent (a Claude model the table does not list yet, an
 // [agents].extra name) takes a colour by a hash of its name: the same on
-// every chart and every run, and never one of the greys above.
-var AGENT_FALLBACK_PALETTE = ['#f69d50', '#b392f0', '#76e3ea', '#ffd33d', '#85e89d', '#f692ce', '#79b8ff', '#ff938a'];
-function agentColour(a) {
+// every chart and every run, and never a colour an agent above has.
+var AGENT_FALLBACK_PALETTE = ['orange-3', 'magenta-3', 'yellow-4', 'violet-4', 'cyan-4', 'green-4', 'blue-4', 'red-4'];
+function agentToken(a) {
     a = a || 'Human';
     if (Object.prototype.hasOwnProperty.call(AGENT_COLORS, a)) return AGENT_COLORS[a];
     var h = 0;
     for (var i = 0; i < a.length; i++) h = (h * 31 + a.charCodeAt(i)) >>> 0;
     return AGENT_FALLBACK_PALETTE[h % AGENT_FALLBACK_PALETTE.length];
 }
+// The agent's colour in the current theme, as #rrggbb.
+function agentColour(a) { return themeColour(agentToken(a)); }
+// The same colour as a CSS value that follows the theme by itself.
+function agentVar(a) { return 'var(--c-' + agentToken(a) + ')'; }
 
-function agentClass(a) {
-    // Derive the badge class from the agent name so any Claude model gets a
-    // class without a code change: 'Claude Opus 4.6 (1M)' -> 'opus46-1m',
-    // 'Claude Fable 5.1' -> 'fable51'. Models with no matching CSS rule fall
-    // back to the base .agent-badge style.
-    if (!a || a === 'Human') return 'human';
-    if (a === 'Claude (unknown version)') return 'unknown';
-    if (a === 'Misc') return 'misc';
-    var oneM = a.indexOf('(1M') >= 0;
-    var base = a.replace(/^Claude\s+/i, '').replace(/\s*\(.*$/, '').replace(/[^A-Za-z0-9]/g, '').toLowerCase();
-    return base + (oneM ? '-1m' : '');
+// The tooltip and axis colours every chart shares; restyle() applies them
+// again when the theme changes.
+function tooltipStyle(o) {
+    o.backgroundColor = themeColour('surface-hover'); o.borderColor = themeColour('border'); o.borderWidth = 1;
+    o.titleColor = themeColour('text'); o.bodyColor = themeColour('text-muted'); o.padding = 12; o.cornerRadius = 8;
+    return o;
+}
+function restyle(chart) {
+    var o = chart.options, scales = o.scales || {};
+    if (o.plugins && o.plugins.tooltip) tooltipStyle(o.plugins.tooltip);
+    Object.keys(scales).forEach(function(k) {
+        var sc = scales[k];
+        if (sc.title) sc.title.color = themeColour('text-muted');
+        if (sc.grid && sc.grid.display !== false) sc.grid.color = themeColour('grid');
+    });
+}
+// Keep `chart` in the current theme: on a change, the shared colours and
+// then its own (`paint`), then a redraw.
+function themed(chart, paint) {
+    THEME.on(function() { restyle(chart); if (paint) paint(); chart.update(); });
+    return chart;
 }
 
 // Chart defaults
-Chart.defaults.color = '#8b949e';
-Chart.defaults.borderColor = '#30363d';
+function chartDefaults() {
+    Chart.defaults.color = themeColour('text-muted');
+    Chart.defaults.borderColor = themeColour('border');
+}
+chartDefaults();
+THEME.on(chartDefaults);
 Chart.defaults.font.family = "-apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif";
 Chart.defaults.locale = FMT.locale;
 
@@ -1047,6 +1162,47 @@ Chart.defaults.locale = FMT.locale;
     if (RAW.generated) set('generatedOn', FMT.date(RAW.generated));
     var by = RAW.rendered_by;
     if (by) set('generatedBy', ' by clocwork ' + by.version + (by.commit ? ' (' + by.commit + ')' : ''));
+})();
+
+// --- Theme switch: light, system, dark ---
+// A radio group of three icon buttons; arrow keys move between them.
+(function() {
+    var ICONS = {
+        light: '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="3" fill="currentColor"/><path d="M8 1v1.5M8 13.5V15M1 8h1.5M13.5 8H15M3 3l1 1M12 12l1 1M3 13l1-1M12 4l1-1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+        system: '<svg viewBox="0 0 16 16" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><rect x="1.75" y="2.75" width="12.5" height="8.5" rx="1"/><path d="M5.5 14h5M8 11.25V14"/></g></svg>',
+        dark: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M13.5 10.2A6 6 0 0 1 5.8 2.5a6 6 0 1 0 7.7 7.7z"/></svg>'
+    };
+    var NAMES = { light: 'Light', system: 'System', dark: 'Dark' };
+    var box = document.getElementById('themeSwitch');
+    var buttons = THEME.CHOICES.map(function(choice) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.setAttribute('role', 'radio');
+        b.setAttribute('data-choice', choice);
+        b.setAttribute('aria-label', NAMES[choice]);
+        b.innerHTML = ICONS[choice];
+        b.addEventListener('click', function() { THEME.set(choice); });
+        b.addEventListener('keydown', function(e) {
+            var step = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0;
+            if (!step) return;
+            e.preventDefault();
+            var next = THEME.CHOICES[(THEME.CHOICES.indexOf(choice) + step + THEME.CHOICES.length) % THEME.CHOICES.length];
+            THEME.set(next);
+            buttons[THEME.CHOICES.indexOf(next)].focus();
+        });
+        box.appendChild(b);
+        return b;
+    });
+    function mark() {
+        buttons.forEach(function(b) {
+            var choice = b.getAttribute('data-choice'), on = choice === THEME.choice();
+            b.setAttribute('aria-checked', on ? 'true' : 'false');
+            b.tabIndex = on ? 0 : -1;
+            b.title = choice === 'system' ? 'Match the system (' + THEME.name() + ' now)' : NAMES[choice];
+        });
+    }
+    mark();
+    THEME.on(mark);
 })();
 
 // One stat tile: a label, a value and an optional smaller line beneath it.
@@ -1101,22 +1257,29 @@ function resetMainZoom() {
     }
 }
 (function() {
-    var pointColors = ROWS.map(function(c) { return agentColour(c[4]); });
     function series(values) { return ROWS.map(function(c, i) { return { x: c[2], y: values[i] }; }); }
     var st = SEL.stats();
     var datasets = [{
         label: SEL.linesLabel(),
         data: series(st.cumulative),
-        borderColor: '#58a6ff', backgroundColor: 'rgba(88,166,255,0.05)', fill: true, tension: 0.1,
+        fill: true, tension: 0.1,
         pointRadius: 1.5, pointHoverRadius: 6, borderWidth: 1.5,
-        pointBackgroundColor: pointColors, pointBorderColor: pointColors,
     }, {
         label: 'Tests',
         data: series(st.testCumulative),
-        borderColor: '#3fb950', backgroundColor: 'rgba(63,185,80,0.05)', fill: true, tension: 0.1,
+        fill: true, tension: 0.1,
         pointRadius: 0, pointHoverRadius: 4, borderWidth: 1.5,
         hidden: !SEL.get().tests,
     }];
+    // Each commit's point in its agent's colour; the lines in the accent and
+    // the success colour.
+    function paintData() {
+        var pointColors = ROWS.map(function(c) { return agentColour(c[4]); });
+        datasets[0].borderColor = themeColour('accent'); datasets[0].backgroundColor = hexToRgba(themeColour('accent'), 0.05);
+        datasets[0].pointBackgroundColor = pointColors; datasets[0].pointBorderColor = pointColors;
+        datasets[1].borderColor = themeColour('success'); datasets[1].backgroundColor = hexToRgba(themeColour('success'), 0.05);
+    }
+    paintData();
 
     mainChartInstance = new Chart(document.getElementById('mainChart'), {
         type: 'line',
@@ -1128,9 +1291,7 @@ function resetMainZoom() {
             interaction: { intersect: false, mode: 'nearest' },
             plugins: {
                 legend: { display: false },
-                tooltip: {
-                    backgroundColor: '#1c2129', borderColor: '#30363d', borderWidth: 1,
-                    titleColor: '#e6edf3', bodyColor: '#8b949e', padding: 12, cornerRadius: 8,
+                tooltip: tooltipStyle({
                     callbacks: {
                         title: function(items) {
                             var idx = items[0].dataIndex;
@@ -1150,7 +1311,7 @@ function resetMainZoom() {
                             return ['  ' + ctx.dataset.label + ': ' + fmt(ctx.parsed.y), '  Delta: ' + FMT.signed(delta), '  Agent: ' + agent];
                         }
                     }
-                },
+                }),
                 annotation: {
                     // A line is at the pointer only when its stroke, widened
                     // by its hit tolerance, is; the chart's own interaction
@@ -1164,8 +1325,8 @@ function resetMainZoom() {
                     zoom: {
                         drag: {
                             enabled: true,
-                            backgroundColor: 'rgba(88,166,255,0.12)',
-                            borderColor: 'rgba(88,166,255,0.4)',
+                            backgroundColor: hexToRgba(themeColour('accent'), 0.12),
+                            borderColor: hexToRgba(themeColour('accent'), 0.4),
                             borderWidth: 1
                         },
                         mode: 'x',
@@ -1180,9 +1341,18 @@ function resetMainZoom() {
             },
             scales: {
                 x: { type: 'time', time: { unit: 'month' }, ticks: { callback: monthTick }, grid: { display: false } },
-                y: { beginAtZero: true, title: { display: true, text: SEL.linesLabel(), color: '#8b949e' }, grid: { color: '#21262d' } }
+                y: { beginAtZero: true, title: { display: true, text: SEL.linesLabel(), color: themeColour('text-muted') }, grid: { color: themeColour('grid') } }
             }
         }
+    });
+
+    themed(mainChartInstance, function() {
+        paintData();
+        var drag = mainChartInstance.options.plugins.zoom.zoom.drag;
+        drag.backgroundColor = hexToRgba(themeColour('accent'), 0.12);
+        drag.borderColor = hexToRgba(themeColour('accent'), 0.4);
+        var annotations = mainChartInstance.options.plugins.annotation.annotations;
+        (ANNOTATIONS || []).forEach(function(a, i) { paintAnnotation(annotations['first' + i], a[2]); });
     });
 
     // Double-click to reset zoom
@@ -1222,8 +1392,8 @@ function resetMainZoom() {
         type: 'bar',
         data: { datasets: [{
             label: SEL.linesLabel() + ' Change', data: data,
-            backgroundColor: colours(data, 'rgba(63,185,80,0.6)', 'rgba(248,81,73,0.6)'),
-            borderColor: colours(data, '#3fb950', '#f85149'),
+            backgroundColor: colours(data, hexToRgba(themeColour('success'), 0.6), hexToRgba(themeColour('danger'), 0.6)),
+            borderColor: colours(data, themeColour('success'), themeColour('danger')),
             borderWidth: 1, borderRadius: 2
         }] },
         options: {
@@ -1231,9 +1401,7 @@ function resetMainZoom() {
             interaction: { intersect: false, mode: 'index' },
             plugins: {
                 legend: { display: false },
-                tooltip: {
-                    backgroundColor: '#1c2129', borderColor: '#30363d', borderWidth: 1,
-                    titleColor: '#e6edf3', bodyColor: '#8b949e', padding: 12, cornerRadius: 8,
+                tooltip: tooltipStyle({
                     callbacks: {
                         title: dateTitle,
                         label: function(ctx) {
@@ -1243,11 +1411,11 @@ function resetMainZoom() {
                             return lines;
                         }
                     }
-                }
+                })
             },
             scales: {
                 x: { type: 'time', time: { unit: 'month' }, ticks: { callback: monthTick }, grid: { display: false } },
-                y: { title: { display: true, text: 'Lines Change', color: '#8b949e' }, grid: { color: '#21262d' } }
+                y: { title: { display: true, text: 'Lines Change', color: themeColour('text-muted') }, grid: { color: themeColour('grid') } }
             }
         }
     });
@@ -1257,13 +1425,14 @@ function resetMainZoom() {
         var ds = chart.data.datasets[0];
         ds.label = SEL.linesLabel() + ' Change';
         ds.data = d;
-        ds.backgroundColor = colours(d, 'rgba(63,185,80,0.6)', 'rgba(248,81,73,0.6)');
-        ds.borderColor = colours(d, '#3fb950', '#f85149');
+        ds.backgroundColor = colours(d, hexToRgba(themeColour('success'), 0.6), hexToRgba(themeColour('danger'), 0.6));
+        ds.borderColor = colours(d, themeColour('success'), themeColour('danger'));
         chart.options.scales.y.title.text = SEL.linesLabel() + ' Change';
         chart.update();
         title.textContent = 'Daily ' + SEL.linesLabel() + ' Change';
     }
     SEL.on(refresh);
+    themed(chart, refresh);
     refresh();
 })();
 
@@ -1294,35 +1463,34 @@ function resetMainZoom() {
             interaction: { intersect: false, mode: 'index' },
             plugins: {
                 legend: { display: true, labels: { boxWidth: 10, padding: 12 } },
-                tooltip: {
-                    backgroundColor: '#1c2129', borderColor: '#30363d', borderWidth: 1,
-                    titleColor: '#e6edf3', bodyColor: '#8b949e', padding: 12, cornerRadius: 8,
+                tooltip: tooltipStyle({
                     callbacks: {
                         title: dateTitle,
                         label: function(ctx) { return '  ' + ctx.dataset.label + ': ' + FMT.signed(ctx.parsed.y); }
                     }
-                }
+                })
             },
             scales: {
                 x: { type: 'time', time: { unit: 'month' }, ticks: { callback: monthTick }, grid: { display: false } },
-                y: { title: { display: true, text: 'Cumulative Lines', color: '#8b949e' }, grid: { color: '#21262d' } }
+                y: { title: { display: true, text: 'Cumulative Lines', color: themeColour('text-muted') }, grid: { color: themeColour('grid') } }
             }
         }
     });
     SEL.on(function() { chart.data.datasets = buildDatasets(); chart.update(); });
+    themed(chart, function() { chart.data.datasets = buildDatasets(); });
 })();
 
 // --- Agent Pie Chart ---
 (function() {
     var agents = SEL.stats().agents; var names = Object.keys(agents).sort(function(a, b) { return agents[b].commits - agents[a].commits; });
-    new Chart(document.getElementById('agentPieChart'), {
+    var chart = new Chart(document.getElementById('agentPieChart'), {
         type: 'doughnut',
         data: {
             labels: names,
             datasets: [{
                 data: names.map(function(a) { return agents[a].commits; }),
                 backgroundColor: names.map(agentColour),
-                borderColor: '#161b22',
+                borderColor: themeColour('surface'),
                 borderWidth: 2
             }]
         },
@@ -1330,17 +1498,19 @@ function resetMainZoom() {
             responsive: true, maintainAspectRatio: true,
             plugins: {
                 legend: { position: 'right', labels: { boxWidth: 10, padding: 10, font: { size: 11 } } },
-                tooltip: {
-                    backgroundColor: '#1c2129', borderColor: '#30363d', borderWidth: 1,
-                    titleColor: '#e6edf3', bodyColor: '#8b949e', padding: 12, cornerRadius: 8,
+                tooltip: tooltipStyle({
                     callbacks: {
                         label: function(ctx) {
                             return '  ' + ctx.label + ': ' + fmt(ctx.parsed) + ' commits (' + FMT.pct(ctx.parsed / SUMMARY.total_commits) + ')';
                         }
                     }
-                }
+                })
             }
         }
+    });
+    themed(chart, function() {
+        chart.data.datasets[0].backgroundColor = names.map(agentColour);
+        chart.data.datasets[0].borderColor = themeColour('surface');
     });
 })();
 
@@ -1355,15 +1525,13 @@ function resetMainZoom() {
         type: 'bar',
         data: { labels: names, datasets: [
             { label: 'Added', data: added(), backgroundColor: colours(), borderRadius: 4 },
-            { label: 'Deleted', data: removed(), backgroundColor: 'rgba(248,81,73,0.4)', borderRadius: 4 }
+            { label: 'Deleted', data: removed(), backgroundColor: hexToRgba(themeColour('danger'), 0.4), borderRadius: 4 }
         ] },
         options: {
             responsive: true, maintainAspectRatio: true,
             plugins: {
                 legend: { display: true, labels: { boxWidth: 10, padding: 12 } },
-                tooltip: {
-                    backgroundColor: '#1c2129', borderColor: '#30363d', borderWidth: 1,
-                    titleColor: '#e6edf3', bodyColor: '#8b949e', padding: 12, cornerRadius: 8,
+                tooltip: tooltipStyle({
                     callbacks: {
                         label: function(ctx) {
                             var st = SEL.stats().agents[names[ctx.dataIndex]];
@@ -1375,11 +1543,11 @@ function resetMainZoom() {
                             return '  Net: ' + FMT.signed(st.net);
                         }
                     }
-                }
+                })
             },
             scales: {
                 x: { grid: { display: false } },
-                y: { title: { display: true, text: SEL.linesLabel(), color: '#8b949e' }, grid: { color: '#21262d' } }
+                y: { title: { display: true, text: SEL.linesLabel(), color: themeColour('text-muted') }, grid: { color: themeColour('grid') } }
             }
         }
     });
@@ -1390,11 +1558,13 @@ function resetMainZoom() {
         chart.data.datasets[0].data = added();
         chart.data.datasets[0].backgroundColor = colours();
         chart.data.datasets[1].data = removed();
+        chart.data.datasets[1].backgroundColor = hexToRgba(themeColour('danger'), 0.4);
         chart.options.scales.y.title.text = SEL.linesLabel();
         chart.update();
         title.textContent = 'Net ' + SEL.linesLabel() + ' by Agent';
     }
     SEL.on(refresh);
+    themed(chart, refresh);
     refresh();
 })();
 
@@ -1472,32 +1642,44 @@ function resetMainZoom() {
     // One source keeps the original pair of series. With logs from several
     // agents, each gets a measured and an estimated series in one stack, in its
     // own hue, and the legend names each agent once.
-    var SOURCE_COLOURS = { 'claude-code': '#58a6ff', 'codex': '#7ee787', 'gemini': '#f0883e' };
+    var SOURCE_COLOURS = { 'claude-code': 'blue', 'codex': 'green-2', 'gemini': 'orange' };
     var charted = sources.filter(function(s) { return s.per_day && s.per_day.length; });
     var stacked = charted.length > 1;
     var datasets = [];
     if (stacked) {
         charted.forEach(function(s, i) {
-            var colour = SOURCE_COLOURS[s.key] || ANNOTATION_PALETTE[i % ANNOTATION_PALETTE.length];
             datasets.push({ label: s.label, data: points(s.per_day, 'm'), stack: 'tokens',
-                            backgroundColor: hexToRgba(colour, 0.6), borderColor: colour,
                             borderWidth: 1, borderRadius: 2 });
             datasets.push({ label: s.label + ' (estimated)', data: points(s.per_day, 'e'), stack: 'tokens',
-                            backgroundColor: hexToRgba(colour, 0.2), borderColor: hexToRgba(colour, 0.5),
                             borderWidth: 1, borderRadius: 2, inLegend: false });
         });
     } else {
         datasets = [
-            { label: 'Estimated', data: points(T.per_day, 'e'),
-              backgroundColor: 'rgba(139,148,158,0.35)', borderColor: 'rgba(139,148,158,0.7)',
-              borderWidth: 1, borderRadius: 2 },
-            { label: 'Measured', data: points(T.per_day, 'm'),
-              backgroundColor: hexToRgba('#58a6ff', 0.6), borderColor: '#58a6ff',
-              borderWidth: 1, borderRadius: 2 }
+            { label: 'Estimated', data: points(T.per_day, 'e'), borderWidth: 1, borderRadius: 2 },
+            { label: 'Measured', data: points(T.per_day, 'm'), borderWidth: 1, borderRadius: 2 }
         ];
     }
+    // Measured days solid, estimated ones faint: one hue per agent, or the
+    // accent for measured and grey for estimated when there is one.
+    function paintData() {
+        if (stacked) {
+            charted.forEach(function(s, i) {
+                var colour = themeColour(SOURCE_COLOURS[s.key] || ANNOTATION_PALETTE[i % ANNOTATION_PALETTE.length]);
+                datasets[2 * i].backgroundColor = hexToRgba(colour, 0.6);
+                datasets[2 * i].borderColor = colour;
+                datasets[2 * i + 1].backgroundColor = hexToRgba(colour, 0.2);
+                datasets[2 * i + 1].borderColor = hexToRgba(colour, 0.5);
+            });
+        } else {
+            datasets[0].backgroundColor = hexToRgba(themeColour('grey'), 0.35);
+            datasets[0].borderColor = hexToRgba(themeColour('grey'), 0.7);
+            datasets[1].backgroundColor = hexToRgba(themeColour('accent'), 0.6);
+            datasets[1].borderColor = themeColour('accent');
+        }
+    }
+    paintData();
 
-    new Chart(document.getElementById('tokenChart'), {
+    var tokenChart = new Chart(document.getElementById('tokenChart'), {
         type: 'bar',
         data: { datasets: datasets },
         options: {
@@ -1519,22 +1701,22 @@ function resetMainZoom() {
                         });
                         chart.update();
                     } },
-                tooltip: {
-                    backgroundColor: '#1c2129', borderColor: '#30363d', borderWidth: 1,
-                    titleColor: '#e6edf3', bodyColor: '#8b949e', padding: 12, cornerRadius: 8,
+                tooltip: tooltipStyle({
                     callbacks: {
                         title: dateTitle,
                         label: function(ctx) { return '  ' + ctx.dataset.label + ': ' + fmt(ctx.parsed.y); }
                     }
-                }
+                })
             },
             scales: {
                 x: { type: 'time', stacked: stacked, time: { unit: 'month' }, ticks: { callback: monthTick }, grid: { display: false } },
-                y: { stacked: stacked, title: { display: true, text: 'Tokens', color: '#8b949e' }, grid: { color: '#21262d' },
+                y: { stacked: stacked, title: { display: true, text: 'Tokens', color: themeColour('text-muted') }, grid: { color: themeColour('grid') },
                      ticks: { callback: function(v) { return big(v); } } }
             }
         }
     });
+
+    themed(tokenChart, paintData);
 
     // The subtitle and the footnote are written from the data: whose logs
     // were read, what each measured, and which commits could not be priced.
@@ -1606,12 +1788,11 @@ function resetMainZoom() {
             var st = s.agents[a];
             var card = document.createElement('div');
             card.className = 'agent-card';
-            card.style.borderLeftColor = agentColour(a);
+            card.style.setProperty('--agent', agentVar(a));
 
             var name = document.createElement('div');
             name.className = 'agent-name';
             name.textContent = a;
-            name.style.color = agentColour(a);
 
             var detail = document.createElement('div');
             detail.className = 'agent-detail';
@@ -1864,7 +2045,8 @@ function resetMainZoom() {
 
         var tdAgent = document.createElement('td');
         var agBadge = document.createElement('span');
-        agBadge.className = 'agent-badge ' + agentClass(c[4]);
+        agBadge.className = 'agent-badge';
+        agBadge.style.setProperty('--agent', agentVar(c[4]));
         agBadge.textContent = agent;
         tdAgent.appendChild(agBadge); row.appendChild(tdAgent);
 
@@ -2029,7 +2211,7 @@ function resetMainZoom() {
                 { text: w.date },
                 { build: function(td) { var a = document.createElement('span'); a.className = 'hash'; a.textContent = w.sha; td.appendChild(a); } },
                 { text: 'x' },
-                { build: function(td) { var b = document.createElement('span'); b.className = 'agent-badge ' + agentClass(name === 'Human' ? '' : name); b.textContent = name; td.appendChild(b); } },
+                { build: function(td) { var b = document.createElement('span'); b.className = 'agent-badge'; b.textContent = name; td.appendChild(b); } },
                 { text: w.delta },
                 { build: function(td) { var b = document.createElement('span'); b.className = 'badge positive'; b.textContent = w.net; td.appendChild(b); } },
                 { text: w.cumul }

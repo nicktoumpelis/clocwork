@@ -19,10 +19,11 @@ from importlib import resources
 
 from clocwork import paths
 
-# One colour per first appearance, cycled by index. The order is the order
-# the ten original hand-written annotations used, so existing pages keep their look.
-PALETTE = ["#d2a8ff", "#58a6ff", "#f0883e", "#79c0ff", "#56d4dd",
-           "#f778ba", "#e3b341", "#7ee787", "#ffa198", "#f2cc60"]
+# One colour per first appearance, cycled by index: the page's theme colour
+# names (template.html, ANNOTATION_PALETTE), in the order of the hues the ten
+# original hand-written annotations used.
+PALETTE = ["violet", "blue", "orange", "blue-2", "cyan-2",
+           "magenta-2", "yellow", "green-2", "red-2", "yellow-2"]
 
 
 # ICU keyword -> BCP 47 Unicode extension key, for the customisations macOS
