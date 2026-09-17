@@ -1,0 +1,17 @@
+{
+ "id": "prt_c18a51d00001j1f1xture0",
+ "messageID": "msg_c18a51d00001j1f1xture0",
+ "sessionID": "ses_c18a51d00001j1f1xture0",
+ "type": "step-finish",
+ "reason": "stop",
+ "tokens": {
+  "input": 1200,
+  "output": 90,
+  "reasoning": 20,
+  "cache": {
+   "read": 0,
+   "write": 0
+  }
+ },
+ "cost": 0
+}

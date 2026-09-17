@@ -3,10 +3,10 @@
 Run `clocwork` inside any git repository and get a dashboard of its whole
 history: lines per language and type (code, comment, blank) at every commit,
 which commits an AI agent co-authored and when each model first appeared, and,
-when the repository was worked on with Claude Code, Codex CLI or Gemini CLI,
-what that work cost in tokens, dollars and electricity. Every commit is
-measured with `cloc --git --diff`, cached per file, and reconciled against a
-`cloc` snapshot of HEAD so drift is visible rather than silent.
+when the repository was worked on with Claude Code, Codex CLI, Gemini CLI or
+OpenCode, what that work cost in tokens, dollars and electricity. Every
+commit is measured with `cloc --git --diff`, cached per file, and reconciled
+against a `cloc` snapshot of HEAD so drift is visible rather than silent.
 
 <!-- To regenerate: run clocwork on this repository with `--locale en-GB`,
 open index.html in headless Chrome at 1200x1300 CSS px and a device scale
@@ -255,6 +255,7 @@ archives per-day totals, per agent and model, into `token_usage.json`:
 | Claude Code | `~/.claude/projects/`, the directory named after the repository's path | none |
 | Codex CLI | `~/.codex/sessions/` and `~/.codex/archived_sessions/` | `CODEX_HOME` replaces `~/.codex` |
 | Gemini CLI | `~/.gemini/tmp/` and `~/.cache/.gemini/tmp/`, sessions started in the repository or a directory it tracks | `GEMINI_CLI_HOME` replaces `~` |
+| OpenCode | `~/.local/share/opencode`, on macOS and Windows as well: its `opencode*.db` databases and the file stores older releases wrote | `XDG_DATA_HOME` replaces `~/.local/share`; `OPENCODE_DB` adds the database it names |
 
 A Codex session belongs to the repository when it records the same remote
 as the repository's `origin`, so sessions from any clone or worktree count.
@@ -268,6 +269,15 @@ when it ran in the repository or a directory inside it.
 Gemini CLI identifies a session's project only by a hash of the directory it
 started in, so its sessions count when that is the repository's current path
 or a directory tracked at `HEAD` below it.
+An OpenCode session names its project by the SHA-1 of `origin`'s host and
+path, so again every clone and worktree counts, as do the sub-agent sessions
+that share the project. Releases before v1.15.11 named it by the
+repository's first commit instead; such a session counts when it also ran in
+the repository, which is what keeps another history cloned to the same path
+out. OpenCode has moved its storage four times, and each move copied rather
+than replaced, so a store can hold the same session two or three times over;
+records are counted once, by the ids the moves preserved. A forked session
+copies its messages under new ids, and those copies are not counted again.
 
 Only dates, model names, and token and turn counts reach the archive;
 prompts and replies are never kept. The archive keeps the larger record for
@@ -302,6 +312,18 @@ land on no commit. Codex rollouts that Codex has compressed are read on
 Python 3.14 and later; earlier versions count them as unreadable and say so
 in the log.
 
+OpenCode adds no trailer either (it did until v0.4.19), so the same holds:
+its measured tokens land on no commit unless the author credits it, in a
+trailer such as `Co-Authored-By: opencode <noreply@opencode.ai>`. A trailer
+naming a model and OpenCode both (`GLM-5.3 via OpenCode`) is OpenCode's, and
+one from `opencode-agent[bot]` is the GitHub Actions agent, whose logs stay
+on the runner, so it is named separately and carries no tokens. OpenCode
+calls are priced at the model vendor's list price, like every other source,
+which is an estimate when the call was billed by a reseller, a subscription
+or a regional endpoint — through OpenCode's own Zen, GitHub Copilot or
+Bedrock, say — and models the price table does not know are reported as
+unpriced.
+
 An archive written by an earlier version is read as Claude Code's and
 rewritten in the per-agent shape the next time a scan finds logs; an archive
 of a version this clocwork does not know is refused with an error rather
@@ -321,9 +343,11 @@ exercise the token-less page and the page with several agents render their
 own synthetic variants regardless. Checks that assume the fixture's size,
 such as the 500-row cap, fail over a short history.
 
-`tests/fixtures/` holds real Codex CLI and Gemini CLI sessions from two
-MIT-licensed repositories, reduced to identity, model, usage and timestamps;
-its README names the sources and carries their licence notices.
+`tests/fixtures/` holds real Codex CLI, Gemini CLI and OpenCode sessions
+from five public repositories, four MIT-licensed and one Apache-2.0, reduced
+to identity, model, usage and timestamps; its README names each source with
+the commit it was taken at, carries their licence notices, and says which
+rows are as recorded and which are hand-written.
 
 `man/clocwork.1` is generated from the argparse parsers, and a test checks the
 committed page is current. After changing any help text or the version,

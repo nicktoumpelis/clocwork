@@ -42,6 +42,16 @@ UNKNOWN_CLAUDE = "Claude (unknown version)"
 
 # (substring of the trailer, reported name)
 VENDORS = (
+    # OpenCode's GitHub Actions agent commits as opencode-agent[bot], and its
+    # logs stay on the runner, so it is a separate agent from the OpenCode
+    # whose tokens this machine can read. It comes before the next two rows,
+    # which would otherwise claim it.
+    ("opencode-agent", "OpenCode GitHub agent"),
+    # OpenCode has added no trailer since v0.4.20; this catches the ones it
+    # wrote before that and the ones people add, which name it in many ways
+    # ("opencode", "GLM-5.3 via OpenCode", "opencode-go/mimo-v2.5"). It comes
+    # before Copilot, which a trailer naming an OpenCode model would hit.
+    ("opencode", "OpenCode"),
     ("Copilot", "Copilot"),
     ("Cursor", "Cursor"),
     ("Codex", "Codex"),

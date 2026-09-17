@@ -1,0 +1,15 @@
+{
+ "id": "msg_86512fd00001j0f1xture0",
+ "sessionID": "ses_86512fd00001j0f1xture0",
+ "role": "assistant",
+ "modelID": "gpt-4.1",
+ "providerID": "openai",
+ "path": {
+  "cwd": "/work/agent-sample",
+  "root": "/work/agent-sample"
+ },
+ "time": {
+  "created": 1754042400000
+ },
+ "cost": 0
+}

@@ -18,6 +18,7 @@ import os
 import re
 import tempfile
 from collections import namedtuple
+from datetime import datetime, timezone
 
 COUNTERS = ("input", "output", "cache_read", "cache_write")
 
@@ -50,6 +51,16 @@ def day(stamp):
     """The date ('YYYY-MM-DD') an ISO 8601 timestamp starts with, or '' when
     the value is not one, which puts its usage on no day."""
     return stamp[:10] if isinstance(stamp, str) and DATE.match(stamp) else ""
+
+
+def day_ms(stamp):
+    """The UTC date of a timestamp in epoch milliseconds, or '' when the value
+    is not one. OpenCode records times as milliseconds rather than ISO 8601;
+    every reader's dates are UTC."""
+    ms = count(stamp)
+    if ms <= 0:
+        return ""
+    return datetime.fromtimestamp(ms / 1000, timezone.utc).strftime("%Y-%m-%d")
 
 
 def count(value):
@@ -178,7 +189,8 @@ def archive(repo_path, archive_path, sources, homes=None, log=print):
         n = len(result.days)
         log(f"  Scanned {n} {'day' if n == 1 else 'days'} of {source.LABEL} logs")
         if result.malformed:
-            log(f"  NOTE: skipped {result.malformed} unparseable {source.LABEL} lines")
+            unit = getattr(source, "MALFORMED_UNIT", "lines")
+            log(f"  NOTE: skipped {result.malformed} unparseable {source.LABEL} {unit}")
         if result.skipped:
             reason = getattr(source, "SKIPPED", "")
             log(f"  NOTE: could not read {result.skipped} {source.LABEL} files" + (f": {reason}" if reason else ""))

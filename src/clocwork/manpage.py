@@ -122,7 +122,7 @@ def render(parser=None, version=__version__, date=None):
                  "(its charts load Chart.js and its plugins from a CDN) plus a\n.I commit_bodies.js\nsidecar, "
                  "written to a workspace next to the repository, never inside it: lines per language and type at every commit, "
                  "which commits an AI agent co\\-authored and when each model first appeared, and, when a coding agent's logs "
-                 "for the repository are on the machine (Claude Code, Codex CLI, Gemini CLI), what the work cost in tokens.\n.PP\n"
+                 "for the repository are on the machine (Claude Code, Codex CLI, Gemini CLI, OpenCode), what the work cost in tokens.\n.PP\n"
                  "A first argument that is not a command is taken as\n.IR REPO ,\nso\n.B clocwork ~/code/foo\nworks; "
                  "the default is the current directory, and any directory inside the repository will do.")
     lines.append(".SH OPTIONS\nOptions more than one command takes. Each command's own options follow it below.\n"
@@ -139,8 +139,10 @@ def render(parser=None, version=__version__, date=None):
                  ".B \\-\\-locale\nwins over both.\n"
                  ".TP\n.B CODEX_HOME\nWhere Codex CLI keeps its sessions, read from its\n.I sessions/\nand\n.I archived_sessions/\ndirectories; the default is\n.IR ~/.codex .\n"
                  ".TP\n.B GEMINI_CLI_HOME\nThe directory Gemini CLI uses in place of the home directory; its sessions are read from\n.I .gemini/tmp/\nand\n.I .cache/.gemini/tmp/\nbelow it.\n"
+                 ".TP\n.B OPENCODE_DB\nAn OpenCode database to read besides every\n.I opencode*.db\nin its data directory; absolute, or relative to that directory.\n"
                  ".TP\n.B XDG_CACHE_HOME\nWhen set, the cloc cache lives under\n.IR $XDG_CACHE_HOME/clocwork/ ;\notherwise under\n.IR ~/.cache/clocwork/ .\n"
-                 ".B \\-\\-cache\\-dir\nwins over both. Only\n.B run\nuses the cache.")
+                 ".B \\-\\-cache\\-dir\nwins over both. Only\n.B run\nuses the cache.\n"
+                 ".TP\n.B XDG_DATA_HOME\nWhere OpenCode keeps its sessions, read from\n.I opencode/\nbelow it; the default is\n.I ~/.local/share\non every system, OpenCode having no variable of its own.")
     lines.append(".SH FILES\n"
                  ".TP\n.I <repo\\-parent>/<repo\\-name>\\-stats/\nThe workspace: a sibling of the repository, overridden with\n.BR \\-o .\n"
                  ".TP\n.I clocwork.json\nWhich repository the workspace belongs to. A run against another repository is refused rather than overwriting the workspace.\n"

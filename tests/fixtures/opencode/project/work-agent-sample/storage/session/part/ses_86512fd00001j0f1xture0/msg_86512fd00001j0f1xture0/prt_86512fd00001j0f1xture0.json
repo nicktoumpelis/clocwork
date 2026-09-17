@@ -1,0 +1,16 @@
+{
+ "id": "prt_86512fd00001j0f1xture0",
+ "messageID": "msg_86512fd00001j0f1xture0",
+ "sessionID": "ses_86512fd00001j0f1xture0",
+ "type": "step-finish",
+ "tokens": {
+  "input": 2500,
+  "output": 40,
+  "reasoning": 0,
+  "cache": {
+   "read": 1500,
+   "write": 0
+  }
+ },
+ "cost": 0
+}

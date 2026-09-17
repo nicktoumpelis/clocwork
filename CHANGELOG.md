@@ -15,6 +15,18 @@ All notable changes to clocwork are recorded here. The format follows
   in agent names and first-appearance labels, in tooltips and the explanatory
   note, and on selected or hovered controls.
 
+- Token usage from OpenCode, read from `~/.local/share/opencode` on every
+  system (`$XDG_DATA_HOME/opencode`, plus any database `OPENCODE_DB` names).
+  All four of its storage layouts are read — the `opencode*.db` databases,
+  the experimental `session_message` table for sessions only it holds, and
+  the two file stores older releases wrote — and a record the migrations
+  copied between them is counted once. Sessions are tied to the repository
+  by the SHA-1 of `origin`, by the id OpenCode caches in the git directory,
+  or by the directory they ran in; a forked session's copied messages are
+  not counted again. Commits are credited to OpenCode when their trailer
+  names it, and to a separate "OpenCode GitHub agent" when they come from
+  `opencode-agent[bot]`, whose logs stay on the runner.
+
 - Commits co-authored by Antigravity are recognised. It writes no trailer of
   its own, and the ones people add agree on nothing but the word itself, so a
   `Co-Authored-By:` trailer carrying "Antigravity" in its name or address

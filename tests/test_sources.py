@@ -49,7 +49,7 @@ class TestRegistry(unittest.TestCase):
 
     def test_agents_without_a_reader_belong_to_no_source(self):
         for name in ["Copilot", "Cursor", "Devin", "aider", "Antigravity", "Gemini Code Assist",
-                     "Misc", "", None]:
+                     "OpenCode GitHub agent", "Misc", "", None]:
             with self.subTest(name=name):
                 self.assertIsNone(src.source_for(name))
 
