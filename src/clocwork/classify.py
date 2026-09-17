@@ -84,27 +84,38 @@ def language_for(path, table):
     return OTHER if ext is None else table.get(ext, OTHER)
 
 
-def renamed_languages(renames, table, present=()):
-    """Path entries for the names files had before a rename.
+def rename_plan(renames, table, present=()):
+    """Path entries for renamed names, and the renames that change language.
 
-    cloc reports a renamed file's lines under its old name, so the old name
-    must carry the language of the name it became, or those lines count
-    under another language than the file does at the analysed ref. `renames`
-    is [(old, new), ...], newest first, so a chain a -> b -> c resolves: b
-    learns c's language before a learns b's. A name in `present` (the paths
-    at the analysed ref) or already in the table keeps its language: it was
-    used again after the rename.
+    `renames` is [(old, new, old_language, new_language)], newest first, with
+    the language cloc gives each side's content under that side's name (None
+    when cloc does not count it). A name gone from the analysed ref and
+    without an entry learns that language where the table would give it
+    another, so an extensionless script is not Other in the history; the
+    newest content decides. A name in `present` or already in the table
+    keeps its language.
+
+    cloc reports a rename under the old name, counted by the old name's
+    parser. Where the two sides differ in language, by cloc or by the table,
+    those rows cannot stand for the new name, and the caller replaces them
+    (`cloc.rename_adjustments`); the old name keeps its own language.
+    Returns (learned entries, indices of the renames that change language).
     """
     table = dict(table)
     learned = {}
-    for old, new in renames:
-        key = path_key(old)
-        if key in table or old in present:
-            continue
-        language = language_for(new, table)
-        if language != language_for(old, table):
+
+    def learn(name, language):
+        key = path_key(name)
+        if language and key not in table and name not in present and language != language_for(name, table):
             table[key] = learned[key] = language
-    return learned
+
+    for old, new, old_language, new_language in renames:
+        learn(old, old_language)
+        learn(new, new_language)
+    changed = [i for i, (old, new, old_language, new_language) in enumerate(renames)
+               if (old_language or new_language)
+               and (old_language != new_language or language_for(old, table) != language_for(new, table))]
+    return learned, changed
 
 
 def _glob_to_regex(pattern):

@@ -11,6 +11,7 @@ from unittest import mock
 from clocwork import __version__
 from clocwork import analyse as an
 from clocwork import classify as cf
+from clocwork import cloc as cl
 from clocwork import config as cfg
 from clocwork import paths
 from clocwork import sources as src
@@ -223,35 +224,66 @@ class TestInputs(unittest.TestCase):
 
     def test_path_history_reads_renames_newest_first_whatever_the_names(self):
         with tempfile.TemporaryDirectory() as d:
-            fx.make_renamed_repo(d)
+            hashes = fx.make_renamed_repo(d)
             fx._git(d, "mv", "notes.md", "my notes, v2.md")
             fx._git(d, "commit", "-q", "-m", "Rename again", date="2025-01-04T10:00:00+00:00")
-            self.assertEqual(an.path_history(d, "main"),
-                             ([("notes.md", "my notes, v2.md"), ("middle", "bin/final"),
-                               ("old", "middle"), ("notes.txt", "notes.md")], set()))
+            hashes.append(fx._git(d, "rev-parse", "HEAD").strip())
+            renamed, symlinks = an.path_history(d, "main")
+            self.assertEqual([(r.commit, r.old, r.new) for r in renamed],
+                             [(hashes[3], "notes.md", "my notes, v2.md"), (hashes[2], "middle", "bin/final"),
+                              (hashes[1], "old", "middle"), (hashes[1], "notes.txt", "notes.md")])
+            self.assertEqual(symlinks, set())
+            # Each side's blob, as the commit and its parent hold it.
+            final = renamed[1]
+            self.assertEqual(final.old_blob, fx._git(d, "rev-parse", f"{hashes[1]}:middle").strip())
+            self.assertEqual(final.new_blob, fx._git(d, "rev-parse", f"{hashes[2]}:bin/final").strip())
             self.assertEqual(an.path_history(d, "main~3"), ([], set()))
 
     def test_path_history_names_every_path_that_was_a_symlink(self):
+        # A renamed symlink is not a renamed file: it has no lines to move.
         with tempfile.TemporaryDirectory() as d:
             fx.make_symlink_repo(d)
             fx._git(d, "mv", "LINK.md", "a link.md")
             fx._git(d, "commit", "-q", "-m", "Rename the link", date="2025-01-02T10:00:00+00:00")
             renamed, symlinks = an.path_history(d, "main")
-            self.assertEqual(renamed, [("LINK.md", "a link.md")])
+            self.assertEqual(renamed, [])
             self.assertEqual(symlinks, {"LINK.md", "a link.md", "lib"})
 
-    def test_a_renamed_file_counts_under_the_language_of_its_new_name(self):
-        # cloc reports a rename under the old name, so the old name must carry
-        # the new one's language: a script renamed twice (old -> middle ->
-        # bin/final) and a text file that became Markdown.
+    def test_a_renamed_file_moves_its_lines_to_the_language_of_its_new_name(self):
+        # cloc reports a rename under the old name. A script renamed twice
+        # (old -> middle -> bin/final) stays Bourne Shell throughout, with no
+        # Other row; the text file that became Markdown leaves Text at the
+        # rename and arrives in Markdown.
         with tempfile.TemporaryDirectory() as d:
             fx.make_renamed_repo(d)
             data = self.run_quietly(d)
             self.assertEqual(data["commits"][0]["lines"], {"Bourne Shell": [3, 0, 0, 0, 0, 0],
-                                                           "Markdown": [2, 0, 0, 0, 0, 0]})
+                                                           "Text": [2, 0, 0, 0, 0, 0]})
+            self.assertEqual(data["commits"][1]["lines"], {"Markdown": [2, 0, 0, 0, 0, 0],
+                                                           "Text": [0, 2, 0, 0, 0, 0]})
             self.assertEqual(data["commits"][2]["lines"], {"Bourne Shell": [1, 0, 0, 0, 0, 0]})
             self.assertNotIn(cf.OTHER, data["summary"]["head_snapshot"]["all"])
+            self.assertNotIn(cf.OTHER, data["languages"])
             self.assert_no_drift(data["summary"])
+
+    def test_a_rename_that_changes_language_leaves_no_drift_in_any_line_type(self):
+        # The page's two comment lines count as comments under .rst and as
+        # code under .inc; the Python file was counted by nobody before. The
+        # page, gone at HEAD, is named as cloc named its content (BitBake to
+        # cloc 2.10), not by the extension table's ambiguous name.
+        with tempfile.TemporaryDirectory() as d:
+            fx.make_language_change_repo(d)
+            data = self.run_quietly(d)
+            inc = fx.cloc_count("contents.inc", fx.PAGE)[1]
+            self.assertNotIn(inc, (None, cl.load_extension_table()["inc"]))
+            self.assertEqual(data["commits"][1]["lines"], {inc: [4, 0, 0, 0, 1, 0],
+                                                           "Python": [3, 0, 0, 0, 0, 0],
+                                                           "reStructuredText": [0, 2, 0, 2, 0, 1]})
+            self.assertEqual(data["commits"][2]["lines"], {inc: [0, 4, 0, 0, 0, 1]})
+            s = data["summary"]
+            self.assertEqual({l: v["code"] for l, v in s["head_snapshot"]["all"].items()},
+                             {"Markdown": 1, "Python": 3})
+            self.assert_no_drift(s)
 
     def test_a_file_cloc_names_against_its_extension_keeps_that_name_in_every_commit(self):
         # Whichever order cloc lists them in, CMakeLists.txt is CMake and
@@ -264,19 +296,44 @@ class TestInputs(unittest.TestCase):
                     self.assertEqual(commit["lines"], {fx.NAMED_AGAINST_EXTENSION[rel][1]: [2, 0, 0, 0, 0, 0]}, rel)
                 self.assert_no_drift(data["summary"])
 
+    def test_a_failed_count_of_the_renamed_files_is_a_warning(self):
+        with tempfile.TemporaryDirectory() as d:
+            fx.make_language_change_repo(d)
+            lines = []
+            with mock.patch.object(an.cl, "count_blobs", side_effect=an.cl.ClocError("bad JSON")):
+                data = an.analyse(d, os.path.join(d, "o.json"), os.path.join(d, "c.json"),
+                                  os.path.join(d, "t.json"), log=lines.append)
+            self.assertIn("  WARNING: could not count the renamed files (bad JSON); "
+                          "renames that change language will drift", lines)
+            self.assertEqual(data["commits"][1]["status"], "ok")
+            self.assertTrue(any(any(v.values()) for v in data["summary"]["reconciliation"].values()))
+            # The table's guess: the page's old name takes the table's
+            # language for its new name.
+            self.assertEqual(data["commits"][0]["lines"],
+                             {"Markdown": [1, 0, 0, 0, 0, 0], cl.load_extension_table()["inc"]: [2, 0, 2, 0, 1, 0]})
+
+    def test_a_failed_count_still_resolves_a_chain_of_renames(self):
+        with tempfile.TemporaryDirectory() as d:
+            fx._git(d, "init", "-q", "-b", "main")
+            fx._write(d, "a.txt", "one\ntwo\nthree\nfour\n")
+            fx._git(d, "add", ".")
+            fx._git(d, "commit", "-q", "-m", "Add", date="2025-01-01T10:00:00+00:00")
+            for old, new, day in (("a.txt", "b.rst", 2), ("b.rst", "c.md", 3)):
+                fx._git(d, "mv", old, new)
+                fx._git(d, "commit", "-q", "-m", "Move", date=f"2025-01-0{day}T10:00:00+00:00")
+            with mock.patch.object(an.cl, "count_blobs", side_effect=OSError("no room")):
+                s = self.run_quietly(d)["summary"]
+            self.assert_no_drift(s)
+
     def test_a_name_renamed_away_and_created_again_keeps_its_own_language(self):
-        # The HEAD snapshot and its mapping stay right. The history cannot:
-        # notes.txt's four lines count as Text before the rename, and nothing
-        # moves them when cloc reports the rename under that name, so one path
-        # with two lives drifts. That is a known limit.
+        # notes.txt's four lines leave Text at the rename, so the new
+        # notes.txt is the only Text left.
         with tempfile.TemporaryDirectory() as d:
             fx.make_recreated_name_repo(d)
             s = self.run_quietly(d)["summary"]
             self.assertEqual({l: v["code"] for l, v in s["head_snapshot"]["all"].items()},
                              {"Markdown": 4, "Text": 2})
-            self.assertEqual({l: v for l, v in s["mapping_check"].items() if any(v.values())}, {})
-            self.assertEqual({l: v["code"] for l, v in s["reconciliation"].items() if any(v.values())},
-                             {"Markdown": -4, "Text": 4})
+            self.assert_no_drift(s)
 
     def test_a_symlink_is_counted_neither_in_the_history_nor_at_head(self):
         # cloc counts a symlink added with its target in the diff, but not one

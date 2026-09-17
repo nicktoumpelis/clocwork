@@ -130,40 +130,62 @@ class TestPerPathLanguage(unittest.TestCase):
                 self.assertEqual(cf.language_for(path, self.TABLE), language)
 
 
-class TestRenamedLanguages(unittest.TestCase):
-    """A name a file had before a rename takes the language of the name it became."""
+class TestRenamePlan(unittest.TestCase):
+    """Renamed names learn the language cloc gives their content, and a rename
+    whose sides differ in language is marked for replacement."""
 
-    TABLE = {"md": "Markdown", "txt": "Text", "sh": "Bourne Shell",
+    TABLE = {"md": "Markdown", "txt": "Text", "sh": "Bourne Shell", "rst": "reStructuredText",
+             "py": "Python", "pl": "Perl",
+             "inc": "PHP/Pascal/Fortran/Pawn/BitBake",
              cf.path_key("bin/final"): "Bourne Shell",
-             cf.path_key("tool"): "Python"}
+             cf.path_key("tool"): "Python",
+             cf.path_key("link"): cf.UNCOUNTED}
+    SH = "Bourne Shell"
 
     CASES = (
-        # (renames newest first, learned entries)
-        ([("run", "bin/final")], {cf.path_key("run"): "Bourne Shell"}),
-        # A chain resolves through the middle name.
-        ([("middle", "bin/final"), ("old", "middle")],
-         {cf.path_key("middle"): "Bourne Shell", cf.path_key("old"): "Bourne Shell"}),
-        # An extension change moves the old name to the new language.
-        ([("notes.txt", "notes.md")], {cf.path_key("notes.txt"): "Markdown"}),
-        # No entry is needed when the old name already gets that language.
-        ([("run.sh", "bin/final")], {}),
-        ([("a.md", "b.md")], {}),
-        # A name the table already holds keeps its entry (a path reused later).
-        ([("tool", "bin/final")], {}),
-        # A rename to a file cloc does not count leaves the old name Other.
-        ([("x", "y")], {}),
-        # A name present again at the analysed ref keeps its own language.
-        ([("notes.txt", "notes.md")], {}, {"notes.txt"}),
+        # (renames newest first as (old, new, cloc's old language, cloc's new
+        #  language), learned entries, changed indices[, present names])
+        # An extensionless name gone from the ref learns cloc's language.
+        ([("run", "bin/final", SH, SH)], {cf.path_key("run"): SH}, []),
+        # So does each name in a chain; neither rename changes language.
+        ([("middle", "bin/final", SH, SH), ("old", "middle", SH, SH)],
+         {cf.path_key("middle"): SH, cf.path_key("old"): SH}, []),
+        # An extension change keeps the old name's language, and is replaced.
+        ([("notes.txt", "notes.md", "Text", "Markdown")], {}, [0]),
+        # So is a change of parser, which split the lines differently.
+        ([("a.rst", "a.inc", "reStructuredText", "BitBake")], {cf.path_key("a.inc"): "BitBake"}, [0]),
+        # Even when the table gives both names one language: only cloc tells them apart.
+        ([("build.txt", "notes.txt", "CMake", "Text")], {}, [0], {"build.txt", "notes.txt"}),
+        # A file cloc names against its extension learns that name.
+        ([("CMakeLists.txt", "build.cmake", "CMake", "CMake")],
+         {cf.path_key("CMakeLists.txt"): "CMake", cf.path_key("build.cmake"): "CMake"}, []),
+        ([("run.sh", "bin/final", SH, SH)], {}, []),
+        ([("a.md", "b.md", "Markdown", "Markdown")], {}, []),
+        # A name the table already holds keeps its entry, and the table decides.
+        ([("tool", "bin/final", SH, SH)], {}, [0]),
+        # A name present at the analysed ref keeps its own language.
+        ([("notes", "notes.md", "Markdown", "Markdown")], {}, [0], {"notes"}),
+        ([("notes.txt", "notes.md", "Text", "Markdown")], {}, [0], {"notes.txt"}),
+        # Content cloc does not count on either side needs nothing.
+        ([("x", "y", None, None)], {}, []),
+        # Content cloc counts under one name only is replaced.
+        ([("data.xyz", "data.py", None, "Python")], {}, [0]),
+        # A name that was a symlink is not counted, so the other side is replaced.
+        ([("link", "notes.md", "Markdown", "Markdown")], {}, [0]),
     )
 
     def test_cases(self):
-        for renames, learned, *present in self.CASES:
+        for renames, learned, changed, *present in self.CASES:
             with self.subTest(renames=renames):
-                self.assertEqual(cf.renamed_languages(renames, self.TABLE, *present), learned)
+                self.assertEqual(cf.rename_plan(renames, self.TABLE, *present), (learned, changed))
+
+    def test_the_newest_language_of_a_reused_name_wins(self):
+        renames = [("run", "a.py", "Python", "Python"), ("run", "b.pl", "Perl", "Perl")]
+        self.assertEqual(cf.rename_plan(renames, self.TABLE), ({cf.path_key("run"): "Python"}, [1]))
 
     def test_the_table_is_not_changed(self):
         table = dict(self.TABLE)
-        cf.renamed_languages([("run", "bin/final")], table)
+        cf.rename_plan([("run", "bin/final", self.SH, self.SH)], table)
         self.assertEqual(table, self.TABLE)
 
 
