@@ -575,21 +575,28 @@ function blend(hex, alpha, base) {
 // lines days apart would put one label over the other. Each label takes the
 // lowest row where it clears every label already in that row, so rows stack
 // only as high as the densest cluster needs, up to as many rows as the chart
-// has room for; past that a label is shortened, and past that left off.
+// has room for; past that a label is shortened, and past that left off,
+// those that end furthest left first.
 var LABEL_FONT = { size: 10, weight: '600' }, LABEL_PAD_X = 6, LABEL_ROW = 20, LABEL_GAP = 4;
 function labelRows(boxes, maxRows) {
-    // boxes: [{left, right, hidden, short}] in any order; returns each box's
-    // row, from 0. A hidden box (its line is outside the chart) takes no
-    // room. A box with no free row within maxRows tries its short form
-    // (`short`, a narrower box, or null) and is then marked `shortened`; one
-    // that finds no free row even so is marked `dropped` and takes no room:
-    // its line is drawn without a label rather than a label over another.
-    var order = boxes.map(function(b, i) { return i; }).sort(function(a, b) { return boxes[a].left - boxes[b].left; });
-    var ends = [], rows = [];
+    // boxes: [{left, right, x, hidden, short}] in any order, x being the
+    // label's line; returns each box's row, from 0. Boxes are placed from
+    // the right, so when the rows run out the newest labels keep theirs;
+    // labels moved inside at the right edge share a right edge, and the
+    // later line goes first. A hidden box (its line is outside the chart)
+    // takes no room. A box with no free row within maxRows tries its short
+    // form (`short`, a narrower box, or null) and is then marked
+    // `shortened`; one that finds no free row even so is marked `dropped`
+    // and takes no room: its line is drawn without a label rather than a
+    // label over another.
+    var order = boxes.map(function(b, i) { return i; }).sort(function(a, b) {
+        return boxes[b].right - boxes[a].right || (boxes[b].x || 0) - (boxes[a].x || 0);
+    });
+    var starts = [], rows = [];
     maxRows = maxRows || Infinity;
     function freeRow(box) {
         var r = 0;
-        while (r < ends.length && box.left < ends[r] + LABEL_GAP) r++;
+        while (r < starts.length && box.right + LABEL_GAP > starts[r]) r++;
         return r < maxRows ? r : -1;
     }
     order.forEach(function(i) {
@@ -604,7 +611,7 @@ function labelRows(boxes, maxRows) {
             r = freeRow(box);
         }
         if (r < 0) { b.dropped = true; return; }
-        ends[r] = box.right;
+        starts[r] = box.left;
         rows[i] = r;
     });
     return rows;
@@ -622,8 +629,16 @@ function shortLabel(text) {
 // chart area, placed as chartjs-plugin-annotation places them: a label that
 // would reach within its padding of the area's edge is moved inside, and one
 // wider than the area is centred on it. Each box carries its short form's
-// box too, or null when the label has none.
+// box too, or null when the label has none or shares it with another.
 function labelBoxes(list, xScale, measure, area) {
+    // A short form two different labels share ('Opus 5', 'Omni 5': 'O5')
+    // would not say which is which, so neither label gets it.
+    var owner = {}, ambiguous = {};
+    (list || []).forEach(function(a) {
+        var short = shortLabel(a[1]);
+        if (short in owner && owner[short] !== a[1]) ambiguous[short] = true;
+        owner[short] = a[1];
+    });
     return (list || []).map(function(a) {
         var x = xScale.getPixelForValue(xScale.parse(a[0]));
         function place(text) {
@@ -637,8 +652,9 @@ function labelBoxes(list, xScale, measure, area) {
             return { left: c - half, right: c + half };
         }
         var box = place(a[1]), short = shortLabel(a[1]);
+        box.x = x;
         box.hidden = x < area.left || x > area.right;
-        box.short = short === a[1] ? null : place(short);
+        box.short = short === a[1] || ambiguous[short] ? null : place(short);
         return box;
     });
 }
@@ -659,11 +675,26 @@ var labelLayout = {
         labelRows(boxes, maxRows).forEach(function(row, i) {
             var label = annotations['first' + i].label;
             label.yAdjust = -row * LABEL_ROW;
-            label.content = boxes[i].shortened ? shortLabel(ANNOTATIONS[i][1]) : ANNOTATIONS[i][1];
+            // A left-off label keeps its full name for when it is shown on hover.
+            label.content = boxes[i].shortened && !boxes[i].dropped ? shortLabel(ANNOTATIONS[i][1]) : ANNOTATIONS[i][1];
             label.display = !boxes[i].dropped;
+            LABEL_DROPPED[i] = boxes[i].dropped;
         });
     }
 };
+// Whether each label was left off at the last layout. A left-off label is
+// drawn while the pointer is at its line, or after a tap on it, so a bare
+// dashed line can still be named; it is drawn over the labels in its row.
+var LABEL_DROPPED = [];
+function showDroppedLabel(i, show) {
+    return function(ctx) {
+        var label = ctx.element.label;
+        if (!LABEL_DROPPED[i] || !label || label.options.display === show) return;
+        label.options.display = show;
+        label.options.z = show ? 1 : 0;
+        return true;
+    };
+}
 
 function annotationObjects(list) {
     var out = {};
@@ -672,6 +703,9 @@ function annotationObjects(list) {
         out['first' + i] = {
             type: 'line', xMin: a[0], xMax: a[0],
             borderColor: colour, borderWidth: 1.5, borderDash: [6, 3],
+            hitTolerance: 8,
+            enter: showDroppedLabel(i, true), click: showDroppedLabel(i, true),
+            leave: showDroppedLabel(i, false),
             label: { display: true, content: a[1], position: 'start',
                      // Opaque: the label sits on its own dashed line.
                      backgroundColor: blend(colour, 0.15, SURFACE), color: colour,

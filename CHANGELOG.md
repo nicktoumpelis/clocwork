@@ -15,6 +15,10 @@ All notable changes to clocwork are recorded here. The format follows
   point, in any of its commits. cloc counted a symlink in the history only
   when it arrived with its target, so HEAD figures could disagree with the
   history.
+- On a chart too narrow for every first-appearance label, the newest
+  agents keep theirs and the earlier ones give way. A label left off shows
+  while the pointer is at its line, or after a tap on it. Two labels whose
+  short forms would read the same (`Opus 5`, `Omni 5`) are never shortened.
 
 ### Fixed
 
