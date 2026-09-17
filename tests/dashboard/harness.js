@@ -23,6 +23,7 @@ function workspace(variant) {
   const args = [path.join(__dirname, 'fixture.py'), dir];
   if (variant === 'no-tokens') args.push('--no-tokens');
   if (variant === 'sources') args.push('--sources');
+  if (variant === 'crowded') args.push('--crowded');
   execFileSync('python3', args, { stdio: 'inherit' });
   execFileSync(path.join(root, 'clocwork'), ['render', '-o', dir, '--no-open', '-q'], { stdio: 'inherit' });
   process.on('exit', () => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { /* best effort */ } });
@@ -32,7 +33,7 @@ function workspace(variant) {
 
 function El(tag) {
   this.tagName = tag; this.children = []; this.attrs = {}; this.listeners = {};
-  this.style = {}; this.className = ''; this.textContent = ''; this.value = '';
+  this.style = { setProperty(k, v) { this[k] = String(v); } }; this.className = ''; this.textContent = ''; this.value = '';
   this.hidden = false; this.parentNode = null;
   const self = this;
   this.classList = {
@@ -76,7 +77,7 @@ Chart.prototype.setDatasetVisibility = function (i, visible) { (this.hidden = th
 
 function load(opts) {
   opts = opts || {};
-  // opts.variant picks a synthetic workspace: 'no-tokens' (also opts.tokens === false) or 'sources'.
+  // opts.variant picks a synthetic workspace: 'no-tokens' (also opts.tokens === false), 'sources' or 'crowded'.
   const ws = workspace(opts.variant || (opts.tokens === false ? 'no-tokens' : 'default'));
   let html = fs.readFileSync(path.join(ws, 'index.html'), 'utf8');
   // opts.dropId deletes one element id from the page, to prove the page
