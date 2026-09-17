@@ -140,4 +140,15 @@ if (hasTokens) check(tt(token).title && tt(token).title([{ raw: { x: d0.date } }
 const drift = page.run('return SEL.drift()');
 if (drift !== 0) check(byId('reconNote').textContent.indexOf(signed.format(drift) + ' lines') > 0, 'reconciliation drift signed the German way');
 
+section('footer wording');
+// Last, because each load runs the page again over the globals above. The
+// build this machine reports may have no commit (a tree without git), so
+// the footer's wording is pinned against fixed builds too.
+[[{ version: '9.9.9', commit: 'abc1234' }, ' by clocwork 9.9.9 (abc1234)'],
+ [{ version: '9.9.9', commit: null }, ' by clocwork 9.9.9'],
+ [null, '']].forEach(([build, want]) => {
+    const text = load({ locale: LOCALE, renderedBy: build }).byId('generatedBy').textContent;
+    check(text === want, 'footer for ' + JSON.stringify(build) + ': ' + JSON.stringify(text));
+});
+
 done();
