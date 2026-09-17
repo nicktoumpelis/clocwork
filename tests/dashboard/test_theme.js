@@ -208,7 +208,8 @@ const own = ['chars', 'row-height', 'agent'];   // set per element by the page, 
 check((css.match(/color-mix\(in srgb, var\(--agent, var\(--accent\)\) 40%, var\(--text\)\)/g) || []).length === 2,
       'badge and card text are 60% the text colour, as the contrast check assumes');
 // Cards and badges take the agent colour from --agent, which the page sets.
-const rule = sel => (css.match(new RegExp(sel.replace(/[.*]/g, '\\$&') + '\\s*\\{([^}]*)\\}')) || [])[1] || '';
+const escapeRe = t => t.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
+const rule = sel => (css.match(new RegExp(escapeRe(sel) + '\\s*\\{([^}]*)\\}')) || [])[1] || '';
 check(/border-left:\s*4px solid var\(--agent,/.test(rule('.agent-card')), 'a card\'s border is its agent colour');
 check(/background: color-mix\(in srgb, var\(--agent,/.test(rule('.agent-badge')), 'a badge\'s tint is its agent colour');
 const fallbackAt = css.search(/@supports not \(color: color-mix\(/);
