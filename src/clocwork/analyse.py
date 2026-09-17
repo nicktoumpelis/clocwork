@@ -647,6 +647,7 @@ def analyse(repo_dir, output_path, cache_path, archive_path, *, config=None, bra
             "first_date": results[0]["date"],
             "last_date": results[-1]["date"],
             "repo_url": paths.remote_url(repo_dir),
+            "analysed_by": paths.build(),
             "head_snapshot": {"all": by_file_all, "tests": by_file_tests},
             "running_totals": {"all": running_all, "tests": running_tests},
             "reconciliation": reconciliation,

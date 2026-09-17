@@ -535,7 +535,7 @@
 </div>
 
 <footer>
-    Generated on <span id="generatedOn"></span> &middot; Full analysis of <span id="footerCommits"></span> commits using <code>cloc --diff</code> per commit
+    Generated on <span id="generatedOn"></span><span id="generatedBy"></span> &middot; Full analysis of <span id="footerCommits"></span> commits using <code>cloc --diff</code> per commit
 </footer>
 
 <script>
@@ -898,6 +898,8 @@ Chart.defaults.locale = FMT.locale;
     set('headerTo', FMT.monthYear(SUMMARY.last_date));
     set('footerCommits', fmt(SUMMARY.total_commits));
     if (RAW.generated) set('generatedOn', FMT.date(RAW.generated));
+    var by = RAW.rendered_by;
+    if (by) set('generatedBy', ' by clocwork ' + by.version + (by.commit ? ' (' + by.commit + ')' : ''));
 })();
 
 // One stat tile: a label, a value and an optional smaller line beneath it.

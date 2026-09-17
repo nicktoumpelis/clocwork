@@ -59,6 +59,13 @@ check(byId('headerFrom').textContent === monthLong.format(local(S.first_date)) &
       'header month range: ' + byId('headerFrom').textContent + ' to ' + byId('headerTo').textContent);
 check(byId('footerCommits').textContent === int.format(S.total_commits), 'footer commit count');
 check(typeof RAW.generated === 'string' && byId('generatedOn').textContent === date(RAW.generated), 'generation date from the data blob: ' + byId('generatedOn').textContent);
+// The version is read from the package here, not from the page, so a page
+// that stamped the wrong build fails.
+const VERSION = require('fs').readFileSync(require('path').join(__dirname, '..', '..', 'src', 'clocwork', '__init__.py'), 'utf8').match(/^__version__ = "(.+)"$/m)[1];
+const RB = RAW.rendered_by || {};
+check(RB.version === VERSION, 'the page records the clocwork that rendered it: ' + JSON.stringify(RAW.rendered_by));
+check(byId('generatedBy').textContent === ' by clocwork ' + VERSION + (RB.commit ? ' (' + RB.commit + ')' : ''),
+      'footer names that build: ' + byId('generatedBy').textContent);
 
 if (hasTokens) {
 section('token cards');

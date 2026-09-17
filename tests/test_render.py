@@ -1,7 +1,9 @@
 import json
 import os
+import re
 import tempfile
 import unittest
+from unittest import mock
 
 from clocwork import render as gh
 
@@ -37,6 +39,14 @@ class TestBuildEmbedded(unittest.TestCase):
     def test_embeds_region_locale_for_the_page_to_format_with(self):
         e = gh.build_embedded(DATA, generated="2026-09-07", locale="en-SE")
         self.assertEqual(e["locale"], "en-SE")
+
+    def test_embeds_the_build_that_rendered_the_page(self):
+        build = {"version": "9.9.9", "commit": "abc1234"}
+        e = gh.build_embedded(DATA, generated="2026-09-07", locale=None, rendered_by=build)
+        self.assertEqual(e["rendered_by"], build)
+
+    def test_omits_the_build_when_none_given(self):
+        self.assertNotIn("rendered_by", gh.build_embedded(DATA, generated="2026-09-07", locale=None))
 
     def test_omits_locale_when_none_detected(self):
         e = gh.build_embedded(DATA, generated="2026-09-07", locale=None)
@@ -129,6 +139,9 @@ class TestRenderPage(unittest.TestCase):
         for p in self.PLACEHOLDERS:
             self.assertEqual(t.count(p), 1, p)
         self.assertNotIn("MyApp", t)
+        # The dashboard harness makes any element a script asks for, so only
+        # this check proves the footer has somewhere to name the build.
+        self.assertEqual(t.count('<span id="generatedBy"></span>'), 1)
 
     def test_no_placeholder_survives_and_data_is_replaced_last(self):
         data = full_data()
@@ -165,6 +178,19 @@ class TestRenderWorkspace(unittest.TestCase):
             with open(os.path.join(d, "commit_bodies.js")) as f:
                 self.assertEqual(f.read(), 'var COMMIT_BODIES = {"abc1234":"long body"};\n')
             self.assertTrue(any("1 bodies" in l for l in lines))
+
+    def test_the_page_names_the_build_that_rendered_it(self):
+        with tempfile.TemporaryDirectory() as d:
+            data = full_data()
+            data["summary"].update({"first_date": "2025-01-01", "last_date": "2025-01-04"})
+            with open(os.path.join(d, "full_commit_data.json"), "w") as f:
+                json.dump(data, f)
+            build = {"version": "9.9.9", "commit": None}
+            with mock.patch.object(gh.paths, "build", return_value=build):
+                gh.render_workspace(d, title="T", repo_name="R", locale=None, log=lambda *a: None)
+            with open(os.path.join(d, "index.html")) as f:
+                raw = json.loads(re.search(r"(?m)^var RAW = (.*);$", f.read()).group(1))
+            self.assertEqual(raw["rendered_by"], build)
 
 
 if __name__ == "__main__":

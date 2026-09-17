@@ -147,7 +147,7 @@ def render(parser=None, version=__version__, date=None):
                  ".TP\n.I clocwork.toml\nOptional configuration: page title, test\\-path rules, extra agents. The first found wins:\n"
                  ".BR \\-\\-config ,\nthen this file in the workspace, then\n.I .clocwork.toml\nin the repository.\n"
                  ".TP\n.I token_usage.json\nThe per\\-day token archive, kept per agent, read from coding agents' logs. It cannot be regenerated once the logs expire; no run shrinks it.\n"
-                 ".TP\n.I full_commit_data.json\nThe analysis the page is rendered from.\n"
+                 ".TP\n.I full_commit_data.json\nThe analysis the page is rendered from, with the clocwork version that made it, and its commit when run from a clone. The page's footer names the build that rendered it.\n"
                  ".TP\n.IR index.html \", \" commit_bodies.js\nThe dashboard and its sidecar of full commit messages.\n"
                  ".TP\n.I ~/.cache/clocwork/<name>\\-<hash>/cloc_cache.json\nPer\\-file cloc results keyed by commit, so a changed test rule or language table re\\-reads the cache instead of re\\-running cloc.")
     lines.append(".SH EXIT STATUS\n.TP\n.B 0\nSuccess.\n"

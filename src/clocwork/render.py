@@ -17,6 +17,8 @@ import sys
 from datetime import datetime
 from importlib import resources
 
+from clocwork import paths
+
 # One colour per first appearance, cycled by index. The order is the order
 # the ten original hand-written annotations used, so existing pages keep their look.
 PALETTE = ["#d2a8ff", "#58a6ff", "#f0883e", "#79c0ff", "#56d4dd",
@@ -90,12 +92,13 @@ def detect_locale(env=os.environ, platform=sys.platform, apple=read_default):
     return None
 
 
-def build_embedded(data, generated, locale):
+def build_embedded(data, generated, locale, rendered_by=None):
     """Compact form of the analysis for the page: matrices become sparse
     [languageIndex, row] pairs so a typical commit carries one or two entries.
 
-    `generated` is the ISO date of this run and `locale` the region locale to
-    format everything with (None leaves the page to the browser's languages)."""
+    `generated` is the ISO date of this run, `locale` the region locale to
+    format everything with (None leaves the page to the browser's languages)
+    and `rendered_by` the clocwork build writing the page (paths.build())."""
     lang_index = {name: i for i, name in enumerate(data["languages"])}
 
     def sparse(matrix):
@@ -110,6 +113,8 @@ def build_embedded(data, generated, locale):
                 "generated": generated}
     if locale:
         embedded["locale"] = locale
+    if rendered_by:
+        embedded["rendered_by"] = rendered_by
     return embedded
 
 
@@ -133,12 +138,12 @@ def template():
     return resources.files("clocwork").joinpath("template.html").read_text(encoding="utf-8")
 
 
-def render_page(data, *, title, repo_name, generated, locale):
+def render_page(data, *, title, repo_name, generated, locale, rendered_by=None):
     page = template()
     page = page.replace("__ANNOTATIONS__", json.dumps(annotations(data.get("first_appearances", {}))))
     page = page.replace("__TITLE__", html_lib.escape(title))
     page = page.replace("__REPO_NAME__", html_lib.escape(repo_name))
-    blob = json.dumps(build_embedded(data, generated, locale), separators=(",", ":"))
+    blob = json.dumps(build_embedded(data, generated, locale, rendered_by), separators=(",", ":"))
     return page.replace("__DATA__", blob)     # last, so data cannot contain a live placeholder
 
 
@@ -154,7 +159,10 @@ def render_workspace(workspace, *, title, repo_name, locale, log=print):
         except ValueError as e:
             raise OSError(f"{data_path} is not valid JSON ({e}); run `clocwork REPO -o {workspace}` to rebuild it") from None
     today = datetime.now().strftime("%Y-%m-%d")
-    page = render_page(data, title=title, repo_name=repo_name, generated=today, locale=locale)
+    # The page's own build, which differs from summary.analysed_by when
+    # `clocwork render` re-renders older data.
+    page = render_page(data, title=title, repo_name=repo_name, generated=today, locale=locale,
+                       rendered_by=paths.build())
     # Full commit bodies are large (over a megabyte across a long history), so
     # they live in a sidecar script the page loads only when a row is expanded.
     bodies = {c["hash"]: c["body"] for c in data["commits"] if c.get("body")}
