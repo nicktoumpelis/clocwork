@@ -6,8 +6,10 @@ Commit 2 "Add tests": App/main.swift +1 comment; Tests/AppTests.swift (2 code, 1
 Commit 3 "Notes":     Notes.md (1 code) on branch feature
 Commit 4:             merge of feature, subject "Merge pull request #1 from x/feature"
 """
+import json
 import os
 import subprocess
+import tempfile
 
 SWIFT_V1 = "import Foundation\n\n// helper\nfunc a() {}\n/// doc\nfunc b() {}\n"
 SWIFT_V2 = SWIFT_V1 + "// more\n"
@@ -211,13 +213,31 @@ def make_recreated_name_repo(root):
     return _git(root, "log", "--reverse", "--format=%H", "main").splitlines()
 
 
+PAGE = ".. a comment\n.. another\n\nText line one\nText line two\n"
+
+
+def cloc_count(name, text):
+    """(counts, language) that the cloc on PATH gives `text` in a file named
+    `name`, or (None, None). cloc versions name some files differently: an
+    .inc page is BitBake to 2.10 and Fortran 77 to 2.06."""
+    with tempfile.TemporaryDirectory() as d:
+        with open(os.path.join(d, name), "w") as f:
+            f.write(text)
+        out = subprocess.run(["cloc", "--quiet", "--json", "--by-file", name], cwd=d,
+                             capture_output=True, text=True, check=True).stdout
+    entry = json.loads(out).get(name) if out.strip() else None
+    if not entry:
+        return None, None
+    return {t: entry[t] for t in ("code", "comment", "blank")}, entry["language"]
+
+
 def make_language_change_repo(root):
     """Renames whose sides cloc counts differently: a reStructuredText page
-    with two comment lines renamed to .inc (BitBake to cloc 2.10, all code)
-    and later deleted, and a file cloc does not count renamed, with an edit,
-    to Python."""
+    with two comment lines renamed to .inc (all code to cloc) and later
+    deleted, and a file cloc does not count renamed, with an edit, to
+    Python."""
     _git(root, "init", "-q", "-b", "main")
-    _write(root, "docs/contents.rst", ".. a comment\n.. another\n\nText line one\nText line two\n")
+    _write(root, "docs/contents.rst", PAGE)
     _write(root, "tool.xyz", "x = 1\ny = 2\n")
     _write(root, "keep.md", "# Keep\n")
     _git(root, "add", ".")

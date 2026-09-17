@@ -11,6 +11,7 @@ from unittest import mock
 from clocwork import __version__
 from clocwork import analyse as an
 from clocwork import classify as cf
+from clocwork import cloc as cl
 from clocwork import config as cfg
 from clocwork import paths
 from clocwork import sources as src
@@ -268,12 +269,13 @@ class TestInputs(unittest.TestCase):
     def test_a_rename_that_changes_language_leaves_no_drift_in_any_line_type(self):
         # The page's two comment lines count as comments under .rst and as
         # code under .inc; the Python file was counted by nobody before. The
-        # page, gone at HEAD, is named as cloc named its content, not by the
-        # extension table's "PHP/Pascal/Fortran/Pawn/BitBake".
+        # page, gone at HEAD, is named as cloc named its content (BitBake to
+        # cloc 2.10), not by the extension table's ambiguous name.
         with tempfile.TemporaryDirectory() as d:
             fx.make_language_change_repo(d)
             data = self.run_quietly(d)
-            inc = "BitBake"
+            inc = fx.cloc_count("contents.inc", fx.PAGE)[1]
+            self.assertNotIn(inc, (None, cl.load_extension_table()["inc"]))
             self.assertEqual(data["commits"][1]["lines"], {inc: [4, 0, 0, 0, 1, 0],
                                                            "Python": [3, 0, 0, 0, 0, 0],
                                                            "reStructuredText": [0, 2, 0, 2, 0, 1]})
@@ -308,7 +310,7 @@ class TestInputs(unittest.TestCase):
             # The table's guess: the page's old name takes the table's
             # language for its new name.
             self.assertEqual(data["commits"][0]["lines"],
-                             {"Markdown": [1, 0, 0, 0, 0, 0], "PHP/Pascal/Fortran/Pawn/BitBake": [2, 0, 2, 0, 1, 0]})
+                             {"Markdown": [1, 0, 0, 0, 0, 0], cl.load_extension_table()["inc"]: [2, 0, 2, 0, 1, 0]})
 
     def test_a_failed_count_still_resolves_a_chain_of_renames(self):
         with tempfile.TemporaryDirectory() as d:
