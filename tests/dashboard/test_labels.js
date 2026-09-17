@@ -80,14 +80,35 @@ check(page.run("return labelBoxes([['2025-01-01', 'Gone']], window.__edge, windo
       'a label whose line is left of the area is hidden');
 check(page.run("return labelBoxes([['2025-01-02', 'Gone']], window.__edge, window.__measure, {left: 0, right: 290})")[0].hidden === true,
       'a label whose line is right of the area is hidden');
-// Rows stop at the chart's height; a label with no free row shares the one
-// whose last label ends first.
+// Rows stop at the chart's height. A label with no free row and no short
+// form is left off: C here, which leaves D a free row 1.
 global.__stack = [{ left: 0, right: 100 }, { left: 10, right: 30 }, { left: 20, right: 200 }, { left: 40, right: 60 }];
 const capped = page.run('return labelRows(window.__stack, 2)');
-// The third label has no free row and shares row 1 (ends at 30, before row
-// 0's 100); the fourth then shares row 0, which now ends first (100 < 200).
-check(JSON.stringify(capped) === '[0,1,1,0]', 'rows stop at the cap, sharing the row that ends first: ' + JSON.stringify(capped));
-check(Math.max(...capped) <= 1, 'no row beyond the cap');
+check(JSON.stringify(capped) === '[0,1,0,1]', 'rows stop at the cap: ' + JSON.stringify(capped));
+check(JSON.stringify(global.__stack.map(b => b.dropped)) === '[false,false,true,false]', 'the label with no room is left off');
+// A label whose short form fits a free row takes it, shortened.
+global.__shorter = [{ left: 0, right: 50 }, { left: 40, right: 100, short: { left: 56, right: 90 } }];
+check(JSON.stringify(page.run('return labelRows(window.__shorter, 1)')) === '[0,0]'
+      && JSON.stringify(global.__shorter.map(b => [b.shortened, b.dropped])) === '[[false,false],[true,false]]',
+      'a label that fits only in its short form is shortened');
+// One whose short form fits nowhere either is left off, and one that fits in
+// full is not shortened.
+global.__noroom = [{ left: 0, right: 50 }, { left: 40, right: 100, short: { left: 50, right: 90 } }, { left: 120, right: 160, short: { left: 130, right: 150 } }];
+page.run('return labelRows(window.__noroom, 1)');
+check(JSON.stringify(global.__noroom.map(b => [b.shortened, b.dropped])) === '[[false,false],[true,true],[false,false]]',
+      'a label with no room even when short is left off, and a room-full label stays whole: ' + JSON.stringify(global.__noroom.map(b => [b.shortened, b.dropped])));
+
+section('short forms');
+for (const [full, short] of [['Opus 4.8 (1M)', 'O4.8 (1M)'], ['Sonnet 5', 'S5'], ['Opus 4.6 + Fable 5.1', 'O4.6 + F5.1'],
+                             ['Gemini Code Assist', 'Gemini Code Assist'], ['Copilot', 'Copilot'], ['(unknown version)', '(unknown version)'],
+                             ['MyBot + Opus 5', 'MyBot + O5']]) {
+  global.__text = full;
+  check(page.run('return shortLabel(window.__text)') === short, full + ' -> ' + short);
+}
+global.__named = [['2025-01-01', 'Opus 4.8 (1M)'], ['2025-01-02', 'Copilot']];
+const named = page.run("return labelBoxes(window.__named, window.__edge, window.__measure, {left: 0, right: 300})");
+check(named[0].short && Math.abs(named[0].short.right - named[0].short.left - (measure('O4.8 (1M)') + 2 * pad)) < 1e-9, 'a box carries its short form\'s box');
+check(named[1].short === null, 'a label with nothing to shorten has no short box');
 check(JSON.stringify(page.run('return labelRows(window.__stack)')) === '[0,1,2,1]', 'without a cap the same labels take three rows');
 
 section('the chart applies the rows');
@@ -106,11 +127,22 @@ const applied = ANN.map((a, i) => annotations['first' + i].label.yAdjust);
 const expected = [0, -20, -40, 0, -20, -40, 0, -20, 0, -40, 0, -20, -60, 0, -20];
 check(JSON.stringify(applied) === JSON.stringify(expected), 'each label is raised by its row: ' + JSON.stringify(applied));
 check(applied.some(y => y < 0), 'some labels are raised');
-// On a chart two rows high the plugin keeps every label in those rows.
-fakeChart.chartArea = { left: 0, right: 1300, top: 0, bottom: 45 };
+// The top row may use the canvas above the area: an area whose foot is 45px
+// down has room for two rows (the upper one's top edge 21 + 20 = 41px up).
+fakeChart.chartArea = { left: 0, right: 1300, top: 30, bottom: 45 };
 plugin.afterLayout(fakeChart);
 const short = ANN.map((a, i) => annotations['first' + i].label.yAdjust);
 check(short.every(y => y === 0 || y === -20) && short.some(y => y === -20), 'a short chart gets two rows: ' + JSON.stringify(short));
+const shown = ANN.map((a, i) => annotations['first' + i].label.display);
+const texts = ANN.map((a, i) => annotations['first' + i].label.content);
+check(shown.includes(false), 'labels with no room are not drawn: ' + JSON.stringify(shown));
+check(texts.some((t, i) => t !== ANN[i][1]) && texts.every((t, i) => t === ANN[i][1] || t === page.run('return shortLabel(ANNOTATIONS[' + i + '][1])')),
+      'some labels are shortened, and each shows its full or short form: ' + JSON.stringify(texts));
+// Back on the tall chart, every label is drawn whole again.
+fakeChart.chartArea = area(1300);
+plugin.afterLayout(fakeChart);
+check(ANN.every((a, i) => annotations['first' + i].label.display && annotations['first' + i].label.content === a[1]),
+      'on a tall chart every label is drawn in full again');
 
 section('stat values');
 const values = page.byId('statsGrid').children.map(c => c.children[1]);
