@@ -63,6 +63,10 @@ check(checked().join() === 'system' && buttons.map(b => b.tabIndex).join() === '
 check(buttons[1].title === 'Match the system (light now)', 'the system button says what the system is: ' + buttons[1].title);
 
 const [main, daily, agentCum, pie, net, token] = page.charts;
+// As first drawn, before any theme change.
+check(daily.data.datasets[0].borderColor.every(x => x === SOL.green || x === SOL.red)
+      && main.data.datasets[0].borderColor === SOL.base02,
+      'the daily bars open in Solarized red and green, the main line in the text colour');
 const updates = page.charts.map(c => c.updates);
 const before = {
   tooltip: main.options.plugins.tooltip.backgroundColor, grid: main.options.scales.y.grid.color,
@@ -74,9 +78,10 @@ check(attr(page) === 'dark' && page.store[KEY] === 'dark' && checked().join() ==
 check(page.charts.every((c, i) => c.updates > updates[i]), 'every chart is redrawn');
 check(page.root.style['--bg'] === SOL.base03 && page.root.style['--text'] === SOL.base2 && page.root.style['color-scheme'] === 'dark',
       'the page colours and the browser\'s scheme are the dark ones');
-// Tooltips sit on the card colour, which the contrast checks below assume.
-check(before.tooltip === SOL.base3 && page.charts.every(c => c.options.plugins.tooltip.backgroundColor === SOL.base02),
-      'every tooltip sits on the card colour: base3, then base02');
+// Tooltips sit on the page colour, which the contrast checks below assume:
+// apart from the cards they sit over, and dark enough for muted text.
+check(before.tooltip === mix(SOL.base3, SOL.base2, 0.55) && page.charts.every(c => c.options.plugins.tooltip.backgroundColor === SOL.base03),
+      'every tooltip sits on the page colour: 55% to base2, then base03');
 check(main.options.plugins.tooltip.backgroundColor !== before.tooltip && main.options.scales.y.grid.color !== before.grid
       && daily.options.plugins.tooltip.titleColor === SOL.base2 && token.options.scales.y.title.color === SOL.base1,
       'tooltips and axes take the dark colours');
@@ -100,12 +105,16 @@ const rgba = (h, a) => 'rgba(' + rgb(h).join(',') + ',' + a + ')';
 // Dark roles: accent, success and danger are blue, green and red 60% toward base3.
 const dark = { accent: mix(SOL.blue, SOL.base3, 0.6), success: mix(SOL.green, SOL.base3, 0.6), danger: mix(SOL.red, SOL.base3, 0.6) };
 check(net.data.datasets[1].backgroundColor === rgba(dark.danger, 0.4), 'deleted bars take the dark red');
-check(main.data.datasets[0].borderColor === dark.accent && main.data.datasets[1].borderColor === dark.success
-      && main.data.datasets[0].backgroundColor === rgba(dark.accent, 0.05), 'the main chart\'s lines take the dark accent and success colours');
+// The line is the text colour, which no agent has, so no point hides in it.
+const agentTones = Object.values(page.run('return AGENT_COLORS'));
+check(main.data.datasets[0].borderColor === SOL.base2 && main.data.datasets[0].backgroundColor === rgba(SOL.base2, 0.05)
+      && main.data.datasets[1].borderColor === dark.success && agentTones.indexOf('text') < 0,
+      'the main line is the text colour and the tests line the success colour');
+// Daily bars keep Solarized's own red and green, whatever the theme.
 const dayColours = daily.data.datasets[0].borderColor;
-check(dayColours.length > 0 && dayColours.every(x => x === dark.success || x === dark.danger)
-      && daily.data.datasets[0].backgroundColor.every(x => x === rgba(dark.success, 0.6) || x === rgba(dark.danger, 0.6)),
-      'daily bars take the dark success and danger colours');
+check(dayColours.length > 0 && dayColours.every(x => x === SOL.green || x === SOL.red)
+      && daily.data.datasets[0].backgroundColor.every(x => x === rgba(SOL.green, 0.6) || x === rgba(SOL.red, 0.6)),
+      'daily bars take Solarized red and green');
 const tokenSets = token.data.datasets;
 check(tokenSets[1].borderColor === dark.accent && tokenSets[0].borderColor === rgba(SOL.base1, 0.7),
       'token bars: measured in the dark accent, estimated in the dark grey');
@@ -171,8 +180,20 @@ for (const name of ['light', 'dark']) {
       check(r >= 4.5, name + ': ' + role + ' on its tint over ' + under + ' reads at ' + r.toFixed(2) + ':1');
     }
   }
-  // Tooltips sit on the card colour.
-  check(contrast(c['text-muted'], c.surface) >= 4.5 && contrast(c.text, c.surface) >= 4.5, name + ': tooltip text reads at 4.5:1');
+  // Tooltips sit on the page colour.
+  check(contrast(c['text-muted'], c.bg) >= 4.5 && contrast(c.text, c.bg) >= 4.5, name + ': tooltip text reads at 4.5:1');
+  // The "How this works" note: body text on an 8% accent tint, over either background.
+  for (const under of ['bg', 'surface']) {
+    const r = contrast(c.text, mix(c[under], c.accent, 0.08));
+    check(r >= 4.5, name + ': the note reads at ' + r.toFixed(2) + ':1 over ' + under);
+  }
+  // Hover: a row, and a control tinted at 15% with its own text colour.
+  const hovered = contrast(c['text-muted'], c['surface-hover']);
+  check(hovered >= 4.5, name + ': a hovered table row reads at ' + hovered.toFixed(2) + ':1');
+  for (const [role, where] of [['accent', 'bg'], ['accent', 'surface'], ['success', 'surface']]) {
+    const r = contrast(c[role], mix(c[where], c[role], 0.15));
+    check(r >= 4.5, name + ': a hovered ' + role + ' control over ' + where + ' reads at ' + r.toFixed(2) + ':1');
+  }
   // First-appearance labels: 60% text over the line colour's 15% tint.
   const lows = page.run('return ANNOTATION_PALETTE').filter(t => contrast(mix(c[t], c.text, 0.6), mix(c.surface, c[t], 0.15)) < 4.5);
   check(lows.length === 0, name + ': every first-appearance label reads at 4.5:1' + (lows.length ? ': not ' + lows.join(', ') : ''));
@@ -212,6 +233,10 @@ const escapeRe = t => t.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
 const rule = sel => (css.match(new RegExp(escapeRe(sel) + '\\s*\\{([^}]*)\\}')) || [])[1] || '';
 check(/border-left:\s*4px solid var\(--agent,/.test(rule('.agent-card')), 'a card\'s border is its agent colour');
 check(/background: color-mix\(in srgb, var\(--agent,/.test(rule('.agent-badge')), 'a badge\'s tint is its agent colour');
+check(/color: var\(--text\)/.test(rule('.timeline-note')), 'the note is in body text, as its contrast check assumes');
+check(!/:hover\s*\{[^}]*color-mix\(in srgb, var\(--accent\) 2[0-9]%/.test(css), 'no hover tint is stronger than the 15% the selected controls use');
+check(/\.toggle-btn:hover \{[^}]*color: var\(--text\)/.test(css) && /\.toggle-btn\.active:hover \{[^}]*color: var\(--success\)/.test(css),
+      'the toggle keeps its own text colour when hovered');
 const fallbackAt = css.search(/@supports not \(color: color-mix\(/);
 check(fallbackAt > 0 && css.slice(fallbackAt).match(/color-mix\(/g).length === 1,
       'browsers without color-mix() get plain fallbacks, after every rule they replace');
