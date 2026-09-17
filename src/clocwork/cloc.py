@@ -167,15 +167,15 @@ def load_extension_table():
 
 
 def parse_by_file_json(obj):
-    """Learn {extension: language} from `cloc --git --by-file --json <rev>`.
+    """Learn a language table from `cloc --git --by-file --json <rev>`:
+    {extension: language}, plus {path_key: language} for files with no
+    extension.
 
-    A file with no extension, which cloc names by filename or shebang, is
-    learned under its path_key instead, and its language at this revision
-    applies to every commit that touched the path. Only paths present at the
-    revision are learned, so a renamed file's old name stays Other (#26).
-    The JSON report, not the
-    CSV one: cloc does not quote CSV fields, so a comma in a name split it,
-    and these keys are the ones parse_snapshot_by_file reads.
+    cloc names an extensionless file by filename or shebang; its language at
+    this revision applies to every commit that touched the path. Only paths
+    present at the revision are learned, so a renamed file's old name stays
+    Other (#26). The JSON report, not the CSV one: cloc does not quote CSV
+    fields, so a comma in a name split it.
     """
     learned = {}
     for path, counts in obj.items():
@@ -193,7 +193,9 @@ def merge_language_tables(base, overlay):
 
 
 def learn_extensions(repo, rev):
-    return parse_by_file_json(run_cloc(["--git", "--by-file", rev], repo))
+    # --skip-uniqueness: cloc otherwise counts identical files once, and every
+    # extensionless path needs its own entry.
+    return parse_by_file_json(run_cloc(["--git", "--by-file", "--skip-uniqueness", rev], repo))
 
 
 def build_language_table(repo, rev):

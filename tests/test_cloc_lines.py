@@ -111,6 +111,7 @@ class TestParseSnapshots(unittest.TestCase):
 import concurrent.futures
 import os
 import shutil
+import subprocess
 import tempfile
 import threading
 import time
@@ -459,6 +460,9 @@ class TestLearnedExtensions(unittest.TestCase):
                                    cf.path_key(".envrc"): "Bourne Shell",
                                    cf.path_key("tools/de,ploy"): "Bourne Shell"})
 
+    def test_a_path_key_is_the_path_behind_a_slash(self):
+        self.assertEqual((cf.path_key("Makefile"), cf.path_key("scripts/go")), ("/Makefile", "/scripts/go"))
+
     def test_parse_by_file_json_skips_the_header_and_sum(self):
         self.assertEqual(cl.parse_by_file_json({"header": {"n_files": 0}, "SUM": {"code": 0, "nFiles": 0}}), {})
 
@@ -491,17 +495,31 @@ class TestBuildLanguageTable(unittest.TestCase):
             self.assertEqual(table["md"], "Markdown")
             self.assertIn("py", table)   # base show-ext entries are still present
 
+    def commit_files(self, repo, files):
+        for rel, text in files.items():
+            os.makedirs(os.path.dirname(os.path.join(repo, rel)), exist_ok=True)
+            with open(os.path.join(repo, rel), "w") as f:
+                f.write(text)
+        subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+        subprocess.run(["git", "-c", "user.name=T", "-c", "user.email=t@t", "commit", "-qm", "more"], cwd=repo, check=True)
+
     def test_learns_a_name_with_a_comma_whole(self):
         with tempfile.TemporaryDirectory() as d:
             fx.make_extensionless_repo(d)
-            with open(os.path.join(d, "de,ploy"), "w") as f:
-                f.write("#!/bin/sh\necho one\necho two\n")
-            subprocess_run = __import__("subprocess").run
-            subprocess_run(["git", "add", "-A"], cwd=d, check=True)
-            subprocess_run(["git", "-c", "user.name=T", "-c", "user.email=t@t", "commit", "-qm", "comma"], cwd=d, check=True)
+            self.commit_files(d, {"de,ploy": "#!/bin/sh\necho one\necho two\n"})
             learned = cl.learn_extensions(d, "HEAD")
             self.assertEqual(learned.get(cf.path_key("de,ploy")), "Bourne Shell")
             self.assertNotIn(cf.path_key("de"), learned)
+
+    def test_learns_every_copy_of_a_duplicated_file(self):
+        # cloc counts identical files once unless told otherwise; every path
+        # still needs its language, because each copy has its own diff rows.
+        with tempfile.TemporaryDirectory() as d:
+            fx.make_extensionless_repo(d)
+            script = "#!/bin/sh\necho same\n"
+            self.commit_files(d, {"copy-a": script, "tools/copy-b": script})
+            learned = cl.learn_extensions(d, "HEAD")
+            self.assertEqual((learned.get("/copy-a"), learned.get("/tools/copy-b")), ("Bourne Shell", "Bourne Shell"))
 
     def test_learns_extensionless_paths_from_head(self):
         with tempfile.TemporaryDirectory() as d:
