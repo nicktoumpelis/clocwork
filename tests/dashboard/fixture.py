@@ -1,6 +1,6 @@
 """Write a synthetic clocwork workspace for the dashboard tests.
 
-Usage: python3 tests/dashboard/fixture.py <workspace-dir> [--no-tokens | --sources]
+Usage: python3 tests/dashboard/fixture.py <workspace-dir> [--no-tokens | --sources | --crowded]
 
 --no-tokens writes the workspace a repository never worked on with an agent
 whose logs are read produces: the tokens block analyse.py emits when there is
@@ -13,6 +13,10 @@ replace the Claude Fable 5.1 ones. Gemini CLI's tokens, from a single day,
 land on no commit, because no commit credits Gemini. On some days Claude Code
 measured and Codex CLI estimated, so the day's total is an estimate while the
 Claude commits' shares are measured.
+
+--crowded adds a first appearance every week for the history's last quarter
+of a year, labelled with long names, so their labels on the main chart would
+cover each other if nothing moved them apart.
 
 Deterministic: the same numbers every run, so the checks in tests/dashboard
 can reason about the data they are given. Shaped like a real
@@ -71,7 +75,14 @@ def combine(*series):
     return [[d, total, "m" if kinds == {"m"} else "e"] for d, (total, kinds) in sorted(combined.items())]
 
 
-def build(tokens=True, sources=False):
+# Agents that first appear a week apart in the crowded variant; they make no
+# commits of their own, as only the first-appearance labels need them.
+CROWDED = ["Claude Opus 4.7 (1M)", "Claude Sonnet 4.6", "Claude Opus 4.8 (1M)", "Claude Opus 4.8",
+           "Claude Fable 5", "Claude Sonnet 5", "Claude Opus 5 (1M)", "Claude Opus 5",
+           "Claude Haiku 4.5", "Gemini Code Assist", "Cursor", "Devin"]
+
+
+def build(tokens=True, sources=False, crowded=False):
     rng = random.Random(20260915)
     start = date(2025, 1, 1)
     commits, running, running_tests = [], {}, {}
@@ -110,6 +121,12 @@ def build(tokens=True, sources=False):
     for c in commits:
         if c["agent"] and c["agent"] != "Misc" and c["agent"] not in first:
             first[c["agent"]] = {"date": c["date"], "hash": c["hash"], "index": c["index"], "message": c["message"]}
+    if crowded:
+        last = date.fromisoformat(commits[-1]["date"])
+        for n, agent in enumerate(CROWDED):
+            day = (last - timedelta(weeks=len(CROWDED) - n)).isoformat()
+            index = next(c["index"] for c in commits if c["date"] >= day)
+            first[agent] = {"date": day, "hash": f"{index:07x}", "index": index + n / 100, "message": "crowded"}
     days = sorted({c["date"] for c in commits if c["date"] >= first[min(first, key=lambda a: first[a]["index"])]["date"]})
     cut = len(days) // 2
     claude = [[d, 12_000_000 if i % 2 else 5_000_000, "m" if i >= cut else "e"] for i, d in enumerate(days)]
@@ -179,7 +196,8 @@ def main():
     flags = sys.argv[2:]
     os.makedirs(ws, exist_ok=True)
     with open(os.path.join(ws, "full_commit_data.json"), "w") as f:
-        json.dump(build(tokens="--no-tokens" not in flags, sources="--sources" in flags), f)
+        json.dump(build(tokens="--no-tokens" not in flags, sources="--sources" in flags,
+                        crowded="--crowded" in flags), f)
     with open(os.path.join(ws, "clocwork.json"), "w") as f:
         json.dump({"version": "0.1.0", "repo_remote": REMOTE, "repo_path": "/example/fixture",
                    "repo_name": "fixture", "generated": "2026-09-15T00:00:00Z"}, f)
