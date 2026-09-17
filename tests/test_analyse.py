@@ -510,7 +510,24 @@ class TestCostEstimate(unittest.TestCase):
         ("gpt-5.1-codex-mini", None), ("gpt-5-codex", None), ("gpt-5.3-codex-spark", None),
         ("gemini-2.5-flash-image", None), ("gemini-2.5-flash-preview-tts", None),
         ("claude-sonnet-4-5-20250929", "claude-sonnet-4"),
+        # The 4-generation Opus models are priced two ways: the original and
+        # 4.1 at $15, 4.5 and later at $5. Sonnet 4 kept one price throughout.
+        ("claude-opus-4-20250514", "claude-opus-4"), ("claude-opus-4", "claude-opus-4"),
+        ("claude-opus-4-1-20250805", "claude-opus-4-1"),
+        ("claude-opus-4-5", "claude-opus-4-5"), ("claude-opus-4-5-20251101", "claude-opus-4-5"),
+        ("claude-opus-4-6", "claude-opus-4-6"), ("claude-opus-4-7", "claude-opus-4-7"),
+        ("claude-opus-4-8", "claude-opus-4-8"),
+        ("claude-sonnet-4-20250514", "claude-sonnet-4"), ("claude-sonnet-4-6", "claude-sonnet-4"),
     )
+
+    def test_the_claude_4_generation_is_priced_at_its_list_prices(self):
+        # platform.claude.com/docs/en/about-claude/pricing, read 2026-09-17.
+        for model, input_, output in (("claude-opus-4-20250514", 15, 75), ("claude-opus-4-1", 15, 75),
+                                      ("claude-opus-4-5", 5, 25), ("claude-opus-4-8", 5, 25),
+                                      ("claude-sonnet-4-20250514", 3, 15), ("claude-sonnet-4-5", 3, 15)):
+            with self.subTest(model=model):
+                price = an.price_for(model)
+                self.assertEqual((price["input"], price["output"]), (input_, output))
 
     def test_each_variant_resolves_to_its_own_row(self):
         for model, row in self.VARIANTS:
