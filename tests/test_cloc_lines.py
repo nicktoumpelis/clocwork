@@ -465,6 +465,8 @@ class TestRealCloc(unittest.TestCase):
             (rst, "tab\there.rst"),
             (rst, 'q"uote.rst'),
             (rst, "trail.rst "),
+            (script, "fire.🔥"),                      # an extension outside ASCII stays: Mojo
+            (rst, "café.rst"),
             (blob("\x00\x01"), "data.bin"),          # binary: cloc counts nothing
             ("0" * 39 + "1", "gone.py"),              # not in the repository
         ]), [
@@ -476,6 +478,8 @@ class TestRealCloc(unittest.TestCase):
             ({"code": 2, "comment": 2, "blank": 1}, "reStructuredText"),
             ({"code": 2, "comment": 2, "blank": 1}, "reStructuredText"),
             (None, None),                             # "trail.rst_" has no extension cloc knows
+            ({"code": 1, "comment": 1, "blank": 0}, "Mojo"),         # Mojo's shebang is a comment
+            ({"code": 2, "comment": 2, "blank": 1}, "reStructuredText"),
             (None, None),
             (None, None),
         ])

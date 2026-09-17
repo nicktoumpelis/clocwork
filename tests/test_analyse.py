@@ -305,6 +305,10 @@ class TestInputs(unittest.TestCase):
                           "renames that change language will drift", lines)
             self.assertEqual(data["commits"][1]["status"], "ok")
             self.assertTrue(any(any(v.values()) for v in data["summary"]["reconciliation"].values()))
+            # As before replacement existed: the page's old name takes the
+            # table's language for its new name.
+            self.assertEqual(data["commits"][0]["lines"],
+                             {"Markdown": [1, 0, 0, 0, 0, 0], "PHP/Pascal/Fortran/Pawn/BitBake": [2, 0, 2, 0, 1, 0]})
 
     def test_a_name_renamed_away_and_created_again_keeps_its_own_language(self):
         # notes.txt's four lines leave Text at the rename, so the new

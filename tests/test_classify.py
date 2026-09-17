@@ -152,8 +152,10 @@ class TestRenamePlan(unittest.TestCase):
          {cf.path_key("middle"): SH, cf.path_key("old"): SH}, []),
         # An extension change keeps the old name's language, and is replaced.
         ([("notes.txt", "notes.md", "Text", "Markdown")], {}, [0]),
-        # So is a change only cloc sees: the old name's parser split the lines.
+        # So is a change of parser, which split the lines differently.
         ([("a.rst", "a.inc", "reStructuredText", "BitBake")], {cf.path_key("a.inc"): "BitBake"}, [0]),
+        # Even when the table gives both names one language: only cloc tells them apart.
+        ([("build.txt", "notes.txt", "CMake", "Text")], {}, [0], {"build.txt", "notes.txt"}),
         # A file cloc names against its extension learns that name.
         ([("CMakeLists.txt", "build.cmake", "CMake", "CMake")],
          {cf.path_key("CMakeLists.txt"): "CMake", cf.path_key("build.cmake"): "CMake"}, []),

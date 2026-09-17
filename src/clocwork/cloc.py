@@ -264,14 +264,16 @@ def diff_commit(repo, parent, commit):
     return diff_rows(run_cloc(["--git", "--diff", "--by-file", parent or EMPTY_TREE, commit], repo))
 
 
-_UNSAFE = re.compile(r"[^A-Za-z0-9._+-]")
+_UNSAFE = re.compile(r'[\\"\x00-\x1f\x7f]|\s+$')
 
 
 def _safe_name(name):
-    """`name` with every character outside a safe set made `_`. cloc 2.10
-    writes a backslash, a tab or a quote into its JSON unescaped, and the
-    file list is one name per line; the extension and names such as
-    `CMakeLists.txt` survive."""
+    """`name` with each character cloc 2.10 cannot round-trip made `_`. It
+    writes a backslash or a control character into its JSON unescaped,
+    rewrites a quote, so the key no longer names the file, and leaves out a
+    name with trailing space; the file list is one name per line. Everything
+    else stays, extensions such as `.🔥` included. A name that ends in space
+    has no extension cloc knows either way."""
     return _UNSAFE.sub("_", name)
 
 

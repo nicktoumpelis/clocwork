@@ -18,14 +18,16 @@ All notable changes to clocwork are recorded here. The format follows
 
 ### Fixed
 
-- A rename no longer shows as drift between the history and HEAD. Where the
-  two names differ in language (`notes.txt` to `notes.md`, or a page whose
-  comment lines cloc counts as code under its new extension), the whole file
-  now leaves the old name's language at the rename and arrives in the new
-  one's, so the old name keeps its own language even when it is created
-  again. A renamed file with no extension counts under the language cloc
-  gives its content. This costs one more cloc run per analysis, over both
-  sides of every rename.
+- A rename that changes language no longer shows as drift between the
+  history and HEAD. Where cloc counts either name and the two differ in
+  language (`notes.txt` to `notes.md`, or a page whose comment lines cloc
+  counts as code under its new extension), the whole file now leaves the old
+  name's language at the rename and arrives in the new one's, so the old name
+  keeps its own language even when it is created again. A renamed file with
+  no extension counts under the language cloc gives its content. In a
+  history with renames this costs one more cloc run, over both sides of
+  every rename; if that run fails, a warning says so and those renames drift
+  as before.
 - A file cloc names against its extension (`CMakeLists.txt`, a script by its
   shebang) counts under that name in every commit, where it used to show as
   drift.
