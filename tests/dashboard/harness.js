@@ -77,7 +77,7 @@ Chart.prototype.setDatasetVisibility = function (i, visible) { (this.hidden = th
 
 function load(opts) {
   opts = opts || {};
-  // opts.variant picks a synthetic workspace: 'no-tokens' (also opts.tokens === false) or 'sources'.
+  // opts.variant picks a synthetic workspace: 'no-tokens' (also opts.tokens === false), 'sources' or 'crowded'.
   const ws = workspace(opts.variant || (opts.tokens === false ? 'no-tokens' : 'default'));
   let html = fs.readFileSync(path.join(ws, 'index.html'), 'utf8');
   // opts.dropId deletes one element id from the page, to prove the page

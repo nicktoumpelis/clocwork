@@ -574,26 +574,45 @@ function blend(hex, alpha, base) {
 // First-appearance labels sit at the foot of their lines, centred, and two
 // lines days apart would put one label over the other. Each label takes the
 // lowest row where it clears every label already in that row, so rows stack
-// only as high as the densest cluster needs.
+// only as high as the densest cluster needs, up to as many rows as the chart
+// has room for.
 var LABEL_FONT = { size: 10, weight: '600' }, LABEL_PAD_X = 6, LABEL_ROW = 20, LABEL_GAP = 4;
-function labelRows(boxes) {
-    // boxes: [{left, right}] in any order; returns each box's row, from 0.
+function labelRows(boxes, maxRows) {
+    // boxes: [{left, right, hidden}] in any order; returns each box's row,
+    // from 0. A hidden box (its line is outside the chart) takes no room.
+    // When no row within maxRows is free, a label shares the row whose last
+    // label ends first, so it covers as little as it can but stays in view.
     var order = boxes.map(function(b, i) { return i; }).sort(function(a, b) { return boxes[a].left - boxes[b].left; });
     var ends = [], rows = [];
+    maxRows = maxRows || Infinity;
     order.forEach(function(i) {
-        var r = 0;
-        while (r < ends.length && boxes[i].left < ends[r] + LABEL_GAP) r++;
-        ends[r] = boxes[i].right;
+        var b = boxes[i], r = 0;
+        if (b.hidden) { rows[i] = 0; return; }
+        while (r < ends.length && b.left < ends[r] + LABEL_GAP) r++;
+        if (r >= maxRows) {
+            r = 0;
+            for (var k = 1; k < maxRows; k++) if (ends[k] < ends[r]) r = k;
+        }
+        ends[r] = Math.max(ends[r] === undefined ? -Infinity : ends[r], b.right);
         rows[i] = r;
     });
     return rows;
 }
-// The label boxes in pixels for a chart's x scale and a text measurer.
-function labelBoxes(list, xScale, measure) {
+// The label boxes in pixels for a chart's x scale, a text measurer and its
+// chart area, placed as chartjs-plugin-annotation places them: a label that
+// would reach within its padding of the area's edge is moved inside, and one
+// wider than the area is centred on it.
+function labelBoxes(list, xScale, measure, area) {
     return (list || []).map(function(a) {
         var x = xScale.getPixelForValue(xScale.parse(a[0]));
-        var half = measure(a[1]) / 2 + LABEL_PAD_X;
-        return { left: x - half, right: x + half };
+        var width = measure(a[1]) + 2 * LABEL_PAD_X, half = width / 2, c = x;
+        if (width > area.right - area.left) {
+            c = (area.left + area.right) / 2;
+        } else {
+            if (area.left >= c - LABEL_PAD_X - half) c = area.left + LABEL_PAD_X + half;
+            if (area.right <= c + LABEL_PAD_X + half) c = area.right - LABEL_PAD_X - half;
+        }
+        return { left: c - half, right: c + half, hidden: x < area.left || x > area.right };
     });
 }
 // Runs after every layout (load, resize, zoom), before the annotation plugin
@@ -602,12 +621,13 @@ var labelLayout = {
     id: 'labelLayout',
     afterLayout: function(chart) {
         var annotations = chart.options.plugins.annotation.annotations;
-        var ctx = chart.ctx;
+        var area = chart.chartArea, ctx = chart.ctx;
         ctx.save();
         ctx.font = LABEL_FONT.weight + ' ' + LABEL_FONT.size + 'px ' + Chart.defaults.font.family;
-        var rows = labelRows(labelBoxes(ANNOTATIONS, chart.scales.x, function(t) { return ctx.measureText(t).width; }));
+        var boxes = labelBoxes(ANNOTATIONS, chart.scales.x, function(t) { return ctx.measureText(t).width; }, area);
         ctx.restore();
-        rows.forEach(function(row, i) { annotations['first' + i].label.yAdjust = -row * LABEL_ROW; });
+        var maxRows = Math.max(1, Math.floor((area.bottom - area.top) / LABEL_ROW));
+        labelRows(boxes, maxRows).forEach(function(row, i) { annotations['first' + i].label.yAdjust = -row * LABEL_ROW; });
     }
 };
 
