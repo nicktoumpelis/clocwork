@@ -612,8 +612,12 @@ def analyse(repo_dir, output_path, cache_path, archive_path, *, config=None, bra
     present = {path for path in report if path != "header"}
     # One more cloc run counts both sides of every rename, for the names'
     # languages and for the rows that replace cloc's at a language change.
-    counted = cl.count_blobs(repo_dir, [(r.old_blob, r.old) for r in renames] +
-                             [(r.new_blob, r.new) for r in renames])
+    try:
+        counted = cl.count_blobs(repo_dir, [(r.old_blob, r.old) for r in renames] +
+                                 [(r.new_blob, r.new) for r in renames])
+    except cl.ClocError as e:
+        log(f"  WARNING: could not count the renamed files ({e}); renames that change language will drift")
+        counted = [(None, None)] * (2 * len(renames))
     before, after = counted[:len(renames)], counted[len(renames):]
     renamed_names, changed = cf.rename_plan(
         [(r.old, r.new, before[i][1], after[i][1]) for i, r in enumerate(renames)], table, present)

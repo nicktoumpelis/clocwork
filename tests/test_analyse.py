@@ -294,6 +294,18 @@ class TestInputs(unittest.TestCase):
                     self.assertEqual(commit["lines"], {fx.NAMED_AGAINST_EXTENSION[rel][1]: [2, 0, 0, 0, 0, 0]}, rel)
                 self.assert_no_drift(data["summary"])
 
+    def test_a_failed_count_of_the_renamed_files_is_a_warning(self):
+        with tempfile.TemporaryDirectory() as d:
+            fx.make_language_change_repo(d)
+            lines = []
+            with mock.patch.object(an.cl, "count_blobs", side_effect=an.cl.ClocError("bad JSON")):
+                data = an.analyse(d, os.path.join(d, "o.json"), os.path.join(d, "c.json"),
+                                  os.path.join(d, "t.json"), log=lines.append)
+            self.assertIn("  WARNING: could not count the renamed files (bad JSON); "
+                          "renames that change language will drift", lines)
+            self.assertEqual(data["commits"][1]["status"], "ok")
+            self.assertTrue(any(any(v.values()) for v in data["summary"]["reconciliation"].values()))
+
     def test_a_name_renamed_away_and_created_again_keeps_its_own_language(self):
         # notes.txt's four lines leave Text at the rename, so the new
         # notes.txt is the only Text left.

@@ -264,6 +264,17 @@ def diff_commit(repo, parent, commit):
     return diff_rows(run_cloc(["--git", "--diff", "--by-file", parent or EMPTY_TREE, commit], repo))
 
 
+_UNSAFE = re.compile(r"[^A-Za-z0-9._+-]")
+
+
+def _safe_name(name):
+    """`name` with every character outside a safe set made `_`. cloc 2.10
+    writes a backslash, a tab or a quote into its JSON unescaped, and the
+    file list is one name per line; the extension and names such as
+    `CMakeLists.txt` survive."""
+    return _UNSAFE.sub("_", name)
+
+
 def count_blobs(repo, blobs):
     """cloc's counts and language for each (blob id, name) in `blobs`:
     [(counts, language)], (None, None) where cloc counts nothing.
@@ -290,8 +301,7 @@ def count_blobs(repo, blobs):
                         continue
                     data = out.read(int(header[2]))
                     out.read(1)
-                    # The file list is one name per line.
-                    rel = os.path.join("blobs", str(i), os.path.basename(name).replace("\n", "_"))
+                    rel = os.path.join("blobs", str(i), _safe_name(os.path.basename(name)))
                     os.makedirs(os.path.dirname(os.path.join(tmp, rel)))
                     with open(os.path.join(tmp, rel), "wb") as f:
                         f.write(data)

@@ -461,6 +461,10 @@ class TestRealCloc(unittest.TestCase):
             (rst, "docs/a.inc"),                      # the same content, split by another parser
             (script, "bin/run"),                      # no extension: cloc reads the shebang
             (script, "bin/run\nnext"),                # a newline cannot split the file list
+            (rst, "back\\slash.rst"),                 # nor can cloc's unescaped JSON lose these
+            (rst, "tab\there.rst"),
+            (rst, 'q"uote.rst'),
+            (rst, "trail.rst "),
             (blob("\x00\x01"), "data.bin"),          # binary: cloc counts nothing
             ("0" * 39 + "1", "gone.py"),              # not in the repository
         ]), [
@@ -468,6 +472,10 @@ class TestRealCloc(unittest.TestCase):
             ({"code": 4, "comment": 0, "blank": 1}, "BitBake"),
             ({"code": 2, "comment": 0, "blank": 0}, "Bourne Shell"),   # the shebang is code
             ({"code": 2, "comment": 0, "blank": 0}, "Bourne Shell"),
+            ({"code": 2, "comment": 2, "blank": 1}, "reStructuredText"),
+            ({"code": 2, "comment": 2, "blank": 1}, "reStructuredText"),
+            ({"code": 2, "comment": 2, "blank": 1}, "reStructuredText"),
+            (None, None),                             # "trail.rst_" has no extension cloc knows
             (None, None),
             (None, None),
         ])
