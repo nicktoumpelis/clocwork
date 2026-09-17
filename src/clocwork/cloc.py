@@ -12,6 +12,7 @@ Matrix row layout, used everywhere downstream:
     [codeAdded, codeRemoved, commentAdded, commentRemoved, blankAdded, blankRemoved]
 """
 
+import collections
 import concurrent.futures
 import functools
 import json
@@ -23,7 +24,7 @@ import time
 from collections import namedtuple
 
 from clocwork import paths
-from clocwork.classify import DEFAULT_RULES, extension, language_for, parse_extension_table, path_key
+from clocwork.classify import DEFAULT_RULES, UNCOUNTED, extension, language_for, parse_extension_table, path_key
 
 TYPES = ("code", "comment", "blank")
 
@@ -93,6 +94,8 @@ def classify_rows(rows, table, rules):
     for section, offset in (("added", 0), ("removed", 1)):
         for path, counts in rows.get(section, {}).items():
             lang = language_for(path, table)
+            if lang == UNCOUNTED:
+                continue
             _add_counts(lines, lang, offset, counts)
             if rules.is_test(path):
                 _add_counts(test_lines, lang, offset, counts)
@@ -105,10 +108,15 @@ def _accumulate(target, lang, counts):
         row[t] += counts[t]
 
 
-def parse_snapshot_by_language(obj):
-    """Parse `cloc --git --json <rev>` into {language: {code, comment, blank}}."""
-    return {k: _type_counts(v) for k, v in obj.items()
-            if k not in _SKIP_KEYS and isinstance(v, dict)}
+def parse_snapshot_by_language(report):
+    """{language: {code, comment, blank}} from a `by_file_report`, each file
+    under the language cloc gave it."""
+    by_lang = {}
+    for path, counts in report.items():
+        if path in _SKIP_KEYS or not isinstance(counts, dict) or not counts.get("language"):
+            continue
+        _accumulate(by_lang, counts["language"], _type_counts(counts))
+    return by_lang
 
 
 def parse_snapshot_by_file(obj, table, rules=DEFAULT_RULES):
@@ -118,6 +126,8 @@ def parse_snapshot_by_file(obj, table, rules=DEFAULT_RULES):
         if path in _SKIP_KEYS or not isinstance(counts, dict):
             continue
         lang = language_for(path, table)
+        if lang == UNCOUNTED:
+            continue
         tc = _type_counts(counts)
         _accumulate(all_files, lang, tc)
         if rules.is_test(path):
@@ -167,23 +177,39 @@ def load_extension_table():
     return parse_extension_table(result.stdout)
 
 
-def parse_by_file_json(obj):
-    """Learn a language table from `cloc --git --by-file --json <rev>`:
-    {extension: language}, plus {path_key: language} for files with no
-    extension.
+def parse_by_file_json(obj, base=None):
+    """Learn a language table from `cloc --git --by-file --json <rev>`.
 
-    cloc names an extensionless file by filename or shebang; its language at
-    this revision applies to every commit that touched the path. Only paths
-    present at the revision are learned, so a renamed file's old name stays
-    Other (#26). The JSON report, not the CSV one: cloc does not quote CSV
-    fields, so a comma in a name split it.
+    Each extension gets one language: `base`'s (cloc's extension table) when
+    some file with that extension has it, otherwise the language most of
+    those files have. A file cloc names otherwise (CMakeLists.txt, a script
+    by its shebang), and every file with no extension, is learned by path
+    (`path_key`), so one odd file relabels neither itself nor the rest. Only
+    paths present at the revision are learned; `classify.renamed_languages`
+    covers their earlier names. The JSON report, not the CSV one: cloc does
+    not quote CSV fields, so a comma in a name split it.
     """
-    learned = {}
+    base = base or {}
+    files = {}
     for path, counts in obj.items():
         if path in _SKIP_KEYS or not isinstance(counts, dict) or not counts.get("language"):
             continue
+        files[path] = counts["language"]
+    by_extension = {}
+    for path, language in files.items():
         ext = extension(path)
-        learned[path_key(path) if ext is None else ext] = counts["language"]
+        if ext is not None:
+            by_extension.setdefault(ext, collections.Counter())[language] += 1
+    learned = {}
+    for ext, counts in by_extension.items():
+        if base.get(ext) in counts:
+            learned[ext] = base[ext]
+        else:
+            learned[ext] = min(counts, key=lambda language: (-counts[language], language))
+    for path, language in files.items():
+        ext = extension(path)
+        if ext is None or language != learned[ext]:
+            learned[path_key(path)] = language
     return learned
 
 
@@ -193,25 +219,56 @@ def merge_language_tables(base, overlay):
     return merged
 
 
-def learn_extensions(repo, rev):
-    # --skip-uniqueness: cloc otherwise counts identical files once, and every
-    # extensionless path needs its own entry.
-    return parse_by_file_json(run_cloc(["--git", "--by-file", "--skip-uniqueness", rev], repo))
+def regular_files(repo, rev):
+    """The paths of rev's regular files: no symlinks, no submodules."""
+    result = subprocess.run(["git", "-C", repo, "ls-tree", "-r", "-z", "--full-tree", rev],
+                            capture_output=True, text=True, env=paths.git_env())
+    files = set()
+    for entry in result.stdout.split("\0"):
+        meta, _, path = entry.partition("\t")
+        if path and meta.startswith("100"):
+            files.add(path)
+    return files
+
+
+def only_files(report, files):
+    """The report's entries for `files`, and its header."""
+    return {k: v for k, v in report.items() if k == "header" or k in files}
+
+
+def by_file_report(repo, rev, uncounted=()):
+    """cloc's per-file report of the regular files at rev, less `uncounted`.
+
+    --skip-uniqueness: cloc otherwise counts identical files once, while the
+    per-commit diffs count every copy. Symlinks are left out: cloc reads one
+    as its target, in the snapshot always and in a diff only sometimes.
+    """
+    report = run_cloc(["--git", "--by-file", "--skip-uniqueness", rev], repo)
+    return only_files(report, regular_files(repo, rev) - set(uncounted))
+
+
+def learn_extensions(repo, rev, base=None, report=None):
+    return parse_by_file_json(by_file_report(repo, rev) if report is None else report, base)
 
 
 def build_language_table(repo, rev):
     """cloc's extension table, corrected by how cloc actually classified the files at rev."""
-    return merge_language_tables(load_extension_table(), learn_extensions(repo, rev))
+    base = load_extension_table()
+    return merge_language_tables(base, learn_extensions(repo, rev, base))
 
 
 def diff_commit(repo, parent, commit):
     return diff_rows(run_cloc(["--git", "--diff", "--by-file", parent or EMPTY_TREE, commit], repo))
 
 
-def snapshot(repo, rev, table, rules=DEFAULT_RULES):
-    by_lang = parse_snapshot_by_language(run_cloc(["--git", rev], repo))
-    all_files, tests = parse_snapshot_by_file(run_cloc(["--git", "--by-file", rev], repo), table, rules)
-    return by_lang, all_files, tests
+def snapshot(repo, rev, table, rules=DEFAULT_RULES, report=None):
+    """The tree at rev by the language cloc gave each file, and by the
+    language `table` gives it (the two differ only where the table is
+    wrong), from one `by_file_report`: `report`, if already in hand."""
+    if report is None:
+        report = by_file_report(repo, rev)
+    all_files, tests = parse_snapshot_by_file(report, table, rules)
+    return parse_snapshot_by_language(report), all_files, tests
 
 
 class Cache:

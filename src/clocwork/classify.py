@@ -8,6 +8,9 @@ is read rather than once when it is written.
 import re
 
 OTHER = "Other"
+# The table's entry for a path clocwork does not count (a symlink): its rows
+# are left out of the history and the snapshot alike.
+UNCOUNTED = ""
 
 # Directory segments that mark test code, matched case-insensitively.
 BUILTIN_DIRS = ("test", "tests", "__tests__", "testdata")
@@ -60,20 +63,48 @@ def extension(path):
 
 
 def path_key(path):
-    """The language-table key for a file with no extension.
+    """The language-table key for one file.
 
-    cloc names such files by filename or shebang, so the table holds them by
-    path. An extension never contains a slash, so the two kinds of key cannot
-    collide: a root file called "go" is not an entry for ".go".
+    cloc names a file with no extension by filename or shebang, and can name
+    a file against its extension (CMakeLists.txt is CMake, not Text), so the
+    table holds such files by path. An extension never contains a slash, so
+    the two kinds of key cannot collide: a root file called "go" is not an
+    entry for ".go".
     """
     return "/" + path
 
 
 def language_for(path, table):
+    """A file's language: its own entry if it has one, else its extension's.
+    UNCOUNTED means the file is left out."""
+    own = table.get(path_key(path))
+    if own is not None:
+        return own
     ext = extension(path)
-    if ext is None:
-        return table.get(path_key(path), OTHER)
-    return table.get(ext, OTHER)
+    return OTHER if ext is None else table.get(ext, OTHER)
+
+
+def renamed_languages(renames, table, present=()):
+    """Path entries for the names files had before a rename.
+
+    cloc reports a renamed file's lines under its old name, so the old name
+    must carry the language of the name it became, or those lines count
+    under another language than the file does at the analysed ref. `renames`
+    is [(old, new), ...], newest first, so a chain a -> b -> c resolves: b
+    learns c's language before a learns b's. A name in `present` (the paths
+    at the analysed ref) or already in the table keeps its language: it was
+    used again after the rename.
+    """
+    table = dict(table)
+    learned = {}
+    for old, new in renames:
+        key = path_key(old)
+        if key in table or old in present:
+            continue
+        language = language_for(new, table)
+        if language != language_for(old, table):
+            table[key] = learned[key] = language
+    return learned
 
 
 def _glob_to_regex(pattern):

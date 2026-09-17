@@ -10,6 +10,7 @@ from unittest import mock
 
 from clocwork import __version__
 from clocwork import analyse as an
+from clocwork import classify as cf
 from clocwork import config as cfg
 from clocwork import paths
 from clocwork import sources as src
@@ -210,6 +211,89 @@ class TestInputs(unittest.TestCase):
             self.assertEqual(set(s["mapping_check"]), {lang for _, lang in fx.EXTENSIONLESS.values()})
             self.assertEqual(s["mapping_check"], {lang: zero for lang in s["mapping_check"]})
             self.assertEqual(s["reconciliation"], {lang: zero for lang in s["mapping_check"]})
+
+    def run_quietly(self, d):
+        return an.analyse(d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), os.path.join(d, "t.json"),
+                          log=lambda *a: None)
+
+    def assert_no_drift(self, summary):
+        for name in ("reconciliation", "mapping_check"):
+            with self.subTest(check=name):
+                self.assertEqual({l: v for l, v in summary[name].items() if any(v.values())}, {})
+
+    def test_path_history_reads_renames_newest_first_whatever_the_names(self):
+        with tempfile.TemporaryDirectory() as d:
+            fx.make_renamed_repo(d)
+            fx._git(d, "mv", "notes.md", "my notes, v2.md")
+            fx._git(d, "commit", "-q", "-m", "Rename again", date="2025-01-04T10:00:00+00:00")
+            self.assertEqual(an.path_history(d, "main"),
+                             ([("notes.md", "my notes, v2.md"), ("middle", "bin/final"),
+                               ("old", "middle"), ("notes.txt", "notes.md")], set()))
+            self.assertEqual(an.path_history(d, "main~3"), ([], set()))
+
+    def test_path_history_names_every_path_that_was_a_symlink(self):
+        with tempfile.TemporaryDirectory() as d:
+            fx.make_symlink_repo(d)
+            fx._git(d, "mv", "LINK.md", "a link.md")
+            fx._git(d, "commit", "-q", "-m", "Rename the link", date="2025-01-02T10:00:00+00:00")
+            renamed, symlinks = an.path_history(d, "main")
+            self.assertEqual(renamed, [("LINK.md", "a link.md")])
+            self.assertEqual(symlinks, {"LINK.md", "a link.md", "lib"})
+
+    def test_a_renamed_file_counts_under_the_language_of_its_new_name(self):
+        # cloc reports a rename under the old name, so the old name must carry
+        # the new one's language: a script renamed twice (old -> middle ->
+        # bin/final) and a text file that became Markdown.
+        with tempfile.TemporaryDirectory() as d:
+            fx.make_renamed_repo(d)
+            data = self.run_quietly(d)
+            self.assertEqual(data["commits"][0]["lines"], {"Bourne Shell": [3, 0, 0, 0, 0, 0],
+                                                           "Markdown": [2, 0, 0, 0, 0, 0]})
+            self.assertEqual(data["commits"][2]["lines"], {"Bourne Shell": [1, 0, 0, 0, 0, 0]})
+            self.assertNotIn(cf.OTHER, data["summary"]["head_snapshot"]["all"])
+            self.assert_no_drift(data["summary"])
+
+    def test_a_file_cloc_names_against_its_extension_keeps_that_name_in_every_commit(self):
+        # Whichever order cloc lists them in, CMakeLists.txt is CMake and
+        # notes.txt Text; the odd Python .cgi does not relabel the Perl ones.
+        for order in (list(fx.NAMED_AGAINST_EXTENSION), list(reversed(fx.NAMED_AGAINST_EXTENSION))):
+            with self.subTest(order=order[0]), tempfile.TemporaryDirectory() as d:
+                fx.make_named_against_extension_repo(d, order)
+                data = self.run_quietly(d)
+                for commit, rel in zip(data["commits"], order):
+                    self.assertEqual(commit["lines"], {fx.NAMED_AGAINST_EXTENSION[rel][1]: [2, 0, 0, 0, 0, 0]}, rel)
+                self.assert_no_drift(data["summary"])
+
+    def test_a_name_renamed_away_and_created_again_keeps_its_own_language(self):
+        with tempfile.TemporaryDirectory() as d:
+            fx.make_recreated_name_repo(d)
+            s = self.run_quietly(d)["summary"]
+            self.assertEqual({l: v["code"] for l, v in s["head_snapshot"]["all"].items()},
+                             {"Markdown": 4, "Text": 2})
+            self.assertEqual({l: v for l, v in s["mapping_check"].items() if any(v.values())}, {})
+
+    def test_a_symlink_is_counted_neither_in_the_history_nor_at_head(self):
+        # cloc counts a symlink added with its target in the diff, but not one
+        # added later, nor the target's later edits through it.
+        with tempfile.TemporaryDirectory() as d:
+            fx.make_symlink_repo(d)
+            os.symlink("src/app.py", os.path.join(d, "app.py"))
+            fx._write(d, "AGENTS.md", "# Agents\n\nRead this.\nAnd this.\n")
+            fx._git(d, "add", ".")
+            fx._git(d, "commit", "-q", "-m", "Another link", date="2025-01-02T10:00:00+00:00")
+            data = self.run_quietly(d)
+            self.assertEqual(data["commits"][0]["lines"], {"Markdown": [2, 0, 0, 0, 1, 0], "Python": [1, 0, 0, 0, 0, 0]})
+            s = data["summary"]
+            self.assertEqual({l: v["code"] for l, v in s["head_snapshot"]["all"].items()}, {"Markdown": 3, "Python": 1})
+            self.assert_no_drift(s)
+
+    def test_identical_files_count_once_each_at_head_as_in_the_history(self):
+        with tempfile.TemporaryDirectory() as d:
+            fx.make_identical_files_repo(d)
+            s = self.run_quietly(d)["summary"]
+            self.assertEqual(s["head_snapshot"]["all"]["Python"]["code"], 4)
+            self.assertEqual(s["head_snapshot"]["all"]["Bourne Shell"]["code"], 4)
+            self.assert_no_drift(s)
 
     def test_claude_code_tokens_land_only_on_claude_commits_and_the_rest_are_named(self):
         # The polyglot fixture credits Copilot, Cursor and Claude Opus 4.6 on

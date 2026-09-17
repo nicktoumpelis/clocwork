@@ -10,6 +10,7 @@ import json
 import re
 import subprocess
 
+from clocwork import classify as cf
 from clocwork import cloc as cl
 from clocwork import paths
 from clocwork import sources as src
@@ -34,6 +35,32 @@ def is_merge_commit(commit):
 def git(repo, *args):
     result = subprocess.run(["git"] + list(args), capture_output=True, text=True, cwd=repo, env=paths.git_env())
     return result.stdout
+
+
+def path_history(repo, rev):
+    """From one walk of rev's history: every rename as (old, new), newest
+    first, with git's default rename detection, and every path that was a
+    symlink at any point."""
+    # -z: NUL after every field and no newline between commits, so names
+    # come through as written. Each change is ":<modes, ids> <status>", then
+    # its path, or two for a rename or copy.
+    fields = git(repo, "log", "-M", "--raw", "--no-abbrev", "-z", "--format=", rev, "--").split("\0")
+    renames, symlinks = [], set()
+    i = 0
+    while i < len(fields):
+        meta = fields[i]
+        if not meta.startswith(":"):
+            i += 1
+            continue
+        modes, status = meta[1:].split()[:2], meta.split()[-1]
+        count = 2 if status[:1] in "RC" else 1
+        names = fields[i + 1:i + 1 + count]
+        if status.startswith("R") and len(names) == 2:
+            renames.append((names[0], names[1]))
+        if "120000" in modes:
+            symlinks.update(names)
+        i += 1 + count
+    return renames, symlinks
 
 
 def is_shallow(repo):
@@ -567,9 +594,16 @@ def analyse(repo_dir, output_path, cache_path, archive_path, *, config=None, bra
 
     log(f"Step 2: Measuring lines per commit with cloc, {jobs} at a time (cache: {cache_path})...")
     show_ext_table = cl.load_extension_table()
-    learned = cl.learn_extensions(repo_dir, rev)
+    renamed, symlinks = path_history(repo_dir, rev)
+    # One per-file report of rev serves the language table here and the
+    # snapshot in step 3.
+    report = cl.by_file_report(repo_dir, rev, symlinks)
+    learned = cl.learn_extensions(repo_dir, rev, show_ext_table, report)
     table = cl.merge_language_tables(show_ext_table, learned)
-    # Extensionless files are learned too, under path keys ("/Makefile"); they are not extensions.
+    table.update({cf.path_key(path): cf.UNCOUNTED for path in symlinks})
+    present = {path for path in report if path != "header"}
+    table.update(cf.renamed_languages(renamed, table, present))
+    # Single files are learned too, under path keys ("/Makefile"); they are not extensions.
     new_extensions = sorted(ext for ext in learned if ext not in show_ext_table and not ext.startswith("/"))
     if new_extensions:
         log(f"  learned {len(new_extensions)} extensions from {branch}: {', '.join(new_extensions)}")
@@ -581,7 +615,7 @@ def analyse(repo_dir, output_path, cache_path, archive_path, *, config=None, bra
                                   jobs=jobs, log=log)
 
     log(f"Step 3: Snapshot of {branch} for reconciliation...")
-    by_lang, by_file_all, by_file_tests = cl.snapshot(repo_dir, rev, table, rules)
+    by_lang, by_file_all, by_file_tests = cl.snapshot(repo_dir, rev, table, rules, report)
 
     log("Step 4: Building per-commit records and running totals...")
     running_all, running_tests = {}, {}
