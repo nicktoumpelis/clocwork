@@ -233,26 +233,36 @@ check(/background: color-mix\(in srgb, var\(--agent,/.test(rule('.agent-badge'))
 const note = rule('.timeline-note');
 check(/color: var\(--text\)/.test(note) && /color-mix\(in srgb, var\(--accent\) 8%/.test(note),
       'the note is in body text on an 8% tint, as its contrast checks assume');
+const fallbackAt = css.search(/@supports not \(color: color-mix\(/);
+check(fallbackAt > 0 && css.slice(fallbackAt).match(/color-mix\(/g).length === 1,
+      'browsers without color-mix() get plain fallbacks, after every rule they replace');
+// The stylesheet as [selectors, declarations] pairs, with each selector on its
+// own. An at-rule's opening line is dropped first, so the rules inside @media
+// and @supports parse like any other instead of the first being swallowed.
+const rulesIn = text => [...text.replace(/@[a-z-]+[^{]*\{/g, '').matchAll(/([^{}]+)\{([^}]*)\}/g)]
+  .map(([, sel, body]) => [sel.split(',').map(s => s.trim()).filter(Boolean), body]);
+const tintedRules = rulesIn(css.slice(0, fallbackAt)), plainRules = rulesIn(css.slice(fallbackAt));
+const RESIZER = '.col-resizer:hover';   // a bar with no text on it: exempt, and only it
 // Every hover tint behind text is at most the 15% the selected controls use.
-// The column resizer is a bar with no text on it, so it is exempt.
-const hoverTints = [...css.matchAll(/([^{}]*):hover[^{}]*\{([^}]*)\}/g)]
-  .flatMap(([, sel, body]) => [...body.matchAll(/color-mix\(in srgb, var\(--[a-z-]+\) (\d+)%/g)].map(m => [sel.trim(), +m[1]]))
-  .filter(([sel]) => !/col-resizer/.test(sel));
+const hoverTints = tintedRules.flatMap(([sels, body]) =>
+  sels.filter(sel => /:hover/.test(sel) && sel !== RESIZER).flatMap(sel =>
+    [...body.matchAll(/color-mix\(in srgb, var\(--[a-z-]+\) (\d+)%/g)].map(m => [sel, +m[1]])));
 check(hoverTints.length > 0 && hoverTints.every(([, pct]) => pct <= 15),
       'no hover tint behind text is stronger than 15%: ' + JSON.stringify(hoverTints));
 check(/\.toggle-btn:hover \{[^}]*color: var\(--text\)/.test(css) && /\.toggle-btn\.active:hover \{[^}]*color: var\(--success\)/.test(css),
       'the toggle keeps its own text colour when hovered');
-const fallbackAt = css.search(/@supports not \(color: color-mix\(/);
-check(fallbackAt > 0 && css.slice(fallbackAt).match(/color-mix\(/g).length === 1,
-      'browsers without color-mix() get plain fallbacks, after every rule they replace');
-// Every selector whose background is a tint needs a fallback of its own, or
-// it keeps no background at all in those browsers.
-const fallback = css.slice(fallbackAt);
-const tinted = [...css.slice(0, fallbackAt).matchAll(/([^{}]+)\{([^}]*)\}/g)]
-  .filter(([, , body]) => /background:[^;]*color-mix\(/.test(body))
-  .flatMap(([, sel]) => sel.split(',').map(x => x.trim()).filter(Boolean))
-  .filter(sel => !/col-resizer/.test(sel));   // a bar, not text: it may vanish
-const uncovered = tinted.filter(sel => fallback.indexOf(sel) < 0);
+// Every selector whose background is a tint needs a fallback background of its
+// own, or it keeps no background at all in those browsers. Selectors match
+// whole: a fallback for `.toggle-btn.active:hover` does not cover
+// `.toggle-btn.active`, though one name contains the other.
+const fallbackBg = new Set();
+for (const [sels, body] of plainRules)
+  if (/background:/.test(body)) for (const sel of sels) fallbackBg.add(sel);
+const tinted = tintedRules
+  .filter(([, body]) => /background:[^;]*color-mix\(/.test(body))
+  .flatMap(([sels]) => sels)
+  .filter(sel => sel !== RESIZER);   // a bar, not text: it may vanish
+const uncovered = tinted.filter(sel => !fallbackBg.has(sel));
 check(tinted.length > 3 && uncovered.length === 0, 'every tinted rule has a fallback: ' + (uncovered.join(', ') || tinted.length + ' checked'));
 const missing = [...used].filter(v => !set.has(v) && own.indexOf(v) < 0);
 check(used.size > 5 && missing.length === 0, 'every var() the stylesheet reads is set: ' + (missing.join(', ') || [...used].join(', ')));
