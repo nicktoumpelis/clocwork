@@ -82,8 +82,8 @@ function load(opts) {
   // opts.dropId deletes one element id from the page, to prove the page
   // cannot run without it (test_ids.js).
   if (opts.dropId) html = html.split(' id="' + opts.dropId + '"').join('');
-  const scripts = []; const re = /<script\b[^>]*>([\s\S]*?)<\/script\b[^>]*>/gi; let m;
-  while ((m = re.exec(html))) scripts.push(m[1]);
+  const scripts = []; const spans = []; const re = /<script\b[^>]*>([\s\S]*?)<\/script\b[^>]*>/gi; let m;
+  while ((m = re.exec(html))) { scripts.push(m[1]); spans.push([m.index, re.lastIndex]); }
   let src = scripts.join('\n');
   // The blob may carry the region locale of the machine that generated it,
   // which the page prefers over navigator. Tests choose: opts.region sets it,
@@ -101,8 +101,8 @@ function load(opts) {
   // lookup gets null, so a script that needs a missing element throws.
   const declared = new Set();
   const idRe = /\sid="([^"]+)"/g;
-  const markup = html.replace(/<script\b[\s\S]*?<\/script\b[^>]*>/gi, '');
-  while ((m = idRe.exec(markup))) declared.add(m[1]);
+  const inScript = at => spans.some(([from, to]) => at >= from && at < to);
+  while ((m = idRe.exec(html))) if (!inScript(m.index)) declared.add(m[1]);
   const ids = {};
   const byId = id => ids[id] || (declared.has(id) ? (ids[id] = new El('div')) : null);
   const th = (cls, sort, text) => { const e = new El('th'); if (cls) e.className = cls; if (sort) e.setAttribute('data-sort', sort); e.textContent = text || ''; return e; };
