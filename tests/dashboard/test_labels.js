@@ -78,12 +78,15 @@ global.__hidden = [{ left: -40, right: 60, hidden: true }, { left: 10, right: 90
 check(JSON.stringify(page.run('return labelRows(window.__hidden)')) === '[0,0]', 'a hidden label leaves its row free');
 check(page.run("return labelBoxes([['2025-01-01', 'Gone']], window.__edge, window.__measure, {left: 10, right: 300})")[0].hidden === true,
       'a label whose line is left of the area is hidden');
+check(page.run("return labelBoxes([['2025-01-02', 'Gone']], window.__edge, window.__measure, {left: 0, right: 290})")[0].hidden === true,
+      'a label whose line is right of the area is hidden');
 // Rows stop at the chart's height; a label with no free row shares the one
 // whose last label ends first.
 global.__stack = [{ left: 0, right: 100 }, { left: 10, right: 30 }, { left: 20, right: 200 }, { left: 40, right: 60 }];
 const capped = page.run('return labelRows(window.__stack, 2)');
-check(JSON.stringify(capped) === '[0,1,1,0]' || JSON.stringify(capped) === '[0,1,1,1]',
-      'rows stop at the cap: ' + JSON.stringify(capped));
+// The third label has no free row and shares row 1 (ends at 30, before row
+// 0's 100); the fourth then shares row 0, which now ends first (100 < 200).
+check(JSON.stringify(capped) === '[0,1,1,0]', 'rows stop at the cap, sharing the row that ends first: ' + JSON.stringify(capped));
 check(Math.max(...capped) <= 1, 'no row beyond the cap');
 check(JSON.stringify(page.run('return labelRows(window.__stack)')) === '[0,1,2,1]', 'without a cap the same labels take three rows');
 
@@ -103,6 +106,11 @@ const applied = ANN.map((a, i) => annotations['first' + i].label.yAdjust);
 const expected = [0, -20, -40, 0, -20, -40, 0, -20, 0, -40, 0, -20, -60, 0, -20];
 check(JSON.stringify(applied) === JSON.stringify(expected), 'each label is raised by its row: ' + JSON.stringify(applied));
 check(applied.some(y => y < 0), 'some labels are raised');
+// On a chart two rows high the plugin keeps every label in those rows.
+fakeChart.chartArea = { left: 0, right: 1300, top: 0, bottom: 45 };
+plugin.afterLayout(fakeChart);
+const short = ANN.map((a, i) => annotations['first' + i].label.yAdjust);
+check(short.every(y => y === 0 || y === -20) && short.some(y => y === -20), 'a short chart gets two rows: ' + JSON.stringify(short));
 
 section('stat values');
 const values = page.byId('statsGrid').children.map(c => c.children[1]);
