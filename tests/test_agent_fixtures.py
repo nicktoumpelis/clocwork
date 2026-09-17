@@ -40,9 +40,12 @@ OPENCODE_KEYS = {
 # under.
 MODEL_KEYS = {"model", "modelID"}
 AGENTS = ("codex", "gemini", "opencode")
-# What each table of the OpenCode fixtures may hold, so that a misspelled key
-# in a future row fails here instead of quietly building a column of its own
-# and leaving the real one empty.
+# The columns each table of the OpenCode fixtures uses. These are the
+# spellings the recordings hold, not every one the reader accepts: `pick()`
+# takes `sessionID` for `session_id` too, because the schema has used both.
+# Pinning the set means a key nobody meant - one valid for another table, or
+# a spelling these fixtures do not use - fails here instead of quietly
+# becoming a column of its own and leaving the real one empty.
 OPENCODE_COLUMNS = {
     "session": {"id", "project_id", "parent_id", "directory", "version", "path",
                 "time_created", "time_updated"},
@@ -58,10 +61,6 @@ def keys_of(value):
     if isinstance(value, list):
         return set().union(*(keys_of(v) for v in value))
     return set()
-
-
-def strings_of(value):
-    return [s for _path, s in named_strings(value)]
 
 
 def named_strings(value, path=()):
@@ -110,11 +109,16 @@ class TestFixturesAreReduced(unittest.TestCase):
         leak = {"data": {"modelID": "qwen/qwen3-4b",
                          "model": {"id": "openagents/khala"},
                          "path": {"cwd": "/Users/someone/code/thing"},
-                         "note": "qwen/qwen3-4b"}}
+                         "note": "qwen/qwen3-4b",
+                         # Most fields here are named *ID, so a rule that
+                         # allowed any field whose name holds "id" would let
+                         # this one by.
+                         "sessionID": "a/b"}}
         found = {(".".join(path), s) for path, s in named_strings(leak)
                  if "/" in s and not names_a_model(path)}
         self.assertEqual(found, {("data.path.cwd", "/Users/someone/code/thing"),
-                                 ("data.note", "qwen/qwen3-4b")})
+                                 ("data.note", "qwen/qwen3-4b"),
+                                 ("data.sessionID", "a/b")})
 
     def test_every_gemini_session_names_the_placeholder_project(self):
         want = agent_logs.project_hash(agent_logs.PLACEHOLDER)
@@ -125,17 +129,22 @@ class TestFixturesAreReduced(unittest.TestCase):
     def test_the_opencode_rows_name_only_their_tables_columns(self):
         # install() infers each table's columns from the rows, so a key
         # nobody meant would become a column of its own and leave the one the
-        # reader looks for empty.
+        # reader looks for empty. Each file's keys must be columns of its
+        # table, and the table's rows together must use every column named -
+        # an unused name would make this guard laxer than it reads.
+        seen = {}
         for rel in agent_logs.files("opencode"):
-            bucket = rel.split(os.sep)[0]
-            if not bucket.startswith("s1"):
+            if not rel.split(os.sep)[0].startswith("s1"):
                 continue
             table = os.path.splitext(os.path.basename(rel))[0]
+            rows = agent_logs.records("opencode", rel)
+            keys = set().union(*(set(r) for r in rows)) if rows else set()
             with self.subTest(file=rel):
                 self.assertIn(table, OPENCODE_COLUMNS)
-                keys = set().union(*(set(r) for r in agent_logs.records("opencode", rel))) \
-                    if agent_logs.records("opencode", rel) else set()
+                self.assertTrue(rows, "a fixture table with no rows tests nothing")
                 self.assertLessEqual(keys, OPENCODE_COLUMNS[table])
+            seen.setdefault(table, set()).update(keys)
+        self.assertEqual(seen, OPENCODE_COLUMNS)
 
     def test_the_opencode_buckets_are_what_the_readme_describes(self):
         # Provenance is the point of the three buckets: a test that claims a
