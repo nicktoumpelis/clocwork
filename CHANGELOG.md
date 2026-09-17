@@ -10,9 +10,9 @@ All notable changes to clocwork are recorded here. The format follows
 
 - The dashboard has a light and a dark theme, Solarized Light and Solarized
   Dark. A switch at the top right picks light, dark or the system's setting,
-  which is the default; the browser keeps the choice. Text, agent names,
-  first-appearance labels, tooltips and highlighted controls read at 4.5:1
-  (WCAG AA) or better in both themes.
+  which is the default; the browser keeps the choice. Text on the page and on
+  cards, agent names, first-appearance labels, tooltips and selected controls
+  read at 4.5:1 (WCAG AA) or better in both themes.
 
 ### Changed
 

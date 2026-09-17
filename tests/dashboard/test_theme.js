@@ -62,7 +62,6 @@ const checked = () => buttons.filter(b => b.getAttribute('aria-checked') === 'tr
 check(checked().join() === 'system' && buttons.map(b => b.tabIndex).join() === '-1,0,-1', 'system is checked, and the only one in the tab order');
 check(buttons[1].title === 'Match the system (light now)', 'the system button says what the system is: ' + buttons[1].title);
 
-
 const [main, daily, agentCum, pie, net, token] = page.charts;
 const updates = page.charts.map(c => c.updates);
 const before = {
@@ -75,6 +74,9 @@ check(attr(page) === 'dark' && page.store[KEY] === 'dark' && checked().join() ==
 check(page.charts.every((c, i) => c.updates > updates[i]), 'every chart is redrawn');
 check(page.root.style['--bg'] === SOL.base03 && page.root.style['--text'] === SOL.base2 && page.root.style['color-scheme'] === 'dark',
       'the page colours and the browser\'s scheme are the dark ones');
+// Tooltips sit on the card colour, which the contrast checks below assume.
+check(before.tooltip === SOL.base3 && page.charts.every(c => c.options.plugins.tooltip.backgroundColor === SOL.base02),
+      'every tooltip sits on the card colour: base3, then base02');
 check(main.options.plugins.tooltip.backgroundColor !== before.tooltip && main.options.scales.y.grid.color !== before.grid
       && daily.options.plugins.tooltip.titleColor === SOL.base2 && token.options.scales.y.title.color === SOL.base1,
       'tooltips and axes take the dark colours');
