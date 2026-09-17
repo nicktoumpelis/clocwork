@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from unittest import mock
 
+from clocwork import __version__
 from clocwork import analyse as an
 from clocwork import cloc as cl
 from clocwork import paths
@@ -260,6 +261,119 @@ class TestInheritedGitEnvironment(unittest.TestCase):
             env = paths.git_env(GIT_TERMINAL_PROMPT="0")
         self.assertEqual({name for name in listed if name in env}, kept)
         self.assertEqual((env["GIT_TERMINAL_PROMPT"], env["PATH"]), ("0", os.environ["PATH"]))
+
+
+class TestBuild(unittest.TestCase):
+    """Which clocwork made a workspace's output: the version always, the
+    commit only when the package runs from a clone of clocwork itself."""
+
+    def package_in(self, root, *parts):
+        """A stand-in clocwork package at root/parts, returning its paths.py."""
+        pkg = os.path.join(root, *parts, "clocwork")
+        os.makedirs(pkg)
+        module = os.path.join(pkg, "paths.py")
+        with open(module, "w") as f:
+            f.write("# stand-in\n")
+        return module
+
+    @staticmethod
+    def git(cwd, *args):
+        """git without an inherited GIT_DIR, which would send these commits to
+        another repository, and without a global signing setting."""
+        return subprocess.run(["git", "-c", "commit.gpgsign=false"] + list(args), cwd=cwd, check=True,
+                              capture_output=True, text=True, env=paths.git_env()).stdout.strip()
+
+    def commit_all(self, repo):
+        self.git(repo, "init", "-q")
+        self.git(repo, "add", "-A")
+        self.git(repo, "-c", "user.name=T", "-c", "user.email=t@t", "commit", "-qm", "c")
+        return self.git(repo, "rev-parse", "--short", "HEAD")
+
+    def test_undecodable_git_output_reports_no_commit(self):
+        # The stamp is informational; it must never stop a run.
+        error = UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+        with mock.patch.object(paths, "_git", side_effect=error):
+            self.assertEqual(paths.build(), {"version": __version__, "commit": None})
+
+    def test_an_installed_package_reports_its_version_and_no_commit(self):
+        with tempfile.TemporaryDirectory() as d:
+            module = self.package_in(os.path.realpath(d), "lib", "site-packages")
+            with mock.patch.object(paths, "__file__", module):
+                self.assertEqual(paths.build(), {"version": __version__, "commit": None})
+
+    def test_a_clone_reports_its_commit(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = os.path.realpath(d)
+            module = self.package_in(repo, "src")
+            sha = self.commit_all(repo)
+            with mock.patch.object(paths, "__file__", module):
+                self.assertEqual(paths.build(), {"version": __version__, "commit": sha})
+
+    def test_a_clone_with_changes_is_marked_dirty(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = os.path.realpath(d)
+            module = self.package_in(repo, "src")
+            sha = self.commit_all(repo)
+            with open(module, "a") as f:
+                f.write("# edited\n")
+            with mock.patch.object(paths, "__file__", module):
+                self.assertEqual(paths.build()["commit"], sha + "-dirty")
+
+    def test_untracked_files_do_not_make_a_clone_dirty(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = os.path.realpath(d)
+            module = self.package_in(repo, "src")
+            sha = self.commit_all(repo)
+            open(os.path.join(repo, "scratch 2.py"), "w").close()
+            with mock.patch.object(paths, "__file__", module):
+                self.assertEqual(paths.build()["commit"], sha)
+
+    def test_a_package_installed_inside_another_repository_reports_no_commit(self):
+        # A virtualenv inside some project's checkout: that project's commit
+        # says nothing about which clocwork is running.
+        with tempfile.TemporaryDirectory() as d:
+            repo = os.path.realpath(d)
+            module = self.package_in(repo, ".venv", "lib", "site-packages")
+            self.commit_all(repo)
+            with mock.patch.object(paths, "__file__", module):
+                self.assertEqual(paths.build(), {"version": __version__, "commit": None})
+
+    def test_a_package_reached_by_a_differently_cased_path_still_reports_its_commit(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = os.path.realpath(d)
+            module = self.package_in(repo, "src")
+            sha = self.commit_all(repo)
+            swapped = module.swapcase()
+            if not os.path.exists(swapped):
+                self.skipTest("case-sensitive file system")
+            with mock.patch.object(paths, "__file__", swapped):
+                self.assertEqual(paths.build()["commit"], sha)
+
+    def test_a_failing_status_reports_no_commit_rather_than_a_clean_one(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = os.path.realpath(d)
+            module = self.package_in(repo, "src")
+            self.commit_all(repo)
+            real = paths._git
+            def failing_status(cwd, *args):
+                return (128, "") if "status" in args else real(cwd, *args)
+            with mock.patch.object(paths, "__file__", module), mock.patch.object(paths, "_git", failing_status):
+                self.assertIsNone(paths.build()["commit"])
+
+    def test_a_package_inside_a_zipapp_reports_no_commit(self):
+        with mock.patch.object(paths, "__file__", "/nowhere/clocwork.pyz/clocwork/paths.py"):
+            self.assertEqual(paths.build(), {"version": __version__, "commit": None})
+
+    def test_without_git_the_version_still_comes_back(self):
+        with mock.patch.object(paths.subprocess, "run", side_effect=FileNotFoundError("git")):
+            self.assertEqual(paths.build(), {"version": __version__, "commit": None})
+
+    def test_this_checkout_reports_its_own_head(self):
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if not os.path.exists(os.path.join(root, ".git")):
+            self.skipTest("not running from a clone")
+        head = self.git(root, "rev-parse", "--short", "HEAD")
+        self.assertIn(paths.build()["commit"], (head, head + "-dirty"))
 
 
 if __name__ == "__main__":

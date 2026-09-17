@@ -160,7 +160,7 @@ foo-stats/
   clocwork.json           which repository this workspace belongs to
   clocwork.toml           optional configuration (see below)
   token_usage.json        the per-day, per-agent token archive; cannot be regenerated
-  full_commit_data.json   the analysis
+  full_commit_data.json   the analysis, with the clocwork build that made it
   index.html              the dashboard
   commit_bodies.js        full commit messages, loaded when a row is expanded
 ```

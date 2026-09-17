@@ -8,6 +8,7 @@ import types
 import unittest
 from unittest import mock
 
+from clocwork import __version__
 from clocwork import analyse as an
 from clocwork import config as cfg
 from clocwork import paths
@@ -140,6 +141,12 @@ class TestAnalyse(unittest.TestCase):
     def test_commit_records_have_the_dashboard_fixtures_keys(self):
         from tests.test_fixture_shape import fixture
         self.assertEqual(set(fixture.build()["commits"][0]), set(self.data["commits"][0]))
+
+    def test_summary_names_the_build_that_analysed(self):
+        self.assertEqual(self.data["summary"]["analysed_by"]["version"], __version__)
+        self.assertIn("commit", self.data["summary"]["analysed_by"])
+        from tests.test_fixture_shape import fixture
+        self.assertEqual(set(fixture.build()["summary"]["analysed_by"]), set(self.data["summary"]["analysed_by"]))
 
     def test_summary_carries_a_tokens_block(self):
         t = self.data["summary"]["tokens"]

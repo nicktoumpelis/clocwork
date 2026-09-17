@@ -138,7 +138,7 @@ in the repository.
 The per\-day token archive, kept per agent, read from coding agents' logs. It cannot be regenerated once the logs expire; no run shrinks it.
 .TP
 .I full_commit_data.json
-The analysis the page is rendered from.
+The analysis the page is rendered from, with the clocwork version that made it, and its commit when run from a clone. The page's footer names the build that rendered it.
 .TP
 .IR index.html ", " commit_bodies.js
 The dashboard and its sidecar of full commit messages.

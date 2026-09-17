@@ -55,6 +55,36 @@ def _git(cwd, *args):
     return result.returncode, result.stdout.strip()
 
 
+def build():
+    """Which clocwork is running: its version, and its commit when the
+    package is `src/clocwork` in a clone (the shim's case), with "-dirty"
+    when tracked files have changed. An installed build (wheel, zipapp,
+    Homebrew) has no commit of its own to name, and a checkout that merely
+    contains an installed package, such as a project's virtualenv, is not
+    clocwork's, so both report None."""
+    from clocwork import __version__
+    package = os.path.dirname(os.path.realpath(__file__))
+    commit = None
+    try:
+        code, top = _git(package, "rev-parse", "--show-toplevel")
+        # samefile, not a string comparison: macOS paths match whatever
+        # their letter case, and realpath does not normalise it.
+        if code == 0 and top and os.path.samefile(os.path.join(top, "src", "clocwork"), package):
+            code, sha = _git(top, "rev-parse", "--short", "HEAD")
+            if code == 0 and sha:
+                # No optional locks: the checkout may be in iCloud Drive, and a
+                # status that refreshes the index writes to it.
+                code, changed = _git(top, "--no-optional-locks", "status", "--porcelain",
+                                     "--untracked-files=no", "--ignore-submodules")
+                if code == 0:
+                    commit = sha + ("-dirty" if changed else "")
+    # OSError: no git, or no src/clocwork beside the top level. ValueError:
+    # git output that is not text in this locale. Neither may stop a run.
+    except (OSError, ValueError):
+        pass
+    return {"version": __version__, "commit": commit}
+
+
 def find_repo(start):
     """The top-level directory of the repository containing `start`."""
     start = os.path.abspath(start)

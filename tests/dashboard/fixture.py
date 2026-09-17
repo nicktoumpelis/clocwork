@@ -156,6 +156,7 @@ def build(tokens=True, sources=False):
             "misc_commits": sum(1 for c in commits if c["agent"] == "Misc"),
             "first_date": commits[0]["date"], "last_date": commits[-1]["date"],
             "repo_url": REMOTE,
+            "analysed_by": {"version": "0.0.0", "commit": None},
             "head_snapshot": {"all": head, "tests": running_tests},
             "running_totals": {"all": running, "tests": running_tests},
             "reconciliation": reconciliation, "mapping_check": zero,
