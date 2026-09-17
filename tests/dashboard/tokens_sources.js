@@ -33,7 +33,7 @@ function checkSources(page, check, section) {
           && e.data.every(p => s.per_day.some(r => r[0] === p.x && r[1] === p.y && r[2] === 'e')), s.label + ': the bars are its own figures');
   });
   const claude = sources.findIndex(s => s.key === 'claude-code');
-  if (claude >= 0) check(sets[2 * claude].backgroundColor === 'rgba(88,166,255,0.6)', 'Claude Code keeps its blue');
+  if (claude >= 0) check(sets[2 * claude].backgroundColor === 'rgba(38,139,210,0.6)', 'Claude Code keeps its blue (Solarized #268bd2)');
   check(new Set(sources.map((s, i) => sets[2 * i].borderColor)).size === sources.length, 'each source has its own hue');
   check(token.options.interaction.mode === 'nearest' && token.options.interaction.axis === 'x' && token.options.interaction.intersect === false,
         'the tooltip shows the date nearest the pointer, not a position or only a bar under it');

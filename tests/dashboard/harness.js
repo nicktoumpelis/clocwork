@@ -52,6 +52,7 @@ El.prototype.addEventListener = function (t, f) { (this.listeners[t] = this.list
 El.prototype.removeEventListener = function (t, f) { const l = this.listeners[t] || []; const i = l.indexOf(f); if (i >= 0) l.splice(i, 1); };
 El.prototype.fire = function (t, evt) { (this.listeners[t] || []).slice().forEach(f => f(evt || { target: {} })); };
 El.prototype.querySelectorAll = function () { return []; };
+El.prototype.focus = function () { global.document.activeElement = this; };
 El.prototype.getContext = function () { return {}; };
 El.prototype.find = function (pred) { for (const c of this.children) { if (pred(c)) return c; const d = c.find(pred); if (d) return d; } return null; };
 El.prototype.findAll = function (pred, out) { out = out || []; for (const c of this.children) { if (pred(c)) out.push(c); c.findAll(pred, out); } return out; };
@@ -120,7 +121,26 @@ function load(opts) {
   if (declared.has('allCommitsColgroup')) ids['allCommitsColgroup'] = colgroup;
 
   global.window = global;
+  // The theme script reads the stored choice and the system preference.
+  // opts.prefersDark sets the system (light by default); opts.storage the
+  // stored items, or 'refuse' for storage that throws, as a private window's
+  // may. page.media.set(dark) changes the system preference as the OS would.
+  // opts.media: 'none' for a browser without matchMedia, 'legacy' for one
+  // whose media queries offer only addListener (Safari before 14).
+  const root = new El('html');
+  const store = opts.storage === 'refuse' ? null : Object.assign({}, opts.storage || {});
+  global.localStorage = {
+    getItem(k) { if (!store) throw new Error('storage refused'); return k in store ? store[k] : null; },
+    setItem(k, v) { if (!store) throw new Error('storage refused'); store[k] = String(v); },
+  };
+  const media = { matches: !!opts.prefersDark, listeners: [],
+                  set(dark) { this.matches = dark; this.listeners.forEach(f => f({ matches: dark })); } };
+  if (opts.media === 'legacy') media.addListener = f => media.listeners.push(f);
+  else media.addEventListener = (t, f) => { if (t === 'change') media.listeners.push(f); };
+  if (opts.media === 'none') delete global.matchMedia;
+  else global.matchMedia = q => { if (q !== '(prefers-color-scheme: dark)') throw new Error('unexpected media query ' + q); return media; };
   global.document = {
+    documentElement: root,
     getElementById: byId,
     createElement: t => new El(t),
     // The selectors the page uses, each answered only while the markup
@@ -152,6 +172,7 @@ function load(opts) {
 
   return {
     RAW, byId, declared, headers: headRow.children, tabs, cols: colgroup.children, head, charts: Chart.instances, location: global.location,
+    root, media, store,
     cells: row => row.children.slice(1).map(td => td.children.length ? td.children[0].textContent : td.textContent),
     bodiesFile: path.join(ws, 'commit_bodies.js'),
     run: js => new Function(js)(),

@@ -91,7 +91,9 @@ if (charted(T).length > 1) {
   check(estimated.data.length === T.per_day.filter(r => r[2] === 'e').length, 'estimated points match the e rows');
   check(measured.data.length === T.per_day.filter(r => r[2] === 'm').length, 'measured points match the m rows');
   check(measured.data.every(p => typeof p.x === 'string' && typeof p.y === 'number'), 'measured points are {x,y}');
-  check(measured.backgroundColor === 'rgba(88,166,255,0.6)' && token.options.scales.y.stacked !== true, 'one source keeps the unstacked blue bars');
+  // The accent: Solarized blue #268bd2 taken half way to base03 #002b36 in
+  // the light theme, (0.5 * (38, 139, 210) + 0.5 * (0, 43, 54)) = (19, 91, 132).
+  check(measured.backgroundColor === 'rgba(19,91,132,0.6)' && token.options.scales.y.stacked !== true, 'one source keeps the unstacked blue bars');
   check(token.options.interaction.mode === 'nearest' && token.options.interaction.axis === 'x' && token.options.interaction.intersect === false,
         'the tooltip shows the date nearest the pointer, not a position or only a bar under it');
 }
