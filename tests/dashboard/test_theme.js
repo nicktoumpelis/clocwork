@@ -16,6 +16,9 @@ const SOL = {
   violet: '#6c71c4', blue: '#268bd2', cyan: '#2aa198', green: '#859900',
 };
 const KEY = 'clocwork-theme';
+// Checks naming the fixture's agents run only on it; a workspace from
+// CLOCWORK_DASH_WORKSPACE has its own agents.
+const FIXTURE = !process.env.CLOCWORK_DASH_WORKSPACE;
 const rgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
 // WCAG 2 contrast ratio.
 function contrast(a, b) {
@@ -76,17 +79,43 @@ check(main.options.plugins.tooltip.backgroundColor !== before.tooltip && main.op
 check(before.defaults === SOL.base01 && page.run('return Chart.defaults.color') === SOL.base1, 'so do the chart defaults, for legends and ticks');
 check(before.pie === SOL.base3 && pie.data.datasets[0].borderColor === SOL.base02, 'doughnut slices are parted by the card colour');
 const opus = page.RAW.commits.findIndex(c => c[4] === 'Claude Opus 4.6');
-check(opus >= 0 && main.data.datasets[0].pointBackgroundColor[opus] === SOL.blue, 'Opus 4.6 points are Solarized blue');
-check(main.options.plugins.annotation.annotations.first0.label.backgroundColor !== before.label, 'first-appearance labels are blended over the dark card');
+check((!FIXTURE && opus < 0) || (opus >= 0 && main.data.datasets[0].pointBackgroundColor[opus] === SOL.blue), 'Opus 4.6 points are Solarized blue');
+// The first line's colour, 15% over base02, rounded as the page rounds.
+const firstLine = main.options.plugins.annotation.annotations.first0;
+const fill = 'rgb(' + rgb(firstLine.borderColor).map((v, i) => Math.round(v * 0.15 + rgb(SOL.base02)[i] * 0.85)).join(',') + ')';
+check(firstLine.label.backgroundColor !== before.label && firstLine.label.backgroundColor === fill && firstLine.label.color === firstLine.borderColor,
+      'first-appearance labels are blended over the dark card: ' + firstLine.label.backgroundColor);
 // The second tones in dark are 35% of the way to base3; Human is base1.
 const lineOf = l => (agentCum.data.datasets.find(d => d.label === l) || {}).borderColor;
-check(before.cum !== agentCum.data.datasets.map(d => d.borderColor).join()
+if (FIXTURE) check(before.cum !== agentCum.data.datasets.map(d => d.borderColor).join()
       && lineOf('Claude Fable 5.1') === mix(SOL.yellow, SOL.base3, 0.35) && lineOf('Copilot') === mix(SOL.violet, SOL.base3, 0.35)
       && lineOf('Human') === SOL.base1,
       'agent lines are coloured again: ' + agentCum.data.datasets.map(d => d.label + ' ' + d.borderColor).join(', '));
-check(net.data.datasets[1].backgroundColor === 'rgba(' + rgb(colour(page, 'danger')).join(',') + ',0.4)', 'deleted bars take the dark red');
+const rgba = (h, a) => 'rgba(' + rgb(h).join(',') + ',' + a + ')';
+// Dark roles: accent blue-2, success green-2, danger red-2, each 35% toward base3.
+const dark = { accent: mix(SOL.blue, SOL.base3, 0.35), success: mix(SOL.green, SOL.base3, 0.35), danger: mix(SOL.red, SOL.base3, 0.35) };
+check(net.data.datasets[1].backgroundColor === rgba(dark.danger, 0.4), 'deleted bars take the dark red');
+check(main.data.datasets[0].borderColor === dark.accent && main.data.datasets[1].borderColor === dark.success
+      && main.data.datasets[0].backgroundColor === rgba(dark.accent, 0.05), 'the main chart\'s lines take the dark accent and success colours');
+const dayColours = daily.data.datasets[0].borderColor;
+check(dayColours.length > 0 && dayColours.every(x => x === dark.success || x === dark.danger)
+      && daily.data.datasets[0].backgroundColor.every(x => x === rgba(dark.success, 0.6) || x === rgba(dark.danger, 0.6)),
+      'daily bars take the dark success and danger colours');
+const tokenSets = token.data.datasets;
+check(tokenSets[1].borderColor === dark.accent && tokenSets[0].borderColor === rgba(SOL.base1, 0.7),
+      'token bars: measured in the dark accent, estimated in the dark grey');
+const cumCopilot = agentCum.data.datasets.find(d => d.label === 'Copilot');
+if (FIXTURE) check(cumCopilot && cumCopilot.backgroundColor === mix(SOL.violet, SOL.base3, 0.35) + '15', 'agent line fills follow too');
+check(net.data.datasets[0].backgroundColor.every((x, i) => x === page.run('return agentColour(' + JSON.stringify(net.data.labels[i]) + ')') + 'aa')
+      && (!FIXTURE || net.data.datasets[0].backgroundColor.includes(mix(SOL.violet, SOL.base3, 0.35) + 'aa')), 'added bars take the agents\' dark colours');
 // A badge and a card name the colour through a variable, which now holds the dark tone.
 check(page.root.style['--c-blue-2'] === mix(SOL.blue, SOL.base3, 0.35), 'series variables hold the dark tones: ' + page.root.style['--c-blue-2']);
+
+// A series hidden from the agent legend stays hidden: the datasets are the same objects.
+const kept = agentCum.data.datasets.slice();
+page.run("THEME.set('light')");
+check(agentCum.data.datasets.every((d, i) => d === kept[i]), 'a theme change repaints the agent lines in place');
+page.run("THEME.set('dark')");
 
 // The arrow keys move the choice, and focus with it.
 buttons[2].fire('keydown', { key: 'ArrowRight', preventDefault() {} });
@@ -117,10 +146,18 @@ for (const name of ['light', 'dark']) {
   const agents = page.run('return AGENT_COLORS');
   const series = Object.keys(agents).map(a => c[agents[a]]);
   check(series.every(Boolean) && new Set(series).size === series.length, name + ': ' + series.length + ' agent colours, all different');
-  // Badge and card text: the agent colour with 40% of the text colour mixed in.
-  const faint = Object.keys(agents).filter(a => contrast(mix(c[agents[a]], c.text, 0.4), c.surface) < 4.5);
-  check(faint.length === 0, name + ': every agent name reads at 4.5:1 on a card' + (faint.length ? ': not ' + faint.join(', ') : ''));
-  const spare = page.run('return AGENT_FALLBACK_PALETTE').map(t => c[t]);
+  // Badge and card text: the agent colour with 60% of the text colour mixed
+  // in, on a card, on the page, and on its own badge (15% over the card).
+  const spareTokens = page.run('return AGENT_FALLBACK_PALETTE');
+  const faint = [];
+  new Set(Object.values(agents).concat(spareTokens)).forEach(t => {
+    const text = mix(c[t], c.text, 0.6);
+    [['card', c.surface], ['page', c.bg], ['badge', mix(c.surface, c[t], 0.15)]].forEach(([where, under]) => {
+      if (contrast(text, under) < 4.5) faint.push(t + ' on ' + where + ' ' + contrast(text, under).toFixed(2));
+    });
+  });
+  check(faint.length === 0, name + ': every agent name, listed or not, reads at 4.5:1' + (faint.length ? ': not ' + faint.join(', ') : ''));
+  const spare = spareTokens.map(t => c[t]);
   check(spare.every(Boolean) && new Set(spare).size === spare.length && spare.every(x => series.indexOf(x) < 0),
         name + ': colours for unlisted agents are their own, not a listed agent\'s');
   const lines = page.run('return ANNOTATION_PALETTE').map(t => c[t]);
@@ -134,7 +171,9 @@ const css = html.slice(html.indexOf('<style>'), html.indexOf('</style>')).replac
 const used = new Set((css.match(/var\(--[a-z0-9-]+/g) || []).map(v => v.slice(6)));
 const set = new Set(Object.keys(page.root.style).filter(k => k.startsWith('--')).map(k => k.slice(2)));
 const own = ['chars', 'row-height', 'agent'];   // set per element by the page, not by the theme
-check(/color-mix\(in srgb, var\(--agent, var\(--accent\)\) 60%, var\(--text\)\)/.test(css), 'agent text mixes 40% of the text colour in, as the check above assumes');
+check((css.match(/color-mix\(in srgb, var\(--agent, var\(--accent\)\) 40%, var\(--text\)\)/g) || []).length === 2,
+      'badge and card text are 60% the text colour, as the contrast check assumes');
+check(/@supports not \(color: color-mix\(/.test(css), 'browsers without color-mix() get plain fallbacks');
 const missing = [...used].filter(v => !set.has(v) && own.indexOf(v) < 0);
 check(used.size > 5 && missing.length === 0, 'every var() the stylesheet reads is set: ' + (missing.join(', ') || [...used].join(', ')));
 check(!/#[0-9a-f]{6}\b|rgba?\(/i.test(css), 'no colour is written into the stylesheet');

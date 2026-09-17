@@ -43,6 +43,17 @@
         header { position: relative; }
         header h1 span { color: var(--accent); }
 
+        /* Browsers without color-mix() (before Safari 16.2, Chrome 111,
+           Firefox 113) drop every rule that uses it; these keep the tints. */
+        @supports not (color: color-mix(in srgb, red 50%, blue)) {
+            .agent-badge { background: var(--surface-hover); color: var(--text); }
+            .agent-card .agent-name { color: var(--text); }
+            .reset-btn, .timeline-note { background: var(--surface-hover); }
+            .reset-btn:hover, .col-resizer:hover, .col-resizer.dragging { background: var(--border); }
+            .toggle-btn.active, .badge.positive, .badge.negative, .segmented button.active,
+            .filter-btn.active, .theme-switch button[aria-checked="true"] { background: var(--surface-hover); }
+        }
+
         /* Light, system, dark: top right of the page. */
         .theme-switch { position: absolute; top: 0; right: 0; display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
         .theme-switch button {
@@ -184,7 +195,7 @@
         }
 
         .agent-card .agent-name {
-            color: color-mix(in srgb, var(--agent, var(--accent)) 60%, var(--text));
+            color: color-mix(in srgb, var(--agent, var(--accent)) 40%, var(--text));
             font-size: 0.95rem;
             font-weight: 600;
             margin-bottom: 0.4rem;
@@ -296,8 +307,8 @@
         .badge.negative { background: color-mix(in srgb, var(--danger) 15%, transparent); color: var(--danger); }
 
         /* --agent is the badge's agent colour, set per badge as var(--c-<token>).
-           Text takes some of the text colour, so a pale or deep agent colour
-           still reads at 4.5:1 in either theme. */
+           Text is 60% the text colour, so any agent colour, listed or not,
+           reads at 4.5:1 on a card or its own badge in either theme. */
         .agent-badge {
             display: inline-block;
             padding: 0.1rem 0.45rem;
@@ -305,7 +316,7 @@
             font-size: 0.72rem;
             font-weight: 500;
             background: color-mix(in srgb, var(--agent, var(--accent)) 15%, transparent);
-            color: color-mix(in srgb, var(--agent, var(--accent)) 60%, var(--text));
+            color: color-mix(in srgb, var(--agent, var(--accent)) 40%, var(--text));
         }
 
         .selector-bar {
@@ -455,8 +466,7 @@ function mixHex(a, b, t) {
 // light, paler on dark), for series that need more hues than Solarized has;
 // the accent, success and danger roles, which text and controls use, take
 // whichever tone reads at 4.5:1 on both backgrounds.
-var S = SOLARIZED;
-var THEMES = {
+var THEMES = (function(S) { return {
     light: { bg: mixHex(S.base3, S.base2, 0.55), surface: S.base3, 'surface-hover': mixHex(S.base3, S.base2, 0.35),
              border: mixHex(S.base2, S.base1, 0.35), grid: mixHex(S.base3, S.base2, 0.9),
              text: S.base02, 'text-muted': S.base01, faint: S.base0,
@@ -467,7 +477,7 @@ var THEMES = {
              text: S.base2, 'text-muted': S.base1, faint: S.base01,
              toward: S.base3, tones: [0.35, 0.6],
              roles: { accent: 'blue-2', success: 'green-2', danger: 'red-2' } }
-};
+}; })(SOLARIZED);
 // Every colour of a theme by name: the roles (CSS --<role>), and the series
 // colours (CSS --c-<name>): the accents as 'blue', 'blue-2', 'blue-3', a
 // fourth tone toward the background ('blue-4', for agents the page does not
@@ -478,10 +488,11 @@ function themeColours(name) {
     var t = THEMES[name], c = {};
     ['bg', 'surface', 'surface-hover', 'border', 'grid', 'text', 'text-muted', 'faint'].forEach(function(k) { c[k] = t[k]; });
     ACCENTS.forEach(function(a) {
-        c[a] = S[a];
-        c[a + '-2'] = mixHex(S[a], t.toward, t.tones[0]);
-        c[a + '-3'] = mixHex(S[a], t.toward, t.tones[1]);
-        c[a + '-4'] = mixHex(S[a], t.bg, 0.4);
+        var accent = SOLARIZED[a];
+        c[a] = accent;
+        c[a + '-2'] = mixHex(accent, t.toward, t.tones[0]);
+        c[a + '-3'] = mixHex(accent, t.toward, t.tones[1]);
+        c[a + '-4'] = mixHex(accent, t.bg, 0.4);
     });
     c.grey = t['text-muted'];
     c['grey-2'] = t.faint;
@@ -1477,7 +1488,10 @@ function resetMainZoom() {
         }
     });
     SEL.on(function() { chart.data.datasets = buildDatasets(); chart.update(); });
-    themed(chart, function() { chart.data.datasets = buildDatasets(); });
+    // In place, so a series hidden from the legend stays hidden.
+    themed(chart, function() {
+        chart.data.datasets.forEach(function(d) { d.borderColor = agentColour(d.label); d.backgroundColor = agentColour(d.label) + '15'; });
+    });
 })();
 
 // --- Agent Pie Chart ---
