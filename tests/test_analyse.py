@@ -519,7 +519,9 @@ class TestCostEstimate(unittest.TestCase):
         ("claude-opus-4-8", "claude-opus-4-8"),
         ("claude-sonnet-4-20250514", "claude-sonnet-4"), ("claude-sonnet-4-6", "claude-sonnet-4"),
         # Claude Code's 1M context alias costs the same as the model.
-        ("claude-opus-4-6[1m]", "claude-opus-4-6"), ("claude-opus-5[1m]", "claude-opus-5"),
+        ("claude-opus-4-6[1m]", "claude-opus-4-6"), ("claude-opus-5[1M]", "claude-opus-5"),
+        # Any other bracketed suffix is not that alias.
+        ("claude-opus-5[]", None), ("gpt-5[high]", None), ("claude-opus-5[1m-x]", None),
     )
 
     def test_the_claude_4_generation_is_priced_at_its_list_prices(self):

@@ -269,7 +269,7 @@ BEDROCK_PREFIX = re.compile(r"^(?:[a-z]+(?:-[a-z]+)?\.)?[a-z]+\.(?=[a-z])")
 # minor part of Bedrock's version tail ('-v1:0').
 BEDROCK_VERSION = re.compile(r"-v\d+:\d+$")
 # Claude Code's model alias for the 1M context window, if an id ever carries it.
-CONTEXT_ALIAS = re.compile(r"\[\w+\]$")
+CONTEXT_ALIAS = re.compile(r"\[1m\]$", re.IGNORECASE)
 
 
 def price_id(model):
@@ -281,9 +281,11 @@ def price_id(model):
     ('us.anthropic.claude-…'; its '-v1:0' suffix stays, a tail the prefix
     rule accepts), as does Vertex's '@version'. A Claude id written with a dotted
     version ('claude-opus-4.1', as OpenRouter does) takes the hyphens of
-    Anthropic's own. A context alias ('claude-opus-4-6[1m]') goes: the 1M
-    window costs the same per token. A router's ':free' or ':thinking' suffix
-    stays: it names another price, so the id stays unpriced.
+    Anthropic's own. The 1M context alias ('claude-opus-4-6[1m]') goes: the
+    pricing page lists no separate long-context rate for Claude 4.6 and
+    later, the models the window comes with. A router's ':free' or
+    ':thinking' suffix stays: it names another price, so the id stays
+    unpriced, as does any other bracketed suffix.
     """
     bare = BEDROCK_PREFIX.sub("", CONTEXT_ALIAS.sub("", model.rsplit("/", 1)[-1].split("@", 1)[0]))
     return bare.replace(".", "-") if bare.startswith("claude-") else bare
