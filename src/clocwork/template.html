@@ -43,17 +43,6 @@
         header { position: relative; }
         header h1 span { color: var(--accent); }
 
-        /* Browsers without color-mix() (before Safari 16.2, Chrome 111,
-           Firefox 113) drop every rule that uses it; these keep the tints. */
-        @supports not (color: color-mix(in srgb, red 50%, blue)) {
-            .agent-badge { background: var(--surface-hover); color: var(--text); }
-            .agent-card .agent-name { color: var(--text); }
-            .reset-btn, .timeline-note { background: var(--surface-hover); }
-            .reset-btn:hover, .col-resizer:hover, .col-resizer.dragging { background: var(--border); }
-            .toggle-btn.active, .badge.positive, .badge.negative, .segmented button.active,
-            .filter-btn.active, .theme-switch button[aria-checked="true"] { background: var(--surface-hover); }
-        }
-
         /* Light, system, dark: top right of the page. */
         .theme-switch { position: absolute; top: 0; right: 0; display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
         .theme-switch button {
@@ -435,6 +424,19 @@
             color: var(--text-muted);
             font-size: 0.8rem;
         }
+
+        /* Browsers without color-mix() (before Safari 16.2, Chrome 111,
+           Firefox 113) keep the tints with these. A rule that uses var() is
+           only rejected when its value is computed, so the color-mix() rules
+           above still win the cascade there: this block has to come last. */
+        @supports not (color: color-mix(in srgb, red 50%, blue)) {
+            .agent-badge { background: var(--surface-hover); color: var(--text); }
+            .agent-card .agent-name { color: var(--text); }
+            .reset-btn, .timeline-note { background: var(--surface-hover); }
+            .reset-btn:hover, .col-resizer:hover, .col-resizer.dragging { background: var(--border); }
+            .toggle-btn.active, .badge.positive, .badge.negative, .segmented button.active,
+            .filter-btn.active, .theme-switch button[aria-checked="true"] { background: var(--surface-hover); }
+        }
     </style>
     <script>
 // --- Colour themes ---
@@ -465,18 +467,19 @@ function mixHex(a, b, t) {
 // accent has two further tones, toward the text end of the scale (deeper on
 // light, paler on dark), for series that need more hues than Solarized has;
 // the accent, success and danger roles, which text and controls use, take
-// whichever tone reads at 4.5:1 on both backgrounds.
+// the third tone, which reads at 4.5:1 on both backgrounds and on its own
+// 15% tint.
 var THEMES = (function(S) { return {
     light: { bg: mixHex(S.base3, S.base2, 0.55), surface: S.base3, 'surface-hover': mixHex(S.base3, S.base2, 0.35),
              border: mixHex(S.base2, S.base1, 0.35), grid: mixHex(S.base3, S.base2, 0.9),
              text: S.base02, 'text-muted': S.base01, faint: S.base0,
              toward: S.base03, tones: [0.3, 0.5],
-             roles: { accent: 'blue-2', success: 'green-3', danger: 'red-2' } },
+             roles: { accent: 'blue-3', success: 'green-3', danger: 'red-3' } },
     dark:  { bg: S.base03, surface: S.base02, 'surface-hover': mixHex(S.base02, S.base01, 0.12),
              border: mixHex(S.base02, S.base01, 0.35), grid: mixHex(S.base02, S.base01, 0.2),
              text: S.base2, 'text-muted': S.base1, faint: S.base01,
              toward: S.base3, tones: [0.35, 0.6],
-             roles: { accent: 'blue-2', success: 'green-2', danger: 'red-2' } }
+             roles: { accent: 'blue-3', success: 'green-3', danger: 'red-3' } }
 }; })(SOLARIZED);
 // Every colour of a theme by name: the roles (CSS --<role>), and the series
 // colours (CSS --c-<name>): the accents as 'blue', 'blue-2', 'blue-3', a
@@ -503,14 +506,15 @@ function themeColours(name) {
 }
 var THEME = (function() {
     var KEY = 'clocwork-theme', CHOICES = ['light', 'system', 'dark'];
-    var listeners = [], colours = {};
+    var listeners = [], watchers = [], colours = {};
     var query = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
     // Storage can be missing or refuse (a private window, blocked site data).
     function stored() {
         try { var v = window.localStorage.getItem(KEY); return CHOICES.indexOf(v) >= 0 ? v : 'system'; } catch (e) { return 'system'; }
     }
     var choice = stored();
-    function name() { return choice === 'system' ? (query && query.matches ? 'dark' : 'light') : choice; }
+    function system() { return query && query.matches ? 'dark' : 'light'; }
+    function name() { return choice === 'system' ? system() : choice; }
     function apply() {
         var root = document.documentElement;
         colours = themeColours(name());
@@ -522,7 +526,11 @@ var THEME = (function() {
     }
     function changed() { apply(); listeners.forEach(function(f) { f(); }); }
     if (query) {
-        var follow = function() { if (choice === 'system') changed(); };
+        // A fixed choice redraws nothing; only what names the system hears of it.
+        var follow = function() {
+            if (choice === 'system') changed();
+            watchers.forEach(function(f) { f(); });
+        };
         if (query.addEventListener) query.addEventListener('change', follow); else if (query.addListener) query.addListener(follow);
     }
     apply();
@@ -530,8 +538,11 @@ var THEME = (function() {
         CHOICES: CHOICES,
         choice: function() { return choice; },
         name: name,
+        system: system,
         colour: function(k) { return colours[k]; },
         on: function(f) { listeners.push(f); },
+        // Told when the system's own theme changes, whatever the choice.
+        onSystem: function(f) { watchers.push(f); },
         set: function(c) {
             if (CHOICES.indexOf(c) < 0 || c === choice) return;
             choice = c;
@@ -804,12 +815,13 @@ function showDroppedLabel(i, show) {
 
 // The first-appearance line and label colours for the current theme. The
 // label is opaque, a tint of its colour over the card's surface, so its line
-// does not show through.
+// does not show through; its text is 60% the text colour, as agent names
+// are, so it reads at 4.5:1 on that tint.
 function paintAnnotation(annotation, colourIndex) {
     var colour = themeColour(ANNOTATION_PALETTE[colourIndex % ANNOTATION_PALETTE.length]);
     annotation.borderColor = colour;
     annotation.label.backgroundColor = blend(colour, 0.15, themeColour('surface'));
-    annotation.label.color = colour;
+    annotation.label.color = mixHex(colour, themeColour('text'), 0.6);
     return annotation;
 }
 function annotationObjects(list) {
@@ -1131,7 +1143,7 @@ function agentVar(a) { return 'var(--c-' + agentToken(a) + ')'; }
 // The tooltip and axis colours every chart shares; restyle() applies them
 // again when the theme changes.
 function tooltipStyle(o) {
-    o.backgroundColor = themeColour('surface-hover'); o.borderColor = themeColour('border'); o.borderWidth = 1;
+    o.backgroundColor = themeColour('surface'); o.borderColor = themeColour('border'); o.borderWidth = 1;
     o.titleColor = themeColour('text'); o.bodyColor = themeColour('text-muted'); o.padding = 12; o.cornerRadius = 8;
     return o;
 }
@@ -1209,11 +1221,12 @@ Chart.defaults.locale = FMT.locale;
             var choice = b.getAttribute('data-choice'), on = choice === THEME.choice();
             b.setAttribute('aria-checked', on ? 'true' : 'false');
             b.tabIndex = on ? 0 : -1;
-            b.title = choice === 'system' ? 'Match the system (' + THEME.name() + ' now)' : NAMES[choice];
+            b.title = choice === 'system' ? 'Match the system (' + THEME.system() + ' now)' : NAMES[choice];
         });
     }
     mark();
     THEME.on(mark);
+    THEME.onSystem(mark);
 })();
 
 // One stat tile: a label, a value and an optional smaller line beneath it.

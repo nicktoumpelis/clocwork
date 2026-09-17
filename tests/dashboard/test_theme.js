@@ -62,6 +62,7 @@ const checked = () => buttons.filter(b => b.getAttribute('aria-checked') === 'tr
 check(checked().join() === 'system' && buttons.map(b => b.tabIndex).join() === '-1,0,-1', 'system is checked, and the only one in the tab order');
 check(buttons[1].title === 'Match the system (light now)', 'the system button says what the system is: ' + buttons[1].title);
 
+
 const [main, daily, agentCum, pie, net, token] = page.charts;
 const updates = page.charts.map(c => c.updates);
 const before = {
@@ -72,7 +73,8 @@ const before = {
 buttons[2].fire('click');
 check(attr(page) === 'dark' && page.store[KEY] === 'dark' && checked().join() === 'dark', 'a click on dark applies it, keeps it and checks it');
 check(page.charts.every((c, i) => c.updates > updates[i]), 'every chart is redrawn');
-check(page.root.style['--bg'] === SOL.base03 && page.root.style['--text'] === SOL.base2, 'the page colours are the dark ones');
+check(page.root.style['--bg'] === SOL.base03 && page.root.style['--text'] === SOL.base2 && page.root.style['color-scheme'] === 'dark',
+      'the page colours and the browser\'s scheme are the dark ones');
 check(main.options.plugins.tooltip.backgroundColor !== before.tooltip && main.options.scales.y.grid.color !== before.grid
       && daily.options.plugins.tooltip.titleColor === SOL.base2 && token.options.scales.y.title.color === SOL.base1,
       'tooltips and axes take the dark colours');
@@ -83,7 +85,8 @@ check((!FIXTURE && opus < 0) || (opus >= 0 && main.data.datasets[0].pointBackgro
 // The first line's colour, 15% over base02, rounded as the page rounds.
 const firstLine = main.options.plugins.annotation.annotations.first0;
 const fill = 'rgb(' + rgb(firstLine.borderColor).map((v, i) => Math.round(v * 0.15 + rgb(SOL.base02)[i] * 0.85)).join(',') + ')';
-check(firstLine.label.backgroundColor !== before.label && firstLine.label.backgroundColor === fill && firstLine.label.color === firstLine.borderColor,
+check(firstLine.label.backgroundColor !== before.label && firstLine.label.backgroundColor === fill
+      && firstLine.label.color === mix(firstLine.borderColor, SOL.base2, 0.6),
       'first-appearance labels are blended over the dark card: ' + firstLine.label.backgroundColor);
 // The second tones in dark are 35% of the way to base3; Human is base1.
 const lineOf = l => (agentCum.data.datasets.find(d => d.label === l) || {}).borderColor;
@@ -92,8 +95,8 @@ if (FIXTURE) check(before.cum !== agentCum.data.datasets.map(d => d.borderColor)
       && lineOf('Human') === SOL.base1,
       'agent lines are coloured again: ' + agentCum.data.datasets.map(d => d.label + ' ' + d.borderColor).join(', '));
 const rgba = (h, a) => 'rgba(' + rgb(h).join(',') + ',' + a + ')';
-// Dark roles: accent blue-2, success green-2, danger red-2, each 35% toward base3.
-const dark = { accent: mix(SOL.blue, SOL.base3, 0.35), success: mix(SOL.green, SOL.base3, 0.35), danger: mix(SOL.red, SOL.base3, 0.35) };
+// Dark roles: accent, success and danger are blue, green and red 60% toward base3.
+const dark = { accent: mix(SOL.blue, SOL.base3, 0.6), success: mix(SOL.green, SOL.base3, 0.6), danger: mix(SOL.red, SOL.base3, 0.6) };
 check(net.data.datasets[1].backgroundColor === rgba(dark.danger, 0.4), 'deleted bars take the dark red');
 check(main.data.datasets[0].borderColor === dark.accent && main.data.datasets[1].borderColor === dark.success
       && main.data.datasets[0].backgroundColor === rgba(dark.accent, 0.05), 'the main chart\'s lines take the dark accent and success colours');
@@ -133,6 +136,23 @@ const quiet = page.charts.map(c => c.updates);
 page.media.set(true);
 check(attr(page) === 'light' && page.charts.every((c, i) => c.updates === quiet[i]), 'a fixed choice ignores the OS, without even a redraw');
 
+section('the system button while a choice is fixed');
+page = load({ prefersDark: false, storage: { [KEY]: 'dark' } });
+check(page.byId('themeSwitch').children[1].title === 'Match the system (light now)',
+      'it names the system\'s theme, not the chosen one: ' + page.byId('themeSwitch').children[1].title);
+page.media.set(true);
+check(page.byId('themeSwitch').children[1].title === 'Match the system (dark now)' && attr(page) === 'dark',
+      'and follows the system while the page stays on its choice');
+
+section('older browsers');
+page = load({ media: 'none', storage: {} });
+check(attr(page) === 'light' && page.run('return THEME.name()') === 'light', 'without matchMedia the page is light');
+page.run("THEME.set('dark')");
+check(attr(page) === 'dark', 'and the switch still works');
+page = load({ media: 'legacy', storage: {} });
+page.media.set(true);
+check(attr(page) === 'dark', 'a browser with only addListener still follows the system');
+
 section('contrast');
 for (const name of ['light', 'dark']) {
   const c = page.run('return themeColours(' + JSON.stringify(name) + ')');
@@ -142,6 +162,18 @@ for (const name of ['light', 'dark']) {
       check(r >= 4.5, name + ': ' + role + ' on ' + under + ' reads at ' + r.toFixed(2) + ':1');
     }
   }
+  // Tinted controls and badges: the role colour on its own 15% tint, over a card or the page.
+  for (const role of ['accent', 'success', 'danger']) {
+    for (const under of ['bg', 'surface']) {
+      const r = contrast(c[role], mix(c[under], c[role], 0.15));
+      check(r >= 4.5, name + ': ' + role + ' on its tint over ' + under + ' reads at ' + r.toFixed(2) + ':1');
+    }
+  }
+  // Tooltips sit on the card colour.
+  check(contrast(c['text-muted'], c.surface) >= 4.5 && contrast(c.text, c.surface) >= 4.5, name + ': tooltip text reads at 4.5:1');
+  // First-appearance labels: 60% text over the line colour's 15% tint.
+  const lows = page.run('return ANNOTATION_PALETTE').filter(t => contrast(mix(c[t], c.text, 0.6), mix(c.surface, c[t], 0.15)) < 4.5);
+  check(lows.length === 0, name + ': every first-appearance label reads at 4.5:1' + (lows.length ? ': not ' + lows.join(', ') : ''));
   // Chart series: every agent and every first-appearance line has a colour of its own.
   const agents = page.run('return AGENT_COLORS');
   const series = Object.keys(agents).map(a => c[agents[a]]);
@@ -173,7 +205,13 @@ const set = new Set(Object.keys(page.root.style).filter(k => k.startsWith('--'))
 const own = ['chars', 'row-height', 'agent'];   // set per element by the page, not by the theme
 check((css.match(/color-mix\(in srgb, var\(--agent, var\(--accent\)\) 40%, var\(--text\)\)/g) || []).length === 2,
       'badge and card text are 60% the text colour, as the contrast check assumes');
-check(/@supports not \(color: color-mix\(/.test(css), 'browsers without color-mix() get plain fallbacks');
+// Cards and badges take the agent colour from --agent, which the page sets.
+const rule = sel => (css.match(new RegExp(sel.replace(/[.*]/g, '\\$&') + '\\s*\\{([^}]*)\\}')) || [])[1] || '';
+check(/border-left:\s*4px solid var\(--agent,/.test(rule('.agent-card')), 'a card\'s border is its agent colour');
+check(/background: color-mix\(in srgb, var\(--agent,/.test(rule('.agent-badge')), 'a badge\'s tint is its agent colour');
+const fallbackAt = css.search(/@supports not \(color: color-mix\(/);
+check(fallbackAt > 0 && css.slice(fallbackAt).match(/color-mix\(/g).length === 1,
+      'browsers without color-mix() get plain fallbacks, after every rule they replace');
 const missing = [...used].filter(v => !set.has(v) && own.indexOf(v) < 0);
 check(used.size > 5 && missing.length === 0, 'every var() the stylesheet reads is set: ' + (missing.join(', ') || [...used].join(', ')));
 check(!/#[0-9a-f]{6}\b|rgba?\(/i.test(css), 'no colour is written into the stylesheet');

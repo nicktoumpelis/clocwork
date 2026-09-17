@@ -53,6 +53,11 @@ byId('agentGrid').children.forEach(card => {
   check(page.root.style['--c-' + token] === pointOf[a], a + ': the variable the card names holds that colour');
 });
 
+// Commit-table badges name their agent's colour the same way.
+const badges = byId('allCommitsBody').children.map(r => r.find(c => c.className === 'agent-badge')).filter(Boolean);
+check(badges.length > 0 && badges.every(bd => pointOf[bd.textContent] && theme(cssVar(bd.style['--agent'])) === pointOf[bd.textContent]),
+      'every table badge takes its agent\'s colour: ' + badges.length + ' badges');
+
 section('agents without a fixed colour');
 const colour = n => page.run('return agentColour(' + JSON.stringify(n) + ')');
 ['Claude Opus 9', 'MyBot', 'Roo', 'constructor'].forEach(n => {
@@ -73,7 +78,9 @@ section('first-appearance labels');
 // 0.85 * (253, 246, 227) + 0.15 * (108, 113, 196) = (231.25, 226.05, 222.35)
 const first = page.run('return annotationObjects([["2026-01-01", "Opus 4.5", 0]])').first0;
 check(first.label.backgroundColor === 'rgb(231,226,222)', 'label fill is the tint blended over the surface, opaque: ' + first.label.backgroundColor);
-check(first.label.color === '#6c71c4' && first.borderColor === '#6c71c4', 'label text and line keep the palette colour');
+// Its text is violet with 60% of the light text colour, base02 #073642:
+// 0.4 * (108, 113, 196) + 0.6 * (7, 54, 66) = (47.4, 77.6, 118) = #2f4e76.
+check(first.borderColor === '#6c71c4' && first.label.color === '#2f4e76', 'the line keeps the palette colour, the text is deepened: ' + first.label.color);
 const all = Object.values(main.options.plugins.annotation.annotations);
 check(all.length > 0 && all.every(a => /^rgb\(/.test(a.label.backgroundColor)), 'every rendered first-appearance label is opaque');
 

@@ -125,6 +125,8 @@ function load(opts) {
   // opts.prefersDark sets the system (light by default); opts.storage the
   // stored items, or 'refuse' for storage that throws, as a private window's
   // may. page.media.set(dark) changes the system preference as the OS would.
+  // opts.media: 'none' for a browser without matchMedia, 'legacy' for one
+  // whose media queries offer only addListener (Safari before 14).
   const root = new El('html');
   const store = opts.storage === 'refuse' ? null : Object.assign({}, opts.storage || {});
   global.localStorage = {
@@ -132,9 +134,11 @@ function load(opts) {
     setItem(k, v) { if (!store) throw new Error('storage refused'); store[k] = String(v); },
   };
   const media = { matches: !!opts.prefersDark, listeners: [],
-                  addEventListener(t, f) { if (t === 'change') this.listeners.push(f); },
                   set(dark) { this.matches = dark; this.listeners.forEach(f => f({ matches: dark })); } };
-  global.matchMedia = q => { if (q !== '(prefers-color-scheme: dark)') throw new Error('unexpected media query ' + q); return media; };
+  if (opts.media === 'legacy') media.addListener = f => media.listeners.push(f);
+  else media.addEventListener = (t, f) => { if (t === 'change') media.listeners.push(f); };
+  if (opts.media === 'none') delete global.matchMedia;
+  else global.matchMedia = q => { if (q !== '(prefers-color-scheme: dark)') throw new Error('unexpected media query ' + q); return media; };
   global.document = {
     documentElement: root,
     getElementById: byId,
