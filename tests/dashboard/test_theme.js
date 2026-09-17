@@ -187,13 +187,10 @@ for (const name of ['light', 'dark']) {
     const r = contrast(c.text, mix(c[under], c.accent, 0.08));
     check(r >= 4.5, name + ': the note reads at ' + r.toFixed(2) + ':1 over ' + under);
   }
-  // Hover: a row, and a control tinted at 15% with its own text colour.
+  // A hovered row. A hovered control keeps its role colour on a 15% tint,
+  // which the loop above already measures.
   const hovered = contrast(c['text-muted'], c['surface-hover']);
   check(hovered >= 4.5, name + ': a hovered table row reads at ' + hovered.toFixed(2) + ':1');
-  for (const [role, where] of [['accent', 'bg'], ['accent', 'surface'], ['success', 'surface']]) {
-    const r = contrast(c[role], mix(c[where], c[role], 0.15));
-    check(r >= 4.5, name + ': a hovered ' + role + ' control over ' + where + ' reads at ' + r.toFixed(2) + ':1');
-  }
   // First-appearance labels: 60% text over the line colour's 15% tint.
   const lows = page.run('return ANNOTATION_PALETTE').filter(t => contrast(mix(c[t], c.text, 0.6), mix(c.surface, c[t], 0.15)) < 4.5);
   check(lows.length === 0, name + ': every first-appearance label reads at 4.5:1' + (lows.length ? ': not ' + lows.join(', ') : ''));
@@ -233,13 +230,30 @@ const escapeRe = t => t.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
 const rule = sel => (css.match(new RegExp(escapeRe(sel) + '\\s*\\{([^}]*)\\}')) || [])[1] || '';
 check(/border-left:\s*4px solid var\(--agent,/.test(rule('.agent-card')), 'a card\'s border is its agent colour');
 check(/background: color-mix\(in srgb, var\(--agent,/.test(rule('.agent-badge')), 'a badge\'s tint is its agent colour');
-check(/color: var\(--text\)/.test(rule('.timeline-note')), 'the note is in body text, as its contrast check assumes');
-check(!/:hover\s*\{[^}]*color-mix\(in srgb, var\(--accent\) 2[0-9]%/.test(css), 'no hover tint is stronger than the 15% the selected controls use');
+const note = rule('.timeline-note');
+check(/color: var\(--text\)/.test(note) && /color-mix\(in srgb, var\(--accent\) 8%/.test(note),
+      'the note is in body text on an 8% tint, as its contrast checks assume');
+// Every hover tint behind text is at most the 15% the selected controls use.
+// The column resizer is a bar with no text on it, so it is exempt.
+const hoverTints = [...css.matchAll(/([^{}]*):hover[^{}]*\{([^}]*)\}/g)]
+  .flatMap(([, sel, body]) => [...body.matchAll(/color-mix\(in srgb, var\(--[a-z-]+\) (\d+)%/g)].map(m => [sel.trim(), +m[1]]))
+  .filter(([sel]) => !/col-resizer/.test(sel));
+check(hoverTints.length > 0 && hoverTints.every(([, pct]) => pct <= 15),
+      'no hover tint behind text is stronger than 15%: ' + JSON.stringify(hoverTints));
 check(/\.toggle-btn:hover \{[^}]*color: var\(--text\)/.test(css) && /\.toggle-btn\.active:hover \{[^}]*color: var\(--success\)/.test(css),
       'the toggle keeps its own text colour when hovered');
 const fallbackAt = css.search(/@supports not \(color: color-mix\(/);
 check(fallbackAt > 0 && css.slice(fallbackAt).match(/color-mix\(/g).length === 1,
       'browsers without color-mix() get plain fallbacks, after every rule they replace');
+// Every selector whose background is a tint needs a fallback of its own, or
+// it keeps no background at all in those browsers.
+const fallback = css.slice(fallbackAt);
+const tinted = [...css.slice(0, fallbackAt).matchAll(/([^{}]+)\{([^}]*)\}/g)]
+  .filter(([, , body]) => /background:[^;]*color-mix\(/.test(body))
+  .flatMap(([, sel]) => sel.split(',').map(x => x.trim()).filter(Boolean))
+  .filter(sel => !/col-resizer/.test(sel));   // a bar, not text: it may vanish
+const uncovered = tinted.filter(sel => fallback.indexOf(sel) < 0);
+check(tinted.length > 3 && uncovered.length === 0, 'every tinted rule has a fallback: ' + (uncovered.join(', ') || tinted.length + ' checked'));
 const missing = [...used].filter(v => !set.has(v) && own.indexOf(v) < 0);
 check(used.size > 5 && missing.length === 0, 'every var() the stylesheet reads is set: ' + (missing.join(', ') || [...used].join(', ')));
 check(!/#[0-9a-f]{6}\b|rgba?\(/i.test(css), 'no colour is written into the stylesheet');
