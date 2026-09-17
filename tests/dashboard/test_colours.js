@@ -16,12 +16,17 @@ const hex = c => c.slice(0, 7).toLowerCase();   // drop the alpha suffix some ch
 
 section('agent colours');
 const agents = Object.keys(page.run('return SEL.stats()').agents);
-check(agents.indexOf('Copilot') >= 0 && agents.indexOf('Human') >= 0, 'fixture has Copilot and Human commits: ' + agents.join(', '));
-check(agents.indexOf('MyBot') >= 0 && !page.run('return Object.prototype.hasOwnProperty.call(AGENT_COLORS, "MyBot")'),
-      'fixture has an agent with no fixed colour, so every chart below draws a fallback colour');
 const pointOf = {};
 RAW.commits.forEach((c, i) => { pointOf[c[4] || 'Human'] = hex(main.data.datasets[0].pointBackgroundColor[i]); });
-check(pointOf.Copilot !== pointOf.Human, 'Copilot points differ from Human points: ' + pointOf.Copilot + ' vs ' + pointOf.Human);
+// What the fixture was built to contain; a workspace given by
+// CLOCWORK_DASH_WORKSPACE has whichever agents it has, and the checks after
+// this block hold for any of them.
+if (!process.env.CLOCWORK_DASH_WORKSPACE) {
+  check(agents.indexOf('Copilot') >= 0 && agents.indexOf('Human') >= 0, 'fixture has Copilot and Human commits: ' + agents.join(', '));
+  check(agents.indexOf('MyBot') >= 0 && !page.run('return Object.prototype.hasOwnProperty.call(AGENT_COLORS, "MyBot")'),
+        'fixture has an agent with no fixed colour, so every chart below draws a fallback colour');
+  check(pointOf.Copilot !== pointOf.Human, 'Copilot points differ from Human points: ' + pointOf.Copilot + ' vs ' + pointOf.Human);
+}
 check(pointOf.Human === '#8b949e', 'Human points stay grey');
 agents.filter(a => NEUTRAL.indexOf(a) < 0).forEach(a => {
   check(GREYS.indexOf(pointOf[a]) < 0, a + ' is not grey on the main chart: ' + pointOf[a]);

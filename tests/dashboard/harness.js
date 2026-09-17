@@ -61,6 +61,8 @@ Object.defineProperty(El.prototype, 'offsetWidth', { get() { const txt = this.te
 Object.defineProperty(El.prototype, 'clientWidth', { get() { return this._clientWidth || 1200; }, set(v) { this._clientWidth = v; } });
 
 function Chart(el, config) {
+  // Chart.js draws nothing without a canvas; a page that asks it to has lost one.
+  if (!el) throw new Error('Chart created without a canvas');
   this.el = el; this.config = config; this.data = config.data; this.options = config.options || {};
   this.updates = 0; Chart.instances.push(this);
 }
@@ -76,7 +78,10 @@ function load(opts) {
   opts = opts || {};
   // opts.variant picks a synthetic workspace: 'no-tokens' (also opts.tokens === false) or 'sources'.
   const ws = workspace(opts.variant || (opts.tokens === false ? 'no-tokens' : 'default'));
-  const html = fs.readFileSync(path.join(ws, 'index.html'), 'utf8');
+  let html = fs.readFileSync(path.join(ws, 'index.html'), 'utf8');
+  // opts.dropId deletes one element id from the page, to prove the page
+  // cannot run without it (test_ids.js).
+  if (opts.dropId) html = html.split(' id="' + opts.dropId + '"').join('');
   const scripts = []; const re = /<script\b[^>]*>([\s\S]*?)<\/script\b[^>]*>/gi; let m;
   while ((m = re.exec(html))) scripts.push(m[1]);
   let src = scripts.join('\n');
@@ -85,10 +90,21 @@ function load(opts) {
   // otherwise it is removed so the navigator path is what runs.
   const RAW = JSON.parse(src.match(/^var RAW = (.*);$/m)[1]);
   if (opts.region !== undefined) RAW.locale = opts.region; else delete RAW.locale;
+  // opts.renderedBy stands in for the build that rendered the page (null
+  // for a page that recorded none), so the footer is checked whatever the
+  // machine running the suite can say about its own build.
+  if (opts.renderedBy === null) delete RAW.rendered_by;
+  else if (opts.renderedBy !== undefined) RAW.rendered_by = opts.renderedBy;
   src = src.replace(/^var RAW = .*;$/m, () => 'var RAW = ' + JSON.stringify(RAW) + ';');
 
+  // Only ids the page's markup declares exist, as in a browser: any other
+  // lookup gets null, so a script that needs a missing element throws.
+  const declared = new Set();
+  const idRe = /\sid="([^"]+)"/g;
+  const markup = html.replace(/<script\b[\s\S]*?<\/script\b[^>]*>/gi, '');
+  while ((m = idRe.exec(markup))) declared.add(m[1]);
   const ids = {};
-  const byId = id => ids[id] || (ids[id] = new El('div'));
+  const byId = id => ids[id] || (declared.has(id) ? (ids[id] = new El('div')) : null);
   const th = (cls, sort, text) => { const e = new El('th'); if (cls) e.className = cls; if (sort) e.setAttribute('data-sort', sort); e.textContent = text || ''; return e; };
   const headers = [th('expander-col'), th('sortable', 'date', 'Date'), th('', '', 'SHA'), th('sortable', 'message', 'Commit'), th('sortable', 'agent', 'Agent'), th('sortable', 'churn', '+/-'), th('sortable', 'net', 'Net'), th('sortable', 'cumulative', 'Cumulative'), th('sortable', 'tokens', 'Tokens')];
   const tabs = ['all', 'gains', 'drops'].map(k => { const b = new El('button'); b.setAttribute('data-tab', k); if (k === 'all') b.className = 'tab active'; else b.className = 'tab'; return b; });
@@ -99,8 +115,8 @@ function load(opts) {
   const headRow = new El('tr'); headers.forEach(x => headRow.appendChild(x));
   const colgroup = new El('colgroup'); cols.forEach(x => colgroup.appendChild(x));
 
-  ids['allCommitsHeadRow'] = headRow;
-  ids['allCommitsColgroup'] = colgroup;
+  if (declared.has('allCommitsHeadRow')) ids['allCommitsHeadRow'] = headRow;
+  if (declared.has('allCommitsColgroup')) ids['allCommitsColgroup'] = colgroup;
 
   global.window = global;
   global.document = {
@@ -131,7 +147,7 @@ function load(opts) {
   require('vm').runInThisContext(src);
 
   return {
-    RAW, byId, headers: headRow.children, tabs, cols: colgroup.children, head, charts: Chart.instances, location: global.location,
+    RAW, byId, declared, headers: headRow.children, tabs, cols: colgroup.children, head, charts: Chart.instances, location: global.location,
     cells: row => row.children.slice(1).map(td => td.children.length ? td.children[0].textContent : td.textContent),
     bodiesFile: path.join(ws, 'commit_bodies.js'),
     run: js => new Function(js)(),
