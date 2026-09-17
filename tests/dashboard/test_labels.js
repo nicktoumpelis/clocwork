@@ -86,6 +86,13 @@ global.__stack = [{ left: 0, right: 100 }, { left: 10, right: 30 }, { left: 20, 
 const capped = page.run('return labelRows(window.__stack, 2)');
 check(JSON.stringify(capped) === '[0,1,0,1]', 'rows stop at the cap: ' + JSON.stringify(capped));
 check(JSON.stringify(global.__stack.map(b => b.dropped)) === '[false,false,true,false]', 'the label with no room is left off');
+check(JSON.stringify(page.run('return labelRows(window.__stack)')) === '[0,1,2,1]', 'without a cap the same labels take three rows');
+// A shortened label's row ends where its short form ends: the next label
+// fits after it, though not after the full label.
+global.__afterShort = [{ left: 0, right: 50 }, { left: 40, right: 140, short: { left: 56, right: 90 } }, { left: 100, right: 130 }];
+check(JSON.stringify(page.run('return labelRows(window.__afterShort, 1)')) === '[0,0,0]'
+      && JSON.stringify(global.__afterShort.map(b => b.dropped)) === '[false,false,false]',
+      'a row ends where its shortened label ends');
 // A label whose short form fits a free row takes it, shortened.
 global.__shorter = [{ left: 0, right: 50 }, { left: 40, right: 100, short: { left: 56, right: 90 } }];
 check(JSON.stringify(page.run('return labelRows(window.__shorter, 1)')) === '[0,0]'
@@ -109,7 +116,10 @@ global.__named = [['2025-01-01', 'Opus 4.8 (1M)'], ['2025-01-02', 'Copilot']];
 const named = page.run("return labelBoxes(window.__named, window.__edge, window.__measure, {left: 0, right: 300})");
 check(named[0].short && Math.abs(named[0].short.right - named[0].short.left - (measure('O4.8 (1M)') + 2 * pad)) < 1e-9, 'a box carries its short form\'s box');
 check(named[1].short === null, 'a label with nothing to shorten has no short box');
-check(JSON.stringify(page.run('return labelRows(window.__stack)')) === '[0,1,2,1]', 'without a cap the same labels take three rows');
+// A short form near an edge is moved inside like the full label.
+global.__atEdge = [['2025-01-01', 'Opus 4.8 (1M)']];
+const atEdge = page.run("return labelBoxes(window.__atEdge, window.__edge, window.__measure, {left: 0, right: 300})")[0];
+check(Math.abs(atEdge.short.left - pad) < 1e-9, 'a short form at the left edge starts its padding inside: ' + atEdge.short.left);
 
 section('the chart applies the rows');
 const plugin = (main.config.plugins || []).find(p => p.id === 'labelLayout');
