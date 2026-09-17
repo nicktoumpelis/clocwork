@@ -21,8 +21,8 @@ cover each other if nothing moved them apart.
 Deterministic: the same numbers every run, so the checks in tests/dashboard
 can reason about the data they are given. Shaped like a real
 full_commit_data.json: 520 commits so the 500-row cap is exercised, three
-languages, four agents including the merge category (only the commits of an
-agent whose logs were read carry tokens), measured and estimated token days,
+languages, five agents including the merge category and one with no fixed
+colour (only the commits of an agent whose logs were read carry tokens), measured and estimated token days,
 commit bodies for the expander, and a GitHub remote for the links.
 When analyse.py changes the output shape, change this file in the same commit.
 """
