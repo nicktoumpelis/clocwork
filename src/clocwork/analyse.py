@@ -524,7 +524,8 @@ def analyse(repo_dir, output_path, cache_path, archive_path, *, config=None, bra
     show_ext_table = cl.load_extension_table()
     learned = cl.learn_extensions(repo_dir, rev)
     table = cl.merge_language_tables(show_ext_table, learned)
-    new_extensions = sorted(ext for ext in learned if ext not in show_ext_table)
+    # Extensionless files are learned too, under path keys ("/Makefile"); they are not extensions.
+    new_extensions = sorted(ext for ext in learned if ext not in show_ext_table and not ext.startswith("/"))
     if new_extensions:
         log(f"  learned {len(new_extensions)} extensions from {branch}: {', '.join(new_extensions)}")
     cache = cl.Cache(cache_path)

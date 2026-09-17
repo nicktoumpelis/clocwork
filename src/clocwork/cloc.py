@@ -13,9 +13,7 @@ Matrix row layout, used everywhere downstream:
 """
 
 import concurrent.futures
-import csv
 import functools
-import io
 import json
 import os
 import re
@@ -24,7 +22,7 @@ import subprocess
 import time
 from collections import namedtuple
 
-from clocwork.classify import DEFAULT_RULES, language_for, parse_extension_table
+from clocwork.classify import DEFAULT_RULES, extension, language_for, parse_extension_table, path_key
 
 TYPES = ("code", "comment", "blank")
 
@@ -168,24 +166,23 @@ def load_extension_table():
     return parse_extension_table(result.stdout)
 
 
-def parse_by_file_csv(text):
-    """Learn {extension: language} from a `cloc --by-file --csv` report (non-diff).
+def parse_by_file_json(obj):
+    """Learn {extension: language} from `cloc --git --by-file --json <rev>`.
 
-    The report starts with a header row beginning "language,filename,"; rows
-    after it are one file each; the SUM row is skipped. Only files with an
-    extension contribute.
+    A file with no extension, which cloc names by filename or shebang, is
+    learned under its path_key instead, and its language at this revision
+    applies to every commit that touched the path. Only paths present at the
+    revision are learned, so a renamed file's old name stays Other (#26).
+    The JSON report, not the
+    CSV one: cloc does not quote CSV fields, so a comma in a name split it,
+    and these keys are the ones parse_snapshot_by_file reads.
     """
     learned = {}
-    lines = text.splitlines()
-    start = next((i for i, l in enumerate(lines) if l.startswith("language,filename,")), None)
-    if start is None:
-        return learned
-    for row in csv.reader(io.StringIO("\n".join(lines[start + 1:]))):
-        if len(row) < 2 or row[0] == "SUM" or not row[1]:
+    for path, counts in obj.items():
+        if path in _SKIP_KEYS or not isinstance(counts, dict) or not counts.get("language"):
             continue
-        name = row[1].rsplit("/", 1)[-1]
-        if "." in name and not (name.startswith(".") and name.count(".") == 1):
-            learned[name.rsplit(".", 1)[-1].lower()] = row[0]
+        ext = extension(path)
+        learned[path_key(path) if ext is None else ext] = counts["language"]
     return learned
 
 
@@ -196,9 +193,7 @@ def merge_language_tables(base, overlay):
 
 
 def learn_extensions(repo, rev):
-    result = subprocess.run(["cloc", "--quiet", "--git", "--by-file", "--csv", rev],
-                            capture_output=True, text=True, cwd=repo)
-    return parse_by_file_csv(result.stdout)
+    return parse_by_file_json(run_cloc(["--git", "--by-file", rev], repo))
 
 
 def build_language_table(repo, rev):
