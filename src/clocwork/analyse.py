@@ -174,11 +174,15 @@ def energy_estimate(counters, measured_total, lifetime_total):
 
 # API list prices in US dollars per million tokens, from each vendor's pricing
 # page on the date given. Keys are matched as prefixes, longest first, so dated
-# ids and whole generations ('claude-opus-4-6') resolve without a row each; a
+# ids ('claude-sonnet-4-5-20250929') resolve without a row each; a
 # variant whose id extends another's ('gpt-5-mini', 'gemini-2.5-flash-lite')
 # needs a row of its own, or it is priced as the shorter id.
 #
-# Anthropic: platform.claude.com/docs/en/about-claude/pricing, 2026-09-07.
+# Anthropic: platform.claude.com/docs/en/about-claude/pricing, 2026-09-07;
+# the Claude 4 generation rechecked 2026-09-17. Opus 4 and 4.1 cost three
+# times what 4.5 and later do, so each Opus 4.x has a row of its own and the
+# bare claude-opus-4 row, which a dated id falls back to, is the original's.
+# Sonnet 4, 4.5 and 4.6 share one price, and one row.
 # Cache writes are priced at the one-hour rate: Claude Code writes its cache
 # with that TTL (98% of cache-write tokens in the current transcripts) and the
 # archive keeps one cache-write counter. Long context carries no premium on
@@ -201,8 +205,12 @@ PRICE_USD_PER_MTOK = {
     "claude-fable-5-1": {"input": 10.0,  "cache_write": 20.0,   "cache_read": 0.25,   "output": 50.0},
     "claude-fable-5":   {"input": 10.0,  "cache_write": 20.0,   "cache_read": 1.0,    "output": 50.0},
     "claude-opus-5":    {"input": 5.0,   "cache_write": 10.0,   "cache_read": 0.5,    "output": 25.0},
+    "claude-opus-4-8":  {"input": 5.0,   "cache_write": 10.0,   "cache_read": 0.5,    "output": 25.0},
+    "claude-opus-4-7":  {"input": 5.0,   "cache_write": 10.0,   "cache_read": 0.5,    "output": 25.0},
+    "claude-opus-4-6":  {"input": 5.0,   "cache_write": 10.0,   "cache_read": 0.5,    "output": 25.0},
+    "claude-opus-4-5":  {"input": 5.0,   "cache_write": 10.0,   "cache_read": 0.5,    "output": 25.0},
     "claude-opus-4-1":  {"input": 15.0,  "cache_write": 30.0,   "cache_read": 1.5,    "output": 75.0},
-    "claude-opus-4":    {"input": 5.0,   "cache_write": 10.0,   "cache_read": 0.5,    "output": 25.0},
+    "claude-opus-4":    {"input": 15.0,  "cache_write": 30.0,   "cache_read": 1.5,    "output": 75.0},
     "claude-sonnet-5":  {"input": 2.0,   "cache_write": 4.0,    "cache_read": 0.2,    "output": 10.0},
     "claude-sonnet-4":  {"input": 3.0,   "cache_write": 6.0,    "cache_read": 0.3,    "output": 15.0},
     "claude-haiku-4-5": {"input": 1.0,   "cache_write": 2.0,    "cache_read": 0.1,    "output": 5.0},
@@ -260,6 +268,8 @@ BEDROCK_PREFIX = re.compile(r"^(?:[a-z]+(?:-[a-z]+)?\.)?[a-z]+\.(?=[a-z])")
 # A colon is a router's price marker (':free', ':thinking') unless it is the
 # minor part of Bedrock's version tail ('-v1:0').
 BEDROCK_VERSION = re.compile(r"-v\d+:\d+$")
+# Claude Code's model alias for the 1M context window, if an id ever carries it.
+CONTEXT_ALIAS = re.compile(r"\[1m\]$", re.IGNORECASE)
 
 
 def price_id(model):
@@ -271,10 +281,13 @@ def price_id(model):
     ('us.anthropic.claude-…'; its '-v1:0' suffix stays, a tail the prefix
     rule accepts), as does Vertex's '@version'. A Claude id written with a dotted
     version ('claude-opus-4.1', as OpenRouter does) takes the hyphens of
-    Anthropic's own. A router's ':free' or ':thinking' suffix stays: it names
-    another price, so the id stays unpriced.
+    Anthropic's own. The 1M context alias ('claude-opus-4-6[1m]') goes: the
+    pricing page lists no separate long-context rate for Claude 4.6 and
+    later, the models the window comes with. A router's ':free' or
+    ':thinking' suffix stays: it names another price, so the id stays
+    unpriced, as does any other bracketed suffix.
     """
-    bare = BEDROCK_PREFIX.sub("", model.rsplit("/", 1)[-1].split("@", 1)[0])
+    bare = BEDROCK_PREFIX.sub("", CONTEXT_ALIAS.sub("", model.rsplit("/", 1)[-1].split("@", 1)[0]))
     return bare.replace(".", "-") if bare.startswith("claude-") else bare
 
 

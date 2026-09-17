@@ -510,7 +510,34 @@ class TestCostEstimate(unittest.TestCase):
         ("gpt-5.1-codex-mini", None), ("gpt-5-codex", None), ("gpt-5.3-codex-spark", None),
         ("gemini-2.5-flash-image", None), ("gemini-2.5-flash-preview-tts", None),
         ("claude-sonnet-4-5-20250929", "claude-sonnet-4"),
+        # The 4-generation Opus models are priced two ways: the original and
+        # 4.1 at $15, 4.5 and later at $5. Sonnet 4 kept one price throughout.
+        ("claude-opus-4-20250514", "claude-opus-4"), ("claude-opus-4", "claude-opus-4"),
+        ("claude-opus-4-1-20250805", "claude-opus-4-1"),
+        ("claude-opus-4-5", "claude-opus-4-5"), ("claude-opus-4-5-20251101", "claude-opus-4-5"),
+        ("claude-opus-4-6", "claude-opus-4-6"), ("claude-opus-4-7", "claude-opus-4-7"),
+        ("claude-opus-4-8", "claude-opus-4-8"),
+        ("claude-sonnet-4-20250514", "claude-sonnet-4"), ("claude-sonnet-4-6", "claude-sonnet-4"),
+        # Claude Code's 1M context alias costs the same as the model.
+        ("claude-opus-4-6[1m]", "claude-opus-4-6"), ("claude-opus-5[1M]", "claude-opus-5"),
+        # Any other bracketed suffix is not that alias.
+        ("claude-opus-5[]", None), ("gpt-5[high]", None), ("claude-opus-5[1m-x]", None),
     )
+
+    def test_the_claude_4_generation_is_priced_at_its_list_prices(self):
+        # platform.claude.com/docs/en/about-claude/pricing, read 2026-09-17.
+        # Input, one-hour cache write, cache hit, output.
+        original, later, sonnet = (15, 30, 1.5, 75), (5, 10, 0.5, 25), (3, 6, 0.3, 15)
+        for model, row in (("claude-opus-4-20250514", original), ("claude-opus-4-1", original),
+                           ("claude-opus-4", original),
+                           ("claude-opus-4-5", later), ("claude-opus-4-6", later),
+                           ("claude-opus-4-7", later), ("claude-opus-4-8", later),
+                           ("claude-opus-4-6[1m]", later),
+                           ("claude-sonnet-4-20250514", sonnet), ("claude-sonnet-4-5", sonnet),
+                           ("claude-sonnet-4-6", sonnet)):
+            with self.subTest(model=model):
+                price = an.price_for(model)
+                self.assertEqual(tuple(price[k] for k in ("input", "cache_write", "cache_read", "output")), row)
 
     def test_each_variant_resolves_to_its_own_row(self):
         for model, row in self.VARIANTS:
