@@ -7,6 +7,7 @@ rules are all inputs; nothing here knows which repository it is measuring.
 """
 
 import json
+import re
 import subprocess
 
 from clocwork import cloc as cl
@@ -31,7 +32,7 @@ def is_merge_commit(commit):
 
 
 def git(repo, *args):
-    result = subprocess.run(["git"] + list(args), capture_output=True, text=True, cwd=repo)
+    result = subprocess.run(["git"] + list(args), capture_output=True, text=True, cwd=repo, env=paths.git_env())
     return result.stdout
 
 
@@ -252,9 +253,40 @@ VARIANT_WORDS = {"mini", "nano", "pro", "lite", "max", "codex", "spark", "cyber"
                  "image", "audio", "native", "tts", "live", "transcribe"}
 
 
+# Bedrock's vendor, after an optional inference region: 'anthropic.' or
+# 'us.anthropic.'. A bare id's first dot follows a digit ('gpt-5.5'), never a
+# word alone.
+BEDROCK_PREFIX = re.compile(r"^(?:[a-z]+(?:-[a-z]+)?\.)?[a-z]+\.(?=[a-z])")
+# A colon is a router's price marker (':free', ':thinking') unless it is the
+# minor part of Bedrock's version tail ('-v1:0').
+BEDROCK_VERSION = re.compile(r"-v\d+:\d+$")
+
+
+def price_id(model):
+    """The bare model id a provider's spelling names, for the price lookup
+    only; the archive keeps the id as the agent wrote it.
+
+    A path keeps its last part ('openrouter/openai/gpt-5.5', 'models/…',
+    Vertex's 'publishers/google/models/…'), Bedrock's vendor and region go
+    ('us.anthropic.claude-…'; its '-v1:0' suffix stays, a tail the prefix
+    rule accepts), as does Vertex's '@version'. A Claude id written with a dotted
+    version ('claude-opus-4.1', as OpenRouter does) takes the hyphens of
+    Anthropic's own. A router's ':free' or ':thinking' suffix stays: it names
+    another price, so the id stays unpriced.
+    """
+    bare = BEDROCK_PREFIX.sub("", model.rsplit("/", 1)[-1].split("@", 1)[0])
+    return bare.replace(".", "-") if bare.startswith("claude-") else bare
+
+
 def price_for(model, date=""):
     """The price row for a model id on a date ('YYYY-MM-DD'), or None when
     the table does not know the model. Without a date, the table's row."""
+    # Checked on the last path part as written, before price_id drops an
+    # '@version' that a suffix may follow, and before the prefix rule, which
+    # would read the suffix as a dated tail.
+    if ":" in BEDROCK_VERSION.sub("", model.rsplit("/", 1)[-1]):
+        return None
+    model = price_id(model)
     for key in sorted(PRICE_USD_PER_MTOK, key=len, reverse=True):
         if model == key or (model.startswith(key + "-")
                             and not VARIANT_WORDS.intersection(model[len(key) + 1:].split("-"))):

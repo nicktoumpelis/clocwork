@@ -1,10 +1,16 @@
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
+from clocwork import analyse as an
+from clocwork import cloc as cl
 from clocwork import paths
+from clocwork.sources import codex, gemini
+from tests import repo_fixture as fx
 
 
 def git(cwd, *args):
@@ -184,6 +190,76 @@ class TestIdentity(unittest.TestCase):
             f.write('{"version": "0.1.0"}')
         with self.assertRaises(paths.WorkspaceMismatch):
             paths.check_identity(self.ws, self.repo, "0.1.0")
+
+
+class TestInheritedGitEnvironment(unittest.TestCase):
+    """A GIT_DIR or GIT_WORK_TREE inherited from a hook or a wrapper names
+    another repository; every git and cloc call must still read the one it
+    was given."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        root = os.path.realpath(cls.tmp.name)
+        cls.repo, cls.other = os.path.join(root, "myapp"), os.path.join(root, "other")
+        for path, remote in ((cls.repo, "git@github.com:acme/myapp.git"), (cls.other, "git@github.com:acme/other.git")):
+            os.makedirs(os.path.join(path, "Sources", "Core"))
+            fx._write(path, "Sources/Core/main.swift", fx.SWIFT_V1)
+            fx._git(path, "init", "-q", "-b", "main")
+            fx._git(path, "remote", "add", "origin", remote)
+            fx._git(path, "add", ".")
+            fx._git(path, "commit", "-q", "-m", "Initial " + os.path.basename(path))
+        os.makedirs(os.path.join(cls.other, "Elsewhere"))
+        fx._write(cls.other, "Elsewhere/note.py", "print(1)\n")
+        fx._git(cls.other, "add", ".")
+        fx._git(cls.other, "commit", "-q", "-m", "Second")
+        cls.head = fx._git(cls.repo, "rev-parse", "HEAD")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def inherited(self):
+        other_git = os.path.join(self.other, ".git")
+        return mock.patch.dict(os.environ, {
+            "GIT_DIR": other_git, "GIT_WORK_TREE": self.other, "GIT_COMMON_DIR": other_git,
+            "GIT_INDEX_FILE": os.path.join(other_git, "index"),
+            "GIT_OBJECT_DIRECTORY": os.path.join(other_git, "objects")})
+
+    def test_the_environment_would_mislead_a_plain_git_call(self):
+        # The premise: without the fix, git reads the other repository.
+        with self.inherited():
+            self.assertEqual(git(self.repo, "rev-parse", "--show-toplevel"), self.other)
+
+    def test_paths_reads_the_given_repository(self):
+        with self.inherited():
+            self.assertEqual(paths.find_repo(os.path.join(self.repo, "Sources")), self.repo)
+            self.assertEqual(paths.remote_key(self.repo), "github.com/acme/myapp")
+
+    def test_analyse_reads_the_given_repository(self):
+        with self.inherited():
+            self.assertEqual(an.git(self.repo, "rev-parse", "HEAD").strip(), self.head)
+            self.assertEqual([c["message"] for c in an.parse_log(self.repo, "main")], ["Initial myapp"])
+
+    def test_sources_read_the_given_repository(self):
+        with self.inherited():
+            self.assertTrue(codex.commit_lookup(self.repo)(self.head))
+            self.assertEqual(sorted(gemini.tracked_directories(self.repo)), ["Sources", "Sources/Core"])
+
+    @unittest.skipUnless(shutil.which("cloc"), "cloc is not installed")
+    def test_cloc_reads_the_given_repository(self):
+        with self.inherited():
+            self.assertEqual(cl.learn_extensions(self.repo, self.head), {"swift": "Swift"})
+            self.assertEqual(set(cl.run_cloc(["--git", self.head], self.repo)) - {"header", "SUM"}, {"Swift"})
+
+    def test_the_environment_drops_what_git_clears_for_another_repository(self):
+        # git's own list, less the `git -c` settings it passes to a submodule.
+        listed = git(self.repo, "rev-parse", "--local-env-vars").split()
+        kept = {"GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT"}
+        with mock.patch.dict(os.environ, {name: "x" for name in listed}):
+            env = paths.git_env(GIT_TERMINAL_PROMPT="0")
+        self.assertEqual({name for name in listed if name in env}, kept)
+        self.assertEqual((env["GIT_TERMINAL_PROMPT"], env["PATH"]), ("0", os.environ["PATH"]))
 
 
 if __name__ == "__main__":

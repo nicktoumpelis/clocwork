@@ -12,6 +12,7 @@ from clocwork import analyse as an
 from clocwork import config as cfg
 from clocwork import paths
 from clocwork import sources as src
+from clocwork import tokens as tu
 from tests import repo_fixture as fx
 
 HAVE_CLOC = shutil.which("cloc") is not None
@@ -508,6 +509,66 @@ class TestCostEstimate(unittest.TestCase):
         for model, row in self.VARIANTS:
             with self.subTest(model=model):
                 self.assertIs(an.price_for(model), an.PRICE_USD_PER_MTOK[row] if row else None)
+
+    # Ids as a provider or a router spells them, and the row each is priced by.
+    # The spelling goes; the rule that a variant word never falls back to its
+    # base model's price stays.
+    PROVIDER_IDS = (
+        ("openai/gpt-5.5", "gpt-5.5"),
+        ("anthropic/claude-opus-5", "claude-opus-5"),
+        ("google/gemini-2.5-pro", "gemini-2.5-pro"),
+        ("models/gemini-2.5-pro", "gemini-2.5-pro"),
+        ("openrouter/openai/gpt-5.5", "gpt-5.5"),
+        ("openrouter/anthropic/claude-opus-5", "claude-opus-5"),
+        ("anthropic/claude-opus-4.1", "claude-opus-4-1"),                   # OpenRouter's dotted version
+        ("anthropic/claude-sonnet-4.5", "claude-sonnet-4"),
+        ("anthropic.claude-opus-4-1-20250805-v1:0", "claude-opus-4-1"),     # Bedrock
+        ("us.anthropic.claude-sonnet-4-5-20250929-v1:0", "claude-sonnet-4"),
+        ("eu.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
+        ("apac.anthropic.claude-opus-5-v1", "claude-opus-5"),
+        ("global.anthropic.claude-opus-5", "claude-opus-5"),
+        ("us-gov.anthropic.claude-opus-5-v1:0", "claude-opus-5"),
+        ("claude-opus-5@20260101", "claude-opus-5"),                        # Vertex
+        ("claude-opus-4-1@20250805", "claude-opus-4-1"),
+        ("publishers/anthropic/models/claude-opus-5@20260101", "claude-opus-5"),
+        ("projects/p/locations/us-central1/publishers/google/models/gemini-2.5-flash", "gemini-2.5-flash"),
+        # Variants stay unpriced however they are spelled.
+        ("openai/gpt-5.1-codex-mini", None), ("openrouter/openai/gpt-5-codex", None),
+        ("google/gemini-2.5-flash-image", None), ("models/gemini-2.5-flash-preview-tts", None),
+        ("us.openai.gpt-5.3-codex-spark", None), ("gpt-5.1-codex-mini@2026", None),
+        ("openai/gpt-5-mini", "gpt-5-mini"), ("google/gemini-2.5-flash-lite", "gemini-2.5-flash-lite"),
+        # Router suffixes change the price ('…:free'), so they are not stripped.
+        ("openai/gpt-5.5:free", None), ("anthropic/claude-opus-5:thinking", None),
+        # ...even when the rest would fall back to a shorter row: claude-opus-4-1 is
+        # not claude-opus-4, and '1:thinking' is no dated tail.
+        ("anthropic/claude-opus-4.1:thinking", None), ("anthropic/claude-sonnet-4.5:free", None),
+        ("claude-opus-4-1:thinking", None), ("gpt-5.5:online", None),
+        # Bedrock's version tail is the one colon that is not a router suffix.
+        ("us.anthropic.claude-opus-4-1-20250805-v1:0", "claude-opus-4-1"),
+        ("claude-opus-4-1@20250805:thinking", None),
+        ("anthropic.claude-opus-4-1-20250805-v12:0", "claude-opus-4-1"), ("claude-opus-4-1:0", None),
+        # Not a provider spelling of a known model.
+        ("openai/", None), ("anthropic.", None), ("@20260101", None), ("mystery/claude-mystery-9", None),
+    )
+
+    def test_provider_spellings_resolve_to_the_bare_models_row(self):
+        for model, row in self.PROVIDER_IDS:
+            with self.subTest(model=model):
+                self.assertIs(an.price_for(model), an.PRICE_USD_PER_MTOK[row] if row else None)
+
+    def test_a_provider_spelling_is_priced_on_the_date_like_the_bare_id(self):
+        self.assertEqual(an.price_for("google/gemini-3.7-flash", "2027-01-01")["cache_read"], 0.15)
+
+    def test_the_archive_and_summary_keep_the_id_as_the_agent_wrote_it(self):
+        days = {}
+        tu.record(days, "2026-09-01", "openrouter/openai/gpt-5.5", {"input": 1_000_000, "output": 0,
+                                                                      "cache_read": 0, "cache_write": 0})
+        self.assertEqual(list(days["2026-09-01"]["models"]), ["openrouter/openai/gpt-5.5"])
+        archive = {date: {"codex": day} for date, day in days.items()}
+        t = an.token_summary(archive, [])
+        self.assertEqual(t["sources"][0]["top_model"], "openrouter/openai/gpt-5.5")
+        self.assertAlmostEqual(t["cost_usd"], 5.0)
+        self.assertEqual(t["unpriced_tokens"], 0)
 
     def test_openai_cache_writes_have_their_own_rate(self):
         # gpt-5.6-sol: $4 input, $5 cache write, $0.40 cached input, $20 output per MTok.

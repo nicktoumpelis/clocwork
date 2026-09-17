@@ -70,7 +70,8 @@
 
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            /* 200px leaves a value room for a ten-character date on one line. */
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 1rem;
             margin-bottom: 2rem;
         }
@@ -85,7 +86,8 @@
 
         .stat-card:hover { border-color: var(--accent); }
         .stat-card .label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.15rem; }
-        .stat-card .value { font-size: 1.6rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+        /* A wrapped value makes its whole row taller; long qualifiers go on .delta. */
+        .stat-card .value { font-size: 1.6rem; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
         .stat-card .delta { font-size: 0.8rem; margin-top: 0.15rem; color: var(--text-muted); }
 
         .section { margin-bottom: 1.5rem; }
@@ -547,6 +549,15 @@ function hexToRgba(hex, alpha) {
     var n = parseInt(hex.slice(1), 16);
     return 'rgba(' + (n >> 16 & 255) + ',' + (n >> 8 & 255) + ',' + (n & 255) + ',' + alpha + ')';
 }
+// A tint of `hex` at `alpha` over `base`, as an opaque colour: what the
+// translucent fill looks like on that background, without letting anything
+// drawn beneath show through.
+var SURFACE = '#161b22';   // --surface, the chart cards' background
+function blend(hex, alpha, base) {
+    var a = parseInt(hex.slice(1), 16), b = parseInt(base.slice(1), 16);
+    function mix(shift) { return Math.round((b >> shift & 255) * (1 - alpha) + (a >> shift & 255) * alpha); }
+    return 'rgb(' + mix(16) + ',' + mix(8) + ',' + mix(0) + ')';
+}
 function annotationObjects(list) {
     var out = {};
     (list || []).forEach(function(a, i) {
@@ -555,7 +566,8 @@ function annotationObjects(list) {
             type: 'line', xMin: a[0], xMax: a[0],
             borderColor: colour, borderWidth: 1.5, borderDash: [6, 3],
             label: { display: true, content: a[1], position: 'start',
-                     backgroundColor: hexToRgba(colour, 0.15), color: colour,
+                     // Opaque: the label sits on its own dashed line.
+                     backgroundColor: blend(colour, 0.15, SURFACE), color: colour,
                      font: { size: 10, weight: '600' },
                      padding: { top: 3, bottom: 3, left: 6, right: 6 }, borderRadius: 4 }
         };
@@ -835,8 +847,27 @@ var AGENT_COLORS = {
     'Claude Sonnet 5': '#7ee787',
     'Claude Haiku 4.5': '#56d364',
     'Claude (unknown version)': '#484f58',
-    'Misc': '#6e7681'
+    'Misc': '#6e7681',
+    // The agents.py vendors, so the common ones never depend on the hash below.
+    'Copilot': '#a371f7',
+    'Cursor': '#ffab70',
+    'Codex': '#10a37f',
+    'Devin': '#bf8700',
+    'aider': '#e05d44',
+    'Gemini Code Assist': '#1a73e8',
+    'Gemini': '#8ab4f8'
 };
+// Any other agent (a Claude model the table does not list yet, an
+// [agents].extra name) takes a colour by a hash of its name: the same on
+// every chart and every run, and never one of the greys above.
+var AGENT_FALLBACK_PALETTE = ['#f69d50', '#b392f0', '#76e3ea', '#ffd33d', '#85e89d', '#f692ce', '#79b8ff', '#ff938a'];
+function agentColour(a) {
+    a = a || 'Human';
+    if (Object.prototype.hasOwnProperty.call(AGENT_COLORS, a)) return AGENT_COLORS[a];
+    var h = 0;
+    for (var i = 0; i < a.length; i++) h = (h * 31 + a.charCodeAt(i)) >>> 0;
+    return AGENT_FALLBACK_PALETTE[h % AGENT_FALLBACK_PALETTE.length];
+}
 
 function agentClass(a) {
     // Derive the badge class from the agent name so any Claude model gets a
@@ -869,6 +900,22 @@ Chart.defaults.locale = FMT.locale;
     if (RAW.generated) set('generatedOn', FMT.date(RAW.generated));
 })();
 
+// One stat tile: a label, a value and an optional smaller line beneath it.
+// Keep the value short; anything that qualifies it goes on the delta line,
+// or a narrow tile wraps the value and makes its whole row taller.
+function statCard(c) {
+    var card = document.createElement('div');
+    card.className = 'stat-card';
+    var l = document.createElement('div'); l.className = 'label'; l.textContent = c.label;
+    var v = document.createElement('div'); v.className = 'value'; v.textContent = c.value;
+    card.appendChild(l); card.appendChild(v);
+    if (c.delta) {
+        var d = document.createElement('div'); d.className = 'delta'; d.textContent = c.delta;
+        card.appendChild(d);
+    }
+    return card;
+}
+
 // --- Summary Stats ---
 (function() {
     var grid = document.getElementById('statsGrid');
@@ -878,7 +925,7 @@ Chart.defaults.locale = FMT.locale;
         var aiShare = FMT.pct(SUMMARY.ai_assisted_commits / SUMMARY.total_commits);
         var cards = [
             { label: 'Total Commits', value: fmt(SUMMARY.total_commits) },
-            { label: 'AI-Assisted', value: fmt(SUMMARY.ai_assisted_commits) + ' (' + aiShare + ')' },
+            { label: 'AI-Assisted', value: fmt(SUMMARY.ai_assisted_commits), delta: aiShare + ' of all commits' },
             { label: 'Human Only', value: fmt(SUMMARY.human_only_commits) },
             { label: 'Misc (merges)', value: fmt(SUMMARY.misc_commits || 0) },
             { label: 'Lines at HEAD', value: fmt(SEL.headTotal(false)) },
@@ -889,14 +936,7 @@ Chart.defaults.locale = FMT.locale;
         ];
         if (SUMMARY.unmeasured_commits) cards.push({ label: 'Unmeasured by cloc', value: fmt(SUMMARY.unmeasured_commits) });
         if (SUMMARY.pending_commits) cards.push({ label: 'Not yet measured', value: fmt(SUMMARY.pending_commits) });
-        cards.forEach(function(c) {
-            var card = document.createElement('div');
-            card.className = 'stat-card';
-            var l = document.createElement('div'); l.className = 'label'; l.textContent = c.label;
-            var v = document.createElement('div'); v.className = 'value'; v.textContent = c.value;
-            card.appendChild(l); card.appendChild(v);
-            grid.appendChild(card);
-        });
+        cards.forEach(function(c) { grid.appendChild(statCard(c)); });
     }
     SEL.on(render);
     render();
@@ -911,7 +951,7 @@ function resetMainZoom() {
     }
 }
 (function() {
-    var pointColors = ROWS.map(function(c) { return AGENT_COLORS[c[4] || 'Human'] || '#8b949e'; });
+    var pointColors = ROWS.map(function(c) { return agentColour(c[4]); });
     function series(values) { return ROWS.map(function(c, i) { return { x: c[2], y: values[i] }; }); }
     var st = SEL.stats();
     var datasets = [{
@@ -1085,8 +1125,8 @@ function resetMainZoom() {
             names.forEach(function(a) { running[a].push({ x: c[2], y: totals[a] }); });
         });
         return names.map(function(a) {
-            return { label: a, data: running[a], borderColor: AGENT_COLORS[a] || '#484f58',
-                     backgroundColor: (AGENT_COLORS[a] || '#484f58') + '15', fill: true, tension: 0.2,
+            return { label: a, data: running[a], borderColor: agentColour(a),
+                     backgroundColor: agentColour(a) + '15', fill: true, tension: 0.2,
                      pointRadius: 0, pointHoverRadius: 4, borderWidth: 2 };
         });
     }
@@ -1125,7 +1165,7 @@ function resetMainZoom() {
             labels: names,
             datasets: [{
                 data: names.map(function(a) { return agents[a].commits; }),
-                backgroundColor: names.map(function(a) { return AGENT_COLORS[a] || '#484f58'; }),
+                backgroundColor: names.map(agentColour),
                 borderColor: '#161b22',
                 borderWidth: 2
             }]
@@ -1154,7 +1194,7 @@ function resetMainZoom() {
     var names = sortedNames();
     function added() { var s = SEL.stats(); return names.map(function(a) { return s.agents[a].added; }); }
     function removed() { var s = SEL.stats(); return names.map(function(a) { return -s.agents[a].removed; }); }
-    function colours() { return names.map(function(a) { return (AGENT_COLORS[a] || '#484f58') + 'aa'; }); }
+    function colours() { return names.map(function(a) { return agentColour(a) + 'aa'; }); }
     var chart = new Chart(document.getElementById('agentNetChart'), {
         type: 'bar',
         data: { labels: names, datasets: [
@@ -1266,18 +1306,7 @@ function resetMainZoom() {
         // figure follows the token ceiling, so it is shown coarsely like it.
         { label: 'API Cost (est.)', value: FMT.usd.approx(T.lifetime_cost_usd),
           delta: FMT.usdExact(T.cost_usd) + ' over the ' + fmt(T.measured_days) + ' measured days at list prices' }
-    ]).forEach(function(c) {
-        var card = document.createElement('div');
-        card.className = 'stat-card';
-        var l = document.createElement('div'); l.className = 'label'; l.textContent = c.label;
-        var v = document.createElement('div'); v.className = 'value'; v.textContent = c.value;
-        card.appendChild(l); card.appendChild(v);
-        if (c.delta) {
-            var d = document.createElement('div'); d.className = 'delta'; d.textContent = c.delta;
-            card.appendChild(d);
-        }
-        grid.appendChild(card);
-    });
+    ]).forEach(function(c) { grid.appendChild(statCard(c)); });
 
     function points(rows, tag) {
         return rows.filter(function(r) { return r[2] === tag; })
@@ -1421,12 +1450,12 @@ function resetMainZoom() {
             var st = s.agents[a];
             var card = document.createElement('div');
             card.className = 'agent-card';
-            card.style.borderLeftColor = AGENT_COLORS[a] || '#484f58';
+            card.style.borderLeftColor = agentColour(a);
 
             var name = document.createElement('div');
             name.className = 'agent-name';
             name.textContent = a;
-            name.style.color = AGENT_COLORS[a] || '#8b949e';
+            name.style.color = agentColour(a);
 
             var detail = document.createElement('div');
             detail.className = 'agent-detail';

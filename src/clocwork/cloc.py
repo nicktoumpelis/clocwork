@@ -22,6 +22,7 @@ import subprocess
 import time
 from collections import namedtuple
 
+from clocwork import paths
 from clocwork.classify import DEFAULT_RULES, extension, language_for, parse_extension_table, path_key
 
 TYPES = ("code", "comment", "blank")
@@ -149,7 +150,7 @@ def require_cloc():
 def run_cloc(args, cwd):
     """Run cloc with JSON output and return the parsed object ({} when cloc prints nothing)."""
     result = subprocess.run(["cloc", "--quiet", "--json"] + list(args),
-                            capture_output=True, text=True, cwd=cwd)
+                            capture_output=True, text=True, cwd=cwd, env=paths.git_env())
     if result.returncode != 0:
         raise ClocError(result.stderr.strip() or f"cloc exited with {result.returncode}")
     out = result.stdout.strip()
