@@ -24,6 +24,7 @@ import subprocess
 import time
 from collections import namedtuple
 
+from clocwork import paths
 from clocwork.classify import DEFAULT_RULES, language_for, parse_extension_table
 
 TYPES = ("code", "comment", "blank")
@@ -151,7 +152,7 @@ def require_cloc():
 def run_cloc(args, cwd):
     """Run cloc with JSON output and return the parsed object ({} when cloc prints nothing)."""
     result = subprocess.run(["cloc", "--quiet", "--json"] + list(args),
-                            capture_output=True, text=True, cwd=cwd)
+                            capture_output=True, text=True, cwd=cwd, env=paths.git_env())
     if result.returncode != 0:
         raise ClocError(result.stderr.strip() or f"cloc exited with {result.returncode}")
     out = result.stdout.strip()
@@ -197,7 +198,7 @@ def merge_language_tables(base, overlay):
 
 def learn_extensions(repo, rev):
     result = subprocess.run(["cloc", "--quiet", "--git", "--by-file", "--csv", rev],
-                            capture_output=True, text=True, cwd=repo)
+                            capture_output=True, text=True, cwd=repo, env=paths.git_env())
     return parse_by_file_csv(result.stdout)
 
 
