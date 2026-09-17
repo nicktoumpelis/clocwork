@@ -82,7 +82,7 @@ def commit_lookup(repo):
     prompt can appear either.
     """
     known = {}
-    env = dict(os.environ, GIT_NO_LAZY_FETCH="1", GIT_ALLOW_PROTOCOL="", GIT_TERMINAL_PROMPT="0")
+    env = paths.git_env(GIT_NO_LAZY_FETCH="1", GIT_ALLOW_PROTOCOL="", GIT_TERMINAL_PROMPT="0")
 
     def lookup(sha):
         if sha not in known:

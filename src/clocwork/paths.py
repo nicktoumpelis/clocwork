@@ -31,8 +31,27 @@ class WorkspaceMismatch(RuntimeError):
     pass
 
 
+# What git clears before it runs in another repository (`git rev-parse
+# --local-env-vars`), less the `git -c` settings, which it passes on to a
+# submodule too. Inherited from a hook or a wrapper, GIT_DIR and its kin name
+# a repository of their own and override `git -C`, and cloc's working
+# directory, so every git and cloc call runs without them.
+REPOSITORY_ENV = ("GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_CONFIG", "GIT_OBJECT_DIRECTORY", "GIT_DIR",
+                  "GIT_WORK_TREE", "GIT_IMPLICIT_WORK_TREE", "GIT_GRAFT_FILE", "GIT_INDEX_FILE",
+                  "GIT_NO_REPLACE_OBJECTS", "GIT_REPLACE_REF_BASE", "GIT_PREFIX", "GIT_SHALLOW_FILE",
+                  "GIT_COMMON_DIR")
+
+
+def git_env(**extra):
+    """This process's environment for a git or cloc run against a repository
+    named by path, plus `extra`."""
+    env = {k: v for k, v in os.environ.items() if k not in REPOSITORY_ENV}
+    env.update(extra)
+    return env
+
+
 def _git(cwd, *args):
-    result = subprocess.run(["git", "-C", cwd] + list(args), capture_output=True, text=True)
+    result = subprocess.run(["git", "-C", cwd] + list(args), capture_output=True, text=True, env=git_env())
     return result.returncode, result.stdout.strip()
 
 

@@ -21,6 +21,7 @@ import re
 import subprocess
 
 from clocwork import tokens
+from clocwork.paths import git_env
 
 KEY = "gemini"
 LABEL = "Gemini CLI"
@@ -44,7 +45,7 @@ def tracked_directories(repo):
     """Every directory the repository tracks at HEAD, relative to its root;
     none when it is not a repository or has no commits."""
     result = subprocess.run(["git", "-C", repo, "ls-tree", "-r", "-d", "-z", "--name-only", "HEAD"],
-                            capture_output=True, text=True)
+                            capture_output=True, text=True, env=git_env())
     return [d for d in result.stdout.split("\0") if d] if result.returncode == 0 else []
 
 
