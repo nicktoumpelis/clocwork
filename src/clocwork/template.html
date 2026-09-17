@@ -677,18 +677,24 @@ var labelLayout = {
             label.yAdjust = -row * LABEL_ROW;
             // A left-off label keeps its full name for when it is shown on hover.
             label.content = boxes[i].shortened && !boxes[i].dropped ? shortLabel(ANNOTATIONS[i][1]) : ANNOTATIONS[i][1];
-            label.display = !boxes[i].dropped;
+            // One shown by the pointer stays shown through a re-layout (a
+            // drag-zoom ends with the pointer on the chart).
+            label.display = !boxes[i].dropped || !!LABEL_POINTED[i];
+            label.z = boxes[i].dropped && LABEL_POINTED[i] ? 1 : 0;
             LABEL_DROPPED[i] = boxes[i].dropped;
         });
     }
 };
-// Whether each label was left off at the last layout. A left-off label is
-// drawn while the pointer is at its line, or after a tap on it, so a bare
-// dashed line can still be named; it is drawn over the labels in its row.
-var LABEL_DROPPED = [];
+// Whether each label was left off at the last layout, and whether the
+// pointer is showing it. A left-off label is drawn while the pointer is
+// within a few pixels of its line (the annotation plugin's own interaction),
+// or after a tap on it, so a bare dashed line can still
+// be named; it is drawn over the labels in its row.
+var LABEL_DROPPED = [], LABEL_POINTED = [];
 function showDroppedLabel(i, show) {
     return function(ctx) {
         var label = ctx.element.label;
+        LABEL_POINTED[i] = show;
         if (!LABEL_DROPPED[i] || !label || label.options.display === show) return;
         label.options.display = show;
         label.options.z = show ? 1 : 0;
@@ -703,7 +709,7 @@ function annotationObjects(list) {
         out['first' + i] = {
             type: 'line', xMin: a[0], xMax: a[0],
             borderColor: colour, borderWidth: 1.5, borderDash: [6, 3],
-            hitTolerance: 8,
+            hitTolerance: 12,
             enter: showDroppedLabel(i, true), click: showDroppedLabel(i, true),
             leave: showDroppedLabel(i, false),
             label: { display: true, content: a[1], position: 'start',
@@ -1146,6 +1152,11 @@ function resetMainZoom() {
                     }
                 },
                 annotation: {
+                    // A line is at the pointer only when its stroke, widened
+                    // by its hit tolerance, is; the chart's own interaction
+                    // takes the nearest line anywhere. Of lines that close,
+                    // the nearest wins.
+                    interaction: { mode: 'nearest', intersect: true },
                     clip: false,
                     annotations: annotationObjects(ANNOTATIONS)
                 },

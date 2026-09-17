@@ -87,7 +87,7 @@ check(page.run("return labelBoxes([['2025-01-02', 'Gone']], window.__edge, windo
       'a label whose line is right of the area is hidden');
 // Rows stop at the chart's height. Labels are placed from the right, so
 // the latest keep their rows. A label with no free row and no short form is
-// left off: C here, which leaves D a free row 1.
+// left off: C here, which takes no row, so D takes row 1.
 global.__stack = [{ left: 100, right: 200 }, { left: 170, right: 190 }, { left: 0, right: 180 }, { left: 140, right: 160 }];
 const capped = page.run('return labelRows(window.__stack, 2)');
 check(JSON.stringify(capped) === '[0,1,0,1]', 'rows stop at the cap: ' + JSON.stringify(capped));
@@ -181,7 +181,11 @@ check(droppedAt.every(i => drawnAt.some(j => narrow[j].right >= narrow[i].right 
 // A left-off label shows while the pointer is at its line, and after a tap.
 const gone = droppedAt[0], kept = drawnAt[0];
 const element = { label: { options: { display: false, z: 0 } } };
-const hook = (i, name) => annotations['first' + i][name];
+const hook = (i, name) => {
+  const f = annotations['first' + i][name];
+  check(typeof f === 'function', 'line ' + i + ' has a ' + name + ' hook');
+  return typeof f === 'function' ? f : () => undefined;
+};
 check(hook(gone, 'enter')({ element }) === true && element.label.options.display === true && element.label.options.z > 0,
       'a left-off label shows on hover, over the labels in its row');
 check(hook(gone, 'leave')({ element }) === true && element.label.options.display === false && element.label.options.z === 0,
@@ -191,6 +195,18 @@ const keptElement = { label: { options: { display: true } } };
 check(hook(kept, 'leave')({ element: keptElement }) === undefined && keptElement.label.options.display === true,
       'a drawn label is not hidden when the pointer leaves its line');
 check(annotations['first' + gone].hitTolerance > 0, 'a thin dashed line is easy to reach');
+const pointer = main.options.plugins.annotation.interaction || {};
+check(pointer.intersect === true && pointer.mode === 'nearest',
+      'a line is at the pointer only when the pointer is on it, not wherever it is the nearest: ' + JSON.stringify(pointer));
+// A label the pointer is showing stays shown through a re-layout.
+hook(gone, 'enter')({ element: { label: { options: { display: false, z: 0 } } } });
+plugin.afterLayout(fakeChart);
+check(annotations['first' + gone].label.display === true && annotations['first' + gone].label.z === 1,
+      'a re-layout keeps the label the pointer shows');
+hook(gone, 'leave')({ element: { label: { options: { display: true, z: 1 } } } });
+plugin.afterLayout(fakeChart);
+check(annotations['first' + gone].label.display === false && annotations['first' + gone].label.z === 0,
+      'and hides it again once the pointer has left');
 // Back on the tall chart, every label is drawn whole again.
 fakeChart.chartArea = area(1300);
 plugin.afterLayout(fakeChart);
