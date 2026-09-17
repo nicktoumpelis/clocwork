@@ -50,6 +50,12 @@ VENDORS = (
     # GitHub credits accepted review suggestions to gemini-code-assist[bot]. It
     # comes before the next row, which would otherwise claim it.
     ("gemini-code-assist", "Gemini Code Assist"),
+    # Antigravity writes no trailer of its own either, and the ones people add
+    # vary in everything but the word itself ("Antigravity AI", "DeepMind
+    # Antigravity", "AGY <noreply@antigravity.dev>"). It names the Gemini model
+    # it ran ("Antigravity CLI (Gemini 3.8 Flash)"), and its address is
+    # sometimes gemini@google.com, so this row comes before the Gemini one.
+    ("Antigravity", "Antigravity"),
     # Gemini CLI adds no trailer of its own; this catches the one a person adds.
     ("Gemini", "Gemini"),
 )
