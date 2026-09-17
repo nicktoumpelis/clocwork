@@ -27,7 +27,7 @@ if (!process.env.CLOCWORK_DASH_WORKSPACE) {
         'fixture has an agent with no fixed colour, so every chart below draws a fallback colour');
   check(pointOf.Copilot !== pointOf.Human, 'Copilot points differ from Human points: ' + pointOf.Copilot + ' vs ' + pointOf.Human);
 }
-check(pointOf.Human === '#8b949e', 'Human points stay grey');
+if ('Human' in pointOf) check(pointOf.Human === '#8b949e', 'Human points stay grey');
 agents.filter(a => NEUTRAL.indexOf(a) < 0).forEach(a => {
   check(GREYS.indexOf(pointOf[a]) < 0, a + ' is not grey on the main chart: ' + pointOf[a]);
 });

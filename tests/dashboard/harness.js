@@ -122,11 +122,14 @@ function load(opts) {
   global.document = {
     getElementById: byId,
     createElement: t => new El(t),
+    // The selectors the page uses, each answered only while the markup
+    // declares the element it hangs from.
     querySelectorAll: sel => {
-      if (sel === '.all-commits th.sortable') return headRow.children.filter(h => h.className.indexOf('sortable') >= 0);
-      if (sel === '#commitTabs .tab') return tabs;
-      if (sel === '#allCommitsTable col') return colgroup.children;
-      if (sel === '#allCommitsTable thead th') return headRow.children;
+      const table = declared.has('allCommitsTable');
+      if (sel === '.all-commits th.sortable') return table ? headRow.children.filter(h => h.className.indexOf('sortable') >= 0) : [];
+      if (sel === '#commitTabs .tab') return declared.has('commitTabs') ? tabs : [];
+      if (sel === '#allCommitsTable col') return table ? colgroup.children : [];
+      if (sel === '#allCommitsTable thead th') return table ? headRow.children : [];
       return [];
     },
     head,
