@@ -255,6 +255,7 @@ archives per-day totals, per agent and model, into `token_usage.json`:
 | Claude Code | `~/.claude/projects/`, the directory named after the repository's path | none |
 | Codex CLI | `~/.codex/sessions/` and `~/.codex/archived_sessions/` | `CODEX_HOME` replaces `~/.codex` |
 | Gemini CLI | `~/.gemini/tmp/` and `~/.cache/.gemini/tmp/`, sessions started in the repository or a directory it tracks | `GEMINI_CLI_HOME` replaces `~` |
+| OpenCode | `~/.local/share/opencode`, on macOS and Windows as well: its `opencode*.db` databases and the file stores older releases wrote | `XDG_DATA_HOME` replaces `~/.local/share`; `OPENCODE_DB` names one database |
 
 A Codex session belongs to the repository when it records the same remote
 as the repository's `origin`, so sessions from any clone or worktree count.
@@ -268,6 +269,15 @@ when it ran in the repository or a directory inside it.
 Gemini CLI identifies a session's project only by a hash of the directory it
 started in, so its sessions count when that is the repository's current path
 or a directory tracked at `HEAD` below it.
+An OpenCode session names its project by the SHA-1 of `origin`'s host and
+path, so again every clone and worktree counts, as do the sub-agent sessions
+that share the project. Releases before v1.15.11 named it by the
+repository's first commit instead; such a session counts when it also ran in
+the repository, which is what keeps another history cloned to the same path
+out. OpenCode has moved its storage four times, and each move copied rather
+than replaced, so a store can hold the same session two or three times over;
+records are counted once, by the ids the moves preserved. A forked session
+copies its messages under new ids, and those copies are not counted again.
 
 Only dates, model names, and token and turn counts reach the archive;
 prompts and replies are never kept. The archive keeps the larger record for
@@ -301,6 +311,18 @@ commit credits Gemini by hand, in a trailer such as
 land on no commit. Codex rollouts that Codex has compressed are read on
 Python 3.14 and later; earlier versions count them as unreadable and say so
 in the log.
+
+OpenCode adds no trailer either (it did until v0.4.19), so the same holds:
+its measured tokens land on no commit unless the author credits it, in a
+trailer such as `Co-Authored-By: opencode <noreply@opencode.ai>`. A trailer
+naming a model and OpenCode both (`GLM-5.3 via OpenCode`) is OpenCode's, and
+one from `opencode-agent[bot]` is the GitHub Actions agent, whose logs stay
+on the runner, so it is named separately and carries no tokens. OpenCode
+calls are priced at the model vendor's list price, like every other source,
+which is an estimate when the call was billed by a reseller, a subscription
+or a regional endpoint — through OpenCode's own Zen, GitHub Copilot or
+Bedrock, say — and models the price table does not know are reported as
+unpriced.
 
 An archive written by an earlier version is read as Claude Code's and
 rewritten in the per-agent shape the next time a scan finds logs; an archive

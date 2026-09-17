@@ -1,0 +1,2 @@
+{"id":"msg_efcd971dd001v3pBRDs5vSfRR1","session_id":"ses_10326a5adffeM2AASSYKnOaRrA","type":"agent-switched","seq":1,"time_created":1782358569437,"time_updated":1782358569443,"data":{"time":{"created":1782358569437},"agent":"plan"}}
+{"id":"msg_efcd971e70016ucKG6jVp72VeY","session_id":"ses_10326a5adffeM2AASSYKnOaRrA","type":"model-switched","seq":2,"time_created":1782358569437,"time_updated":1782358569454,"data":{"time":{"created":1782358569437},"model":{"id":"openagents/khala","providerID":"openagents","variant":"default"}}}

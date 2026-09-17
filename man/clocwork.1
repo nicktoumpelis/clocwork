@@ -109,6 +109,11 @@ and
 .I .cache/.gemini/tmp/
 below it.
 .TP
+.B OPENCODE_DB
+The OpenCode database to read, absolute or relative to its data directory; by default every
+.I opencode*.db
+there is read.
+.TP
 .B XDG_CACHE_HOME
 When set, the cloc cache lives under
 .IR $XDG_CACHE_HOME/clocwork/ ;
@@ -118,6 +123,13 @@ otherwise under
 wins over both. Only
 .B run
 uses the cache.
+.TP
+.B XDG_DATA_HOME
+Where OpenCode keeps its sessions, read from
+.I opencode/
+below it; the default is
+.I ~/.local/share
+on every system, OpenCode having no variable of its own.
 .SH FILES
 .TP
 .I <repo\-parent>/<repo\-name>\-stats/

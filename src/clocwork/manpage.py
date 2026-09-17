@@ -139,8 +139,10 @@ def render(parser=None, version=__version__, date=None):
                  ".B \\-\\-locale\nwins over both.\n"
                  ".TP\n.B CODEX_HOME\nWhere Codex CLI keeps its sessions, read from its\n.I sessions/\nand\n.I archived_sessions/\ndirectories; the default is\n.IR ~/.codex .\n"
                  ".TP\n.B GEMINI_CLI_HOME\nThe directory Gemini CLI uses in place of the home directory; its sessions are read from\n.I .gemini/tmp/\nand\n.I .cache/.gemini/tmp/\nbelow it.\n"
+                 ".TP\n.B OPENCODE_DB\nThe OpenCode database to read, absolute or relative to its data directory; by default every\n.I opencode*.db\nthere is read.\n"
                  ".TP\n.B XDG_CACHE_HOME\nWhen set, the cloc cache lives under\n.IR $XDG_CACHE_HOME/clocwork/ ;\notherwise under\n.IR ~/.cache/clocwork/ .\n"
-                 ".B \\-\\-cache\\-dir\nwins over both. Only\n.B run\nuses the cache.")
+                 ".B \\-\\-cache\\-dir\nwins over both. Only\n.B run\nuses the cache.\n"
+                 ".TP\n.B XDG_DATA_HOME\nWhere OpenCode keeps its sessions, read from\n.I opencode/\nbelow it; the default is\n.I ~/.local/share\non every system, OpenCode having no variable of its own.")
     lines.append(".SH FILES\n"
                  ".TP\n.I <repo\\-parent>/<repo\\-name>\\-stats/\nThe workspace: a sibling of the repository, overridden with\n.BR \\-o .\n"
                  ".TP\n.I clocwork.json\nWhich repository the workspace belongs to. A run against another repository is refused rather than overwriting the workspace.\n"
