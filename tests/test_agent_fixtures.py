@@ -32,10 +32,24 @@ OPENCODE_KEYS = {
     "seq", "sessionID", "session_id", "time", "time_created", "time_updated", "tokens", "total",
     "type", "updated", "variant", "version", "write",
 }
-# A model id can hold a slash of its own, so these are not paths that
-# escaped the reduction. Every one is a model the fixtures record.
-MODEL_IDS = {"Qwen/Qwen3-Coder-Next", "openagents/khala", "qwen/qwen3-4b"}
+# The fields that name a model. A model id can hold a slash of its own
+# (`qwen/qwen3-4b`), so a slash under one of these is not a path that escaped
+# the reduction - but a slash anywhere else is, whatever it happens to spell.
+# A recorded `model-switched` row nests the id as `model: {id: ...}`, so it is
+# the whole field path that decides, not the name the value sits directly
+# under.
+MODEL_KEYS = {"model", "modelID"}
 AGENTS = ("codex", "gemini", "opencode")
+# What each table of the OpenCode fixtures may hold, so that a misspelled key
+# in a future row fails here instead of quietly building a column of its own
+# and leaving the real one empty.
+OPENCODE_COLUMNS = {
+    "session": {"id", "project_id", "parent_id", "directory", "version", "path",
+                "time_created", "time_updated"},
+    "message": {"id", "session_id", "time_created", "time_updated", "data"},
+    "part": {"id", "message_id", "session_id", "time_created", "time_updated", "data"},
+    "session_message": {"id", "session_id", "type", "seq", "time_created", "time_updated", "data"},
+}
 
 
 def keys_of(value):
@@ -47,11 +61,24 @@ def keys_of(value):
 
 
 def strings_of(value):
+    return [s for _path, s in named_strings(value)]
+
+
+def named_strings(value, path=()):
+    """Every string in a record, with the field path it sits under. A value
+    has to be judged by where it is, not by what it spells: a leaked path
+    that happened to read like a model id would pass a check that only
+    looked at the text."""
     if isinstance(value, dict):
-        return [s for v in value.values() for s in strings_of(v)]
+        return [pair for k, v in value.items() for pair in named_strings(v, path + (k,))]
     if isinstance(value, list):
-        return [s for v in value for s in strings_of(v)]
-    return [value] if isinstance(value, str) else []
+        return [pair for v in value for pair in named_strings(v, path)]
+    return [(path, value)] if isinstance(value, str) else []
+
+
+def names_a_model(path):
+    """Whether a field path is one a model id is recorded under."""
+    return bool(set(path) & MODEL_KEYS)
 
 
 class TestFixturesAreReduced(unittest.TestCase):
@@ -69,15 +96,46 @@ class TestFixturesAreReduced(unittest.TestCase):
         for agent in AGENTS:
             for rel in agent_logs.files(agent):
                 with self.subTest(file=rel):
-                    strings = {s for r in agent_logs.records(agent, rel) for s in strings_of(r)}
-                    left = {s for s in strings if "/" in s} - {agent_logs.PLACEHOLDER, agent_logs.REMOTE} - MODEL_IDS
+                    pairs = {p for r in agent_logs.records(agent, rel) for p in named_strings(r)}
+                    left = {(".".join(path), s) for path, s in pairs
+                            if "/" in s and not names_a_model(path)
+                            and s not in (agent_logs.PLACEHOLDER, agent_logs.REMOTE)}
                     self.assertEqual(left, set())
+
+    def test_the_placeholder_check_reads_the_field_not_the_text(self):
+        # The guard above must not be satisfiable by naming a leaked path
+        # after a model. A slash under a model field is allowed, nested or
+        # not, because that is where a model id lives; under any other field
+        # it is a path, whatever it spells.
+        leak = {"data": {"modelID": "qwen/qwen3-4b",
+                         "model": {"id": "openagents/khala"},
+                         "path": {"cwd": "/Users/someone/code/thing"},
+                         "note": "qwen/qwen3-4b"}}
+        found = {(".".join(path), s) for path, s in named_strings(leak)
+                 if "/" in s and not names_a_model(path)}
+        self.assertEqual(found, {("data.path.cwd", "/Users/someone/code/thing"),
+                                 ("data.note", "qwen/qwen3-4b")})
 
     def test_every_gemini_session_names_the_placeholder_project(self):
         want = agent_logs.project_hash(agent_logs.PLACEHOLDER)
         for rel in agent_logs.files("gemini"):
             hashes = {r["projectHash"] for r in agent_logs.records("gemini", rel) if "projectHash" in r}
             self.assertEqual(hashes, {want}, rel)
+
+    def test_the_opencode_rows_name_only_their_tables_columns(self):
+        # install() infers each table's columns from the rows, so a key
+        # nobody meant would become a column of its own and leave the one the
+        # reader looks for empty.
+        for rel in agent_logs.files("opencode"):
+            bucket = rel.split(os.sep)[0]
+            if not bucket.startswith("s1"):
+                continue
+            table = os.path.splitext(os.path.basename(rel))[0]
+            with self.subTest(file=rel):
+                self.assertIn(table, OPENCODE_COLUMNS)
+                keys = set().union(*(set(r) for r in agent_logs.records("opencode", rel))) \
+                    if agent_logs.records("opencode", rel) else set()
+                self.assertLessEqual(keys, OPENCODE_COLUMNS[table])
 
     def test_the_opencode_buckets_are_what_the_readme_describes(self):
         # Provenance is the point of the three buckets: a test that claims a
