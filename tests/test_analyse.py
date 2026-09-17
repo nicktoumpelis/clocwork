@@ -265,12 +265,18 @@ class TestInputs(unittest.TestCase):
                 self.assert_no_drift(data["summary"])
 
     def test_a_name_renamed_away_and_created_again_keeps_its_own_language(self):
+        # The HEAD snapshot and its mapping stay right. The history cannot:
+        # notes.txt's four lines count as Text before the rename, and nothing
+        # moves them when cloc reports the rename under that name, so one path
+        # with two lives drifts. That is a known limit.
         with tempfile.TemporaryDirectory() as d:
             fx.make_recreated_name_repo(d)
             s = self.run_quietly(d)["summary"]
             self.assertEqual({l: v["code"] for l, v in s["head_snapshot"]["all"].items()},
                              {"Markdown": 4, "Text": 2})
             self.assertEqual({l: v for l, v in s["mapping_check"].items() if any(v.values())}, {})
+            self.assertEqual({l: v["code"] for l, v in s["reconciliation"].items() if any(v.values())},
+                             {"Markdown": -4, "Text": 4})
 
     def test_a_symlink_is_counted_neither_in_the_history_nor_at_head(self):
         # cloc counts a symlink added with its target in the diff, but not one

@@ -223,6 +223,8 @@ def regular_files(repo, rev):
     """The paths of rev's regular files: no symlinks, no submodules."""
     result = subprocess.run(["git", "-C", repo, "ls-tree", "-r", "-z", "--full-tree", rev],
                             capture_output=True, text=True, env=paths.git_env())
+    if result.returncode != 0:
+        raise ClocError(f"git ls-tree {rev} failed: {result.stderr.strip()}")
     files = set()
     for entry in result.stdout.split("\0"):
         meta, _, path = entry.partition("\t")

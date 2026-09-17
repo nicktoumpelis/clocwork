@@ -11,16 +11,18 @@ All notable changes to clocwork are recorded here. The format follows
 - The HEAD snapshot counts every copy of an identical file, as the history
   always has. A repository that keeps copies of a file sees its lines at
   HEAD rise by those copies.
-- Symlinks are no longer counted. cloc counted one in the history only when
-  it arrived with its target, so HEAD figures could disagree with the
+- Symlinks are no longer counted, nor is any path that was a symlink at some
+  point, in any of its commits. cloc counted a symlink in the history only
+  when it arrived with its target, so HEAD figures could disagree with the
   history.
 
 ### Fixed
 
 - A renamed file's lines before the rename count under the language of its
-  new name, and a file cloc names against its extension (`CMakeLists.txt`,
-  a script by its shebang) counts under that name in every commit. Both used
-  to show as drift between the history and HEAD.
+  new name, unless the old name is used again later, and a file cloc names
+  against its extension (`CMakeLists.txt`, a script by its shebang) counts
+  under that name in every commit. Both used to show as drift between the
+  history and HEAD.
 
 ## [0.1.1] - 2026-09-17
 

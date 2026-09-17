@@ -99,6 +99,12 @@ class TestParseSnapshots(unittest.TestCase):
         self.assertEqual(snap, {"Swift": {"code": 5, "comment": 3, "blank": 1},
                                 "Markdown": {"code": 2, "comment": 0, "blank": 1}})
 
+    def test_listing_the_files_of_a_missing_revision_is_an_error(self):
+        with tempfile.TemporaryDirectory() as d:
+            subprocess.run(["git", "init", "-q", d], check=True)
+            with self.assertRaises(cl.ClocError):
+                cl.regular_files(d, "no-such-rev")
+
     def test_only_regular_files_stay_in_the_report(self):
         report = {"header": {}, "a.md": {"code": 1, "language": "Markdown"},
                   "link.md": {"code": 1, "language": "Markdown"}, "SUM": {"code": 2}}
@@ -478,6 +484,11 @@ class TestLearnedExtensions(unittest.TestCase):
             with self.subTest(first=order[0]):
                 learned = cl.parse_by_file_json(by_file({p: files[p] for p in order}), {"txt": "Text"})
                 self.assertEqual(learned, {"txt": "Text", cf.path_key("CMakeLists.txt"): "CMake"})
+
+    def test_the_tables_language_wins_even_when_fewer_files_have_it(self):
+        learned = cl.parse_by_file_json(by_file({"a.txt": "Text", "b.txt": "CMake", "c.txt": "CMake"}),
+                                        {"txt": "Text"})
+        self.assertEqual(learned, {"txt": "Text", cf.path_key("b.txt"): "CMake", cf.path_key("c.txt"): "CMake"})
 
     def test_an_extension_the_table_misnames_takes_its_files_majority(self):
         # .cgi is not in the table: two Perl scripts outvote one Python one,
