@@ -118,14 +118,53 @@ class TestPerPathLanguage(unittest.TestCase):
         # extensionless name is never read as an extension.
         ("Dockerfile", cf.OTHER),
         ("go", cf.OTHER),
-        # A file with an extension is classified by it alone.
-        ("a.py", "Python"),
+        # A file's own entry wins over its extension's: cloc named a.py
+        # otherwise, and b.py, with no entry, follows the extension.
+        ("a.py", "Perl"),
+        ("b.py", "Python"),
     )
 
     def test_cases(self):
         for path, language in self.CASES:
             with self.subTest(path=path):
                 self.assertEqual(cf.language_for(path, self.TABLE), language)
+
+
+class TestRenamedLanguages(unittest.TestCase):
+    """A name a file had before a rename takes the language of the name it became."""
+
+    TABLE = {"md": "Markdown", "txt": "Text", "sh": "Bourne Shell",
+             cf.path_key("bin/final"): "Bourne Shell",
+             cf.path_key("tool"): "Python"}
+
+    CASES = (
+        # (renames newest first, learned entries)
+        ([("run", "bin/final")], {cf.path_key("run"): "Bourne Shell"}),
+        # A chain resolves through the middle name.
+        ([("middle", "bin/final"), ("old", "middle")],
+         {cf.path_key("middle"): "Bourne Shell", cf.path_key("old"): "Bourne Shell"}),
+        # An extension change moves the old name to the new language.
+        ([("notes.txt", "notes.md")], {cf.path_key("notes.txt"): "Markdown"}),
+        # No entry is needed when the old name already gets that language.
+        ([("run.sh", "bin/final")], {}),
+        ([("a.md", "b.md")], {}),
+        # A name the table already holds keeps its entry (a path reused later).
+        ([("tool", "bin/final")], {}),
+        # A rename to a file cloc does not count leaves the old name Other.
+        ([("x", "y")], {}),
+        # A name present again at the analysed ref keeps its own language.
+        ([("notes.txt", "notes.md")], {}, {"notes.txt"}),
+    )
+
+    def test_cases(self):
+        for renames, learned, *present in self.CASES:
+            with self.subTest(renames=renames):
+                self.assertEqual(cf.renamed_languages(renames, self.TABLE, *present), learned)
+
+    def test_the_table_is_not_changed(self):
+        table = dict(self.TABLE)
+        cf.renamed_languages([("run", "bin/final")], table)
+        self.assertEqual(table, self.TABLE)
 
 
 if __name__ == "__main__":

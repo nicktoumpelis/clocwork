@@ -30,13 +30,6 @@ DIFF_JSON = {
     "SUM": {"added": {"code": 7}},
 }
 
-SNAPSHOT_LANG_JSON = {
-    "header": {},
-    "Swift": {"nFiles": 2, "blank": 1, "comment": 3, "code": 5},
-    "Markdown": {"nFiles": 1, "blank": 1, "comment": 0, "code": 2},
-    "SUM": {"blank": 2, "comment": 3, "code": 7, "nFiles": 3},
-}
-
 SNAPSHOT_FILE_JSON = {
     "header": {},
     "App/Main.swift": {"blank": 1, "comment": 2, "code": 3, "language": "Swift"},
@@ -93,12 +86,34 @@ class TestClassifyRows(unittest.TestCase):
     def test_empty(self):
         self.assertEqual(cl.classify_rows(cl.diff_rows({}), self.table, cf.DEFAULT_RULES), ({}, {}))
 
+    def test_an_uncounted_path_is_left_out(self):
+        table = dict(self.table, **{cf.path_key("App/Main.swift"): cf.UNCOUNTED})
+        lines, _ = cl.classify_rows(self.rows, table, cf.DEFAULT_RULES)
+        self.assertNotIn(cf.UNCOUNTED, lines)
+        self.assertNotEqual(lines, cl.classify_rows(self.rows, self.table, cf.DEFAULT_RULES)[0])
+
 
 class TestParseSnapshots(unittest.TestCase):
-    def test_by_language(self):
-        snap = cl.parse_snapshot_by_language(SNAPSHOT_LANG_JSON)
+    def test_by_language_sums_the_files_by_the_language_cloc_gave_each(self):
+        snap = cl.parse_snapshot_by_language(SNAPSHOT_FILE_JSON)
         self.assertEqual(snap, {"Swift": {"code": 5, "comment": 3, "blank": 1},
                                 "Markdown": {"code": 2, "comment": 0, "blank": 1}})
+
+    def test_listing_the_files_of_a_missing_revision_is_an_error(self):
+        with tempfile.TemporaryDirectory() as d:
+            subprocess.run(["git", "init", "-q", d], check=True)
+            with self.assertRaises(cl.ClocError):
+                cl.regular_files(d, "no-such-rev")
+
+    def test_only_regular_files_stay_in_the_report(self):
+        report = {"header": {}, "a.md": {"code": 1, "language": "Markdown"},
+                  "link.md": {"code": 1, "language": "Markdown"}, "SUM": {"code": 2}}
+        self.assertEqual(cl.only_files(report, {"a.md", "tool"}), {"header": {}, "a.md": report["a.md"]})
+
+    def test_by_file_leaves_an_uncounted_path_out(self):
+        table = dict(cf.parse_extension_table(EXT_TEXT), **{cf.path_key("README.md"): cf.UNCOUNTED})
+        all_files, _ = cl.parse_snapshot_by_file(SNAPSHOT_FILE_JSON, table)
+        self.assertEqual(set(all_files), {"Swift"})
 
     def test_by_file_splits_tests(self):
         table = cf.parse_extension_table(EXT_TEXT)
@@ -459,6 +474,30 @@ class TestLearnedExtensions(unittest.TestCase):
                                    cf.path_key("go"): "Python",
                                    cf.path_key(".envrc"): "Bourne Shell",
                                    cf.path_key("tools/de,ploy"): "Bourne Shell"})
+
+    def test_a_file_cloc_names_against_its_extension_is_learned_by_path(self):
+        # Whichever order cloc lists the files in, .txt stays Text (the
+        # extension table's language, which a file has) and CMakeLists.txt
+        # gets an entry of its own.
+        files = {"CMakeLists.txt": "CMake", "notes.txt": "Text", "a/b.txt": "Text"}
+        for order in (list(files), list(reversed(files))):
+            with self.subTest(first=order[0]):
+                learned = cl.parse_by_file_json(by_file({p: files[p] for p in order}), {"txt": "Text"})
+                self.assertEqual(learned, {"txt": "Text", cf.path_key("CMakeLists.txt"): "CMake"})
+
+    def test_the_tables_language_wins_even_when_fewer_files_have_it(self):
+        learned = cl.parse_by_file_json(by_file({"a.txt": "Text", "b.txt": "CMake", "c.txt": "CMake"}),
+                                        {"txt": "Text"})
+        self.assertEqual(learned, {"txt": "Text", cf.path_key("b.txt"): "CMake", cf.path_key("c.txt"): "CMake"})
+
+    def test_an_extension_the_table_misnames_takes_its_files_majority(self):
+        # .cgi is not in the table: two Perl scripts outvote one Python one,
+        # which is learned by path. A tie goes to the language first in alphabetical order.
+        learned = cl.parse_by_file_json(by_file({"a.cgi": "Perl", "odd.cgi": "Python", "b.cgi": "Perl"}), {})
+        self.assertEqual(learned, {"cgi": "Perl", cf.path_key("odd.cgi"): "Python"})
+        learned = cl.parse_by_file_json(by_file({"x.v": "Verilog-SystemVerilog", "y.v": "Coq"}),
+                                        {"v": "Verilog-SystemVerilog/Coq"})
+        self.assertEqual(learned, {"v": "Coq", cf.path_key("x.v"): "Verilog-SystemVerilog"})
 
     def test_a_path_key_is_the_path_behind_a_slash(self):
         self.assertEqual((cf.path_key("Makefile"), cf.path_key("scripts/go")), ("/Makefile", "/scripts/go"))

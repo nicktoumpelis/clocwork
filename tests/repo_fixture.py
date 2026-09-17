@@ -142,3 +142,82 @@ def make_extensionless_repo(root):
     _write(root, "bin/run", EXTENSIONLESS["bin/run"][0] + "echo again\n")
     _git(root, "commit", "-q", "-am", "Say it twice", date="2025-01-02T10:00:00+00:00")
     return _git(root, "log", "--reverse", "--format=%H", "main").splitlines()
+
+
+def make_renamed_repo(root):
+    """Files renamed during the history, which cloc reports under their old
+    names: a shell script renamed twice (the second time with an edit), and a
+    text file renamed to Markdown."""
+    _git(root, "init", "-q", "-b", "main")
+    _write(root, "old", "#!/bin/sh\necho a\necho b\n")
+    _write(root, "notes.txt", "one\ntwo\n")
+    _git(root, "add", ".")
+    _git(root, "commit", "-q", "-m", "Initial", date="2025-01-01T10:00:00+00:00")
+    _git(root, "mv", "old", "middle")
+    _git(root, "mv", "notes.txt", "notes.md")
+    _git(root, "commit", "-q", "-m", "Rename", date="2025-01-02T10:00:00+00:00")
+    _write(root, "middle", "#!/bin/sh\necho a\necho b\necho c\n")
+    os.makedirs(os.path.join(root, "bin"))
+    _git(root, "mv", "middle", "bin/final")
+    _git(root, "commit", "-q", "-am", "Move and extend", date="2025-01-03T10:00:00+00:00")
+    return _git(root, "log", "--reverse", "--format=%H", "main").splitlines()
+
+
+# Files cloc names against their extension, with the language cloc 2.10 gives
+# each: CMake by filename, and .cgi scripts by shebang. Two lines apiece.
+NAMED_AGAINST_EXTENSION = {
+    "CMakeLists.txt": ("cmake_minimum_required(VERSION 3.20)\nproject(MyApp)\n", "CMake"),
+    "notes.txt": ("one\ntwo\n", "Text"),
+    "cgi/a.cgi": ("#!/usr/bin/perl\nprint 1;\n", "Perl"),
+    "cgi/b.cgi": ("#!/usr/bin/perl\nprint 2;\n", "Perl"),
+    "cgi/odd.cgi": ("#!/usr/bin/env python3\nprint(3)\n", "Python"),
+}
+
+
+def make_named_against_extension_repo(root, order=None):
+    """One commit per NAMED_AGAINST_EXTENSION file, in `order` (its keys)."""
+    _git(root, "init", "-q", "-b", "main")
+    for i, rel in enumerate(order or NAMED_AGAINST_EXTENSION):
+        _write(root, rel, NAMED_AGAINST_EXTENSION[rel][0])
+        _git(root, "add", ".")
+        _git(root, "commit", "-q", "-m", "Add " + rel, date=f"2025-01-{i + 1:02d}T10:00:00+00:00")
+    return _git(root, "log", "--reverse", "--format=%H", "main").splitlines()
+
+
+def make_identical_files_repo(root):
+    """Identical copies, with and without an extension, in one commit."""
+    _git(root, "init", "-q", "-b", "main")
+    for rel in ("a.py", "t/b.py"):
+        _write(root, rel, "x = 1\ny = 2\n")
+    for rel in ("bin/one", "bin/two"):
+        _write(root, rel, "#!/bin/sh\necho same\n")
+    _git(root, "add", ".")
+    _git(root, "commit", "-q", "-m", "Copies", date="2025-01-01T10:00:00+00:00")
+    return _git(root, "log", "--reverse", "--format=%H", "main").splitlines()
+
+
+def make_recreated_name_repo(root):
+    """notes.txt renamed to notes.md, then a new notes.txt: the old name is
+    present again at HEAD, as a Text file."""
+    _git(root, "init", "-q", "-b", "main")
+    _write(root, "notes.txt", "one\ntwo\nthree\nfour\n")
+    _git(root, "add", ".")
+    _git(root, "commit", "-q", "-m", "Notes", date="2025-01-01T10:00:00+00:00")
+    _git(root, "mv", "notes.txt", "notes.md")
+    _git(root, "commit", "-q", "-m", "To Markdown", date="2025-01-02T10:00:00+00:00")
+    _write(root, "notes.txt", "five\nsix\n")
+    _git(root, "add", ".")
+    _git(root, "commit", "-q", "-m", "New notes", date="2025-01-03T10:00:00+00:00")
+    return _git(root, "log", "--reverse", "--format=%H", "main").splitlines()
+
+
+def make_symlink_repo(root):
+    """A Markdown file, a symlink to it, and a symlink to a directory."""
+    _git(root, "init", "-q", "-b", "main")
+    _write(root, "AGENTS.md", "# Agents\n\nRead this.\n")
+    _write(root, "src/app.py", "x = 1\n")
+    os.symlink("AGENTS.md", os.path.join(root, "LINK.md"))
+    os.symlink("src", os.path.join(root, "lib"))
+    _git(root, "add", ".")
+    _git(root, "commit", "-q", "-m", "Links", date="2025-01-01T10:00:00+00:00")
+    return _git(root, "log", "--reverse", "--format=%H", "main").splitlines()
