@@ -110,8 +110,12 @@
         }
 
         .reset-btn:hover {
-            background: color-mix(in srgb, var(--accent) 25%, transparent);
+            background: color-mix(in srgb, var(--accent) 15%, transparent);
         }
+        /* Without these, .reset-btn:hover would tint the toggle while its
+           text stayed muted. */
+        .toggle-btn:hover { background: var(--surface-hover); color: var(--text); }
+        .toggle-btn.active:hover { background: color-mix(in srgb, var(--success) 15%, transparent); color: var(--success); }
 
         .chart-actions { display: flex; gap: 0.5rem; flex-shrink: 0; }
         .toggle-btn { border-color: var(--border); background: var(--surface); color: var(--text-muted); }
@@ -275,7 +279,7 @@
             position: absolute; top: 0; right: -3px; width: 7px; height: 100%;
             cursor: col-resize; user-select: none; z-index: 1;
         }
-        .col-resizer:hover, .col-resizer.dragging { background: color-mix(in srgb, var(--accent) 35%, transparent); }
+        .col-resizer:hover, .col-resizer.dragging { background: color-mix(in srgb, var(--accent) 35%, transparent); }   /* a bar, not text */
         /* Hidden probe used once to measure natural column widths. */
         .all-commits.measure { position: absolute; top: 0; left: 0; visibility: hidden; pointer-events: none; table-layout: auto; width: auto; }
 
@@ -341,7 +345,8 @@
             border-radius: 0 8px 8px 0;
             margin-bottom: 1.5rem;
             font-size: 0.88rem;
-            color: var(--text-muted);
+            /* Body text, not muted: the tint behind it is too light for that. */
+            color: var(--text);
         }
 
         .timeline-note strong { color: var(--text); }
@@ -434,8 +439,9 @@
             .agent-card .agent-name { color: var(--text); }
             .reset-btn, .timeline-note { background: var(--surface-hover); }
             .reset-btn:hover, .col-resizer:hover, .col-resizer.dragging { background: var(--border); }
-            .toggle-btn.active, .badge.positive, .badge.negative, .segmented button.active,
-            .filter-btn.active, .theme-switch button[aria-checked="true"] { background: var(--surface-hover); }
+            .toggle-btn.active, .toggle-btn.active:hover, .badge.positive, .badge.negative,
+            .segmented button.active, .filter-btn.active,
+            .theme-switch button[aria-checked="true"] { background: var(--surface-hover); }
         }
     </style>
     <script>
@@ -475,7 +481,7 @@ var THEMES = (function(S) { return {
              text: S.base02, 'text-muted': S.base01, faint: S.base0,
              toward: S.base03, tones: [0.3, 0.5],
              roles: { accent: 'blue-3', success: 'green-3', danger: 'red-3' } },
-    dark:  { bg: S.base03, surface: S.base02, 'surface-hover': mixHex(S.base02, S.base01, 0.12),
+    dark:  { bg: S.base03, surface: S.base02, 'surface-hover': mixHex(S.base02, S.base01, 0.08),
              border: mixHex(S.base02, S.base01, 0.35), grid: mixHex(S.base02, S.base01, 0.2),
              text: S.base2, 'text-muted': S.base1, faint: S.base01,
              toward: S.base3, tones: [0.35, 0.6],
@@ -1143,7 +1149,7 @@ function agentVar(a) { return 'var(--c-' + agentToken(a) + ')'; }
 // The tooltip and axis colours every chart shares; restyle() applies them
 // again when the theme changes.
 function tooltipStyle(o) {
-    o.backgroundColor = themeColour('surface'); o.borderColor = themeColour('border'); o.borderWidth = 1;
+    o.backgroundColor = themeColour('bg'); o.borderColor = themeColour('border'); o.borderWidth = 1;
     o.titleColor = themeColour('text'); o.bodyColor = themeColour('text-muted'); o.padding = 12; o.cornerRadius = 8;
     return o;
 }
@@ -1295,11 +1301,12 @@ function resetMainZoom() {
         pointRadius: 0, pointHoverRadius: 4, borderWidth: 1.5,
         hidden: !SEL.get().tests,
     }];
-    // Each commit's point in its agent's colour; the lines in the accent and
-    // the success colour.
+    // Each commit's point in its agent's colour. The line itself is the text
+    // colour, which no agent has, so no commit's point hides in it; the tests
+    // line is the success colour.
     function paintData() {
         var pointColors = ROWS.map(function(c) { return agentColour(c[4]); });
-        datasets[0].borderColor = themeColour('accent'); datasets[0].backgroundColor = hexToRgba(themeColour('accent'), 0.05);
+        datasets[0].borderColor = themeColour('text'); datasets[0].backgroundColor = hexToRgba(themeColour('text'), 0.05);
         datasets[0].pointBackgroundColor = pointColors; datasets[0].pointBorderColor = pointColors;
         datasets[1].borderColor = themeColour('success'); datasets[1].backgroundColor = hexToRgba(themeColour('success'), 0.05);
     }
@@ -1410,14 +1417,15 @@ function resetMainZoom() {
 // --- Daily Delta Chart ---
 (function() {
     function build() { return SEL.stats().daily.map(function(d) { return { x: d.date, y: d.net }; }); }
+    // Solarized's own red and green: nothing here is agent-coloured, and the
+    // deeper tones the text roles use read as brown and olive.
     function colours(data, up, down) { return data.map(function(d) { return d.y >= 0 ? up : down; }); }
     var data = build();
     var chart = new Chart(document.getElementById('dailyDeltaChart'), {
         type: 'bar',
+        // refresh() below colours the bars, at load and on every change.
         data: { datasets: [{
             label: SEL.linesLabel() + ' Change', data: data,
-            backgroundColor: colours(data, hexToRgba(themeColour('success'), 0.6), hexToRgba(themeColour('danger'), 0.6)),
-            borderColor: colours(data, themeColour('success'), themeColour('danger')),
             borderWidth: 1, borderRadius: 2
         }] },
         options: {
@@ -1449,8 +1457,8 @@ function resetMainZoom() {
         var ds = chart.data.datasets[0];
         ds.label = SEL.linesLabel() + ' Change';
         ds.data = d;
-        ds.backgroundColor = colours(d, hexToRgba(themeColour('success'), 0.6), hexToRgba(themeColour('danger'), 0.6));
-        ds.borderColor = colours(d, themeColour('success'), themeColour('danger'));
+        ds.backgroundColor = colours(d, hexToRgba(themeColour('green'), 0.6), hexToRgba(themeColour('red'), 0.6));
+        ds.borderColor = colours(d, themeColour('green'), themeColour('red'));
         chart.options.scales.y.title.text = SEL.linesLabel() + ' Change';
         chart.update();
         title.textContent = 'Daily ' + SEL.linesLabel() + ' Change';
@@ -1550,9 +1558,10 @@ function resetMainZoom() {
     function colours() { return names.map(function(a) { return agentColour(a) + 'aa'; }); }
     var chart = new Chart(document.getElementById('agentNetChart'), {
         type: 'bar',
+        // refresh() below colours the bars, at load and on every change.
         data: { labels: names, datasets: [
-            { label: 'Added', data: added(), backgroundColor: colours(), borderRadius: 4 },
-            { label: 'Deleted', data: removed(), backgroundColor: hexToRgba(themeColour('danger'), 0.4), borderRadius: 4 }
+            { label: 'Added', data: added(), borderRadius: 4 },
+            { label: 'Deleted', data: removed(), borderRadius: 4 }
         ] },
         options: {
             responsive: true, maintainAspectRatio: true,

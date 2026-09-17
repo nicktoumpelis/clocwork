@@ -10,15 +10,17 @@ All notable changes to clocwork are recorded here. The format follows
 
 - The dashboard has a light and a dark theme, Solarized Light and Solarized
   Dark. A switch at the top right picks light, dark or the system's setting,
-  which is the default; the browser keeps the choice. Text on the page and on
-  cards, agent names, first-appearance labels, tooltips and selected controls
-  read at 4.5:1 (WCAG AA) or better in both themes.
+  which is the default; the browser keeps the choice. Text reads at 4.5:1
+  (WCAG AA) or better in both themes wherever it sits: on the page, on cards,
+  in agent names and first-appearance labels, in tooltips and the explanatory
+  note, and on selected or hovered controls.
 
 ### Changed
 
 - The dashboard's colours are Solarized's, in both themes, so agents,
   first-appearance lines and token sources have new hues. An agent's table
-  badge now always takes that agent's chart colour.
+  badge now always takes that agent's chart colour. The main chart's line is
+  the text colour, which no agent has, so no commit's point hides in it.
 
 - The HEAD snapshot counts every copy of an identical file, as the history
   always has. A repository that keeps copies of a file sees its lines at
