@@ -60,14 +60,30 @@ class TestVendors(unittest.TestCase):
         self.assertEqual(ag.detect_agent(TRAILER.format("Gemini CLI")), "Gemini")
         self.assertEqual(ag.detect_agent(TRAILER.format("Google Gemini")), "Gemini")
 
+    def test_a_claude_model_in_the_trailer_wins_over_the_vendor(self):
+        # Antigravity runs Claude models too, and names the model it ran. A
+        # Claude model is parsed before any vendor row is reached, so no row
+        # order can change these - the same as Cursor's trailers always have.
+        self.assertEqual(ag.detect_agent(TRAILER.format("Antigravity (Claude Sonnet 4.5)")),
+                         "Claude Sonnet 4.5")
+        self.assertEqual(ag.detect_agent(TRAILER.format("Cursor (Claude Sonnet 4.5)")),
+                         "Claude Sonnet 4.5")
+
     def test_one_commit_crediting_three_agents_keeps_its_first_trailer(self):
-        # A shape seen in public commits: three trailers, one per agent. The
-        # body's order decides, as it did before Antigravity was a row.
+        # The shape one public repository writes: three trailers on every
+        # commit, in this order. Its Claude trailer names no model, so these
+        # commits were credited to an unknown Claude version before
+        # Antigravity was a row and still are - the body's order decides.
         body = ("Fix\n\n"
-                "Co-authored-by: Google Gemini <gemini-ai@users.noreply.github.com>\n"
+                "Co-authored-by: Anthropic Claude <claude-ai@users.noreply.github.com>\n"
                 "Co-authored-by: Antigravity AI <antigravity-ai@users.noreply.github.com>\n"
-                "Co-authored-by: Anthropic Claude <claude-ai@users.noreply.github.com>")
-        self.assertEqual(ag.detect_agent(body), "Gemini")
+                "Co-authored-by: Google Gemini <gemini-ai@users.noreply.github.com>")
+        self.assertEqual(ag.detect_agent(body), ag.UNKNOWN_CLAUDE)
+        # Written the other way round, the same trailers credit Antigravity,
+        # which is what makes this a test of the order rather than of Claude.
+        claude, antigravity, gemini = body.splitlines()[2:]
+        reordered = "Fix\n\n" + "\n".join([antigravity, gemini, claude])
+        self.assertEqual(ag.detect_agent(reordered), "Antigravity")
 
     def test_mention_outside_a_trailer_is_not_attributed(self):
         self.assertIsNone(ag.detect_agent("Tidy up after Copilot suggested this\n\nSigned-off-by: A <a@b>"))

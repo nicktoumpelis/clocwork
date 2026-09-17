@@ -231,12 +231,18 @@ recognised by name. Anything else stays unmatched rather than guessed at;
 `[agents].extra` names the rest.
 
 Antigravity writes no trailer of its own, and the ones people add agree on
-nothing but the word itself, so any trailer carrying "Antigravity" — in the
+nothing but the word itself, so a trailer carrying "Antigravity" — in the
 name or the address — counts as Antigravity. It is matched before Gemini,
 because such a trailer often names the Gemini model that ran
 (`Antigravity CLI (Gemini 3.8 Flash)`) or uses a `gemini@google.com`
-address. A commit crediting several agents in separate trailers still goes
-to the first one recognised.
+address.
+
+A Claude model named anywhere in a trailer wins over every vendor, so
+`Antigravity (Claude Sonnet 4.5)` and `Cursor (Claude Sonnet 4.5)` are both
+read as `Claude Sonnet 4.5`: the page charts the model rather than the tool
+that ran it, and such a commit can carry Claude Code's tokens for the day.
+A commit crediting several agents in separate trailers goes to the first one
+recognised, whichever agents those are.
 
 ### Token usage
 
