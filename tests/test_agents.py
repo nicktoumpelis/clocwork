@@ -33,6 +33,42 @@ class TestVendors(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual(ag.detect_agent(TRAILER.format(text)), name)
 
+    # Antigravity writes no trailer of its own, so these are the ones people
+    # add by hand, as found in public commits on 2026-09-17 with
+    # `gh search commits "Co-authored-by: Antigravity"`.
+    ANTIGRAVITY_TRAILERS = (
+        "Antigravity AI <antigravity-ai@users.noreply.github.com>",
+        "Antigravity (3.1 Pro) <gemini@google.com>",
+        "DeepMind Antigravity <antigravity@google.com>",
+        "Google Antigravity <242056456+google-antigravity@users.noreply.github.com>",
+        "Antigravity <326255689+antigravity-selvakk2k[bot]@users.noreply.github.com>",
+        "AGY <noreply@antigravity.dev>",   # only the address says which agent it was
+        "Antigravity CLI (Gemini 3.8 Flash) <antigravity@stevens-imac-3>",
+    )
+
+    def test_antigravity_trailers(self):
+        for text in self.ANTIGRAVITY_TRAILERS:
+            with self.subTest(text=text):
+                self.assertEqual(ag.detect_agent("Fix\n\nCo-Authored-By: " + text), "Antigravity")
+
+    def test_antigravity_comes_before_the_gemini_row(self):
+        # Antigravity names the Gemini model it ran, so the Gemini row claims
+        # the trailer if it is reached first, and a plain Gemini trailer must
+        # still reach it.
+        both = "Fix\n\nCo-Authored-By: Antigravity CLI (Gemini 3.8 Flash) <antigravity@stevens-imac-3>"
+        self.assertEqual(ag.detect_agent(both), "Antigravity")
+        self.assertEqual(ag.detect_agent(TRAILER.format("Gemini CLI")), "Gemini")
+        self.assertEqual(ag.detect_agent(TRAILER.format("Google Gemini")), "Gemini")
+
+    def test_one_commit_crediting_three_agents_keeps_its_first_trailer(self):
+        # A shape seen in public commits: three trailers, one per agent. The
+        # body's order decides, as it did before Antigravity was a row.
+        body = ("Fix\n\n"
+                "Co-authored-by: Google Gemini <gemini-ai@users.noreply.github.com>\n"
+                "Co-authored-by: Antigravity AI <antigravity-ai@users.noreply.github.com>\n"
+                "Co-authored-by: Anthropic Claude <claude-ai@users.noreply.github.com>")
+        self.assertEqual(ag.detect_agent(body), "Gemini")
+
     def test_mention_outside_a_trailer_is_not_attributed(self):
         self.assertIsNone(ag.detect_agent("Tidy up after Copilot suggested this\n\nSigned-off-by: A <a@b>"))
         self.assertIsNone(ag.detect_agent("See CLAUDE.md and the claude-fix branch"))

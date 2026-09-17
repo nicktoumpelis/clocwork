@@ -226,9 +226,17 @@ re-measure.
 Attribution comes from `Co-Authored-By:` trailers only, so a commit that
 merely mentions an agent is not counted. Any Claude model is recognised and
 normalised (`Claude Opus 4.6`, `Claude Opus 5 (1M)`), and Copilot, Cursor,
-Codex, Devin, aider, Gemini and Gemini Code Assist are recognised by name.
-Anything else stays unmatched rather than guessed at; `[agents].extra` names
-the rest.
+Codex, Devin, aider, Antigravity, Gemini and Gemini Code Assist are
+recognised by name. Anything else stays unmatched rather than guessed at;
+`[agents].extra` names the rest.
+
+Antigravity writes no trailer of its own, and the ones people add agree on
+nothing but the word itself, so any trailer carrying "Antigravity" — in the
+name or the address — counts as Antigravity. It is matched before Gemini,
+because such a trailer often names the Gemini model that ran
+(`Antigravity CLI (Gemini 3.8 Flash)`) or uses a `gemini@google.com`
+address. A commit crediting several agents in separate trailers still goes
+to the first one recognised.
 
 ### Token usage
 
@@ -272,12 +280,12 @@ case, not an error.
 Tokens land only on the commits of the agent whose logs measured them,
 split across that agent's commits of the day by lines changed. A commit
 carries no token figure when its agent's logs are not read (Copilot, Cursor,
-Devin, aider, Gemini Code Assist or any other), or when they cover no day on
-which that agent's commits changed lines, and it is never priced at another
-agent's rate. When the repository has token data, the run summary counts
-those commits and names their agents. Gemini Code Assist is the name for
-`gemini-code-assist[bot]`, which GitHub credits when one of its review
-suggestions is accepted.
+Devin, aider, Antigravity, Gemini Code Assist or any other), or when they
+cover no day on which that agent's commits changed lines, and it is never
+priced at another agent's rate. When the repository has token data, the run
+summary counts those commits and names their agents. Gemini Code Assist is
+the name for `gemini-code-assist[bot]`, which GitHub credits when one of
+its review suggestions is accepted.
 
 Codex asks its model to end commit messages with
 `Co-authored-by: Codex <noreply@openai.com>` unless attribution is turned

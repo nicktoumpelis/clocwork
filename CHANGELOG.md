@@ -15,6 +15,12 @@ All notable changes to clocwork are recorded here. The format follows
   in agent names and first-appearance labels, in tooltips and the explanatory
   note, and on selected or hovered controls.
 
+- Commits co-authored by Antigravity are recognised. It writes no trailer of
+  its own, and the ones people add agree on nothing but the word itself, so
+  any `Co-Authored-By:` trailer carrying "Antigravity" in its name or address
+  counts as Antigravity — before Gemini, since such a trailer often names the
+  Gemini model that ran. Antigravity's token usage is not read yet.
+
 ### Changed
 
 - The dashboard's colours are Solarized's, in both themes, so agents,
