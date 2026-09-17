@@ -19,7 +19,7 @@ All notable changes to clocwork are recorded here. The format follows
 ### Fixed
 
 - A renamed file's lines before the rename count under the language of its
-  new name, unless the old name is used again later, and a file cloc names
+  new name, unless the old name exists again at the analysed ref, and a file cloc names
   against its extension (`CMakeLists.txt`, a script by its shebang) counts
   under that name in every commit. Both used to show as drift between the
   history and HEAD.
