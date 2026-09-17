@@ -189,7 +189,8 @@ def archive(repo_path, archive_path, sources, homes=None, log=print):
         n = len(result.days)
         log(f"  Scanned {n} {'day' if n == 1 else 'days'} of {source.LABEL} logs")
         if result.malformed:
-            log(f"  NOTE: skipped {result.malformed} unparseable {source.LABEL} lines")
+            unit = getattr(source, "MALFORMED_UNIT", "lines")
+            log(f"  NOTE: skipped {result.malformed} unparseable {source.LABEL} {unit}")
         if result.skipped:
             reason = getattr(source, "SKIPPED", "")
             log(f"  NOTE: could not read {result.skipped} {source.LABEL} files" + (f": {reason}" if reason else ""))

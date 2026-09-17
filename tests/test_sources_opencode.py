@@ -464,8 +464,11 @@ class TestTheV2Table(unittest.TestCase):
                  "cache": {"read": 0, "write": 0}}
         sid = make_id("ses", AT, 1, "v2case0001")
         agent_logs.build_database(os.path.join(self.home, "opencode.db"), {
+            # The session row names a release older than the table it holds,
+            # which a migrated store can: the floor has to win over it, and a
+            # session naming nothing would not tell the two apart.
             "session": [{"id": sid, "project_id": PROJECT_ID, "directory": self.repo,
-                         "version": "", "parent_id": None, "path": "", "time_created": AT}],
+                         "version": "1.2.0", "parent_id": None, "path": "", "time_created": AT}],
             "message": [{"id": make_id("msg", AT, 8, "v2case0001"), "session_id": sid,
                          "time_created": AT, "data": {"role": "user", "time": {"created": AT}}}],
             "session_message": [{"id": make_id("msg", AT, 1, "v2case0001"), "session_id": sid,

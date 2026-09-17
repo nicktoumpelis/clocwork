@@ -79,6 +79,8 @@ LABEL = "OpenCode"
 # "OpenCode GitHub agent", whose logs stay on the GitHub runner.
 AGENT = re.compile(r"^OpenCode$")
 SKIPPED = "damaged, or a database this Python's sqlite3 cannot open"
+# What a damaged record is here: a row of the database, not a line of a log.
+MALFORMED_UNIT = "rows"
 
 # A store written by a version this reader does not understand, or damaged,
 # is counted rather than raising: one unreadable session must not stop a run.
@@ -193,9 +195,11 @@ def reasoning_outside(t, provider, model, version, base, reasoning):
     """Whether `tokens.reasoning` is counted outside `tokens.output`.
 
     The record's own `total` settles it when there is one, which is the only
-    evidence that does not depend on knowing the release. Otherwise the
-    version decides, except before v1.3.16, where it followed the provider:
-    the v5 SDK put Google's thoughts outside the output and OpenAI's inside.
+    evidence that does not depend on knowing the release - unless the input
+    still holds the cache reads, in which case `base` counts them twice and
+    neither reading can match. Then, as for a record with no `total` at all,
+    the version decides, and before v1.3.16 the provider did: the v5 SDK put
+    Google's thoughts outside the output and OpenAI's inside.
     """
     total = tokens.count(t.get("total"))
     if total and reasoning:
@@ -646,7 +650,10 @@ def scan(repo, homes):
             records[record.key] = record
     mine = {session_id for session_id, slot in sessions.items()
             if belongs(slot, repo_real, ids, known_commit)}
-    if not mine and not skipped:
+    # A store that holds nothing of ours is no logs at all - but a row that
+    # would not parse is worth saying, or the silence this counter exists to
+    # end comes back whenever the damage is all there was.
+    if not mine and not skipped and not malformed:
         return None
     counted = []
     for record in records.values():
