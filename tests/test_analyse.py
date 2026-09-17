@@ -189,6 +189,21 @@ class TestInputs(unittest.TestCase):
             self.assertEqual(data["commits"][0]["test_lines"], {"Swift": fx.SWIFT_ROW_1})
             self.assertEqual(data["summary"]["head_snapshot"]["tests"]["Swift"], fx.HEAD_SWIFT)
 
+    def test_extensionless_files_count_as_cloc_names_them_in_every_commit(self):
+        with tempfile.TemporaryDirectory() as d:
+            fx.make_extensionless_repo(d)
+            data = an.analyse(d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), os.path.join(d, "t.json"),
+                              log=lambda *a: None)
+            self.assertEqual(data["commits"][0]["lines"],
+                             {lang: [2, 0, 0, 0, 0, 0] for _, lang in fx.EXTENSIONLESS.values()})
+            self.assertEqual(data["commits"][1]["lines"], {"Bourne Shell": [1, 0, 0, 0, 0, 0]})
+            s = data["summary"]
+            self.assertEqual(s["head_snapshot"]["all"]["Bourne Shell"], {"code": 3, "comment": 0, "blank": 0})
+            zero = {"code": 0, "comment": 0, "blank": 0}
+            self.assertEqual(set(s["mapping_check"]), {lang for _, lang in fx.EXTENSIONLESS.values()})
+            self.assertEqual(s["mapping_check"], {lang: zero for lang in s["mapping_check"]})
+            self.assertEqual(s["reconciliation"], {lang: zero for lang in s["mapping_check"]})
+
     def test_claude_code_tokens_land_only_on_claude_commits_and_the_rest_are_named(self):
         # The polyglot fixture credits Copilot, Cursor and Claude Opus 4.6 on
         # three days; the archive holds Claude Code's record for Claude's day.

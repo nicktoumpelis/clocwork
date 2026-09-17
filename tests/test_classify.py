@@ -97,5 +97,36 @@ class TestExtensionTable(unittest.TestCase):
         self.assertEqual(cf.language_for("a.zzz", {}), cf.OTHER)
 
 
+class TestPerPathLanguage(unittest.TestCase):
+    """Files with no extension are looked up by path, as cloc classified them at the analysed ref."""
+
+    TABLE = {"go": "Go", "py": "Python",
+             cf.path_key("Makefile"): "make",
+             cf.path_key("bin/run"): "Bourne Shell",
+             cf.path_key(".envrc"): "Bourne Shell",
+             cf.path_key("a.py"): "Perl"}
+
+    CASES = (
+        # (path, language)
+        ("Makefile", "make"),
+        ("bin/run", "Bourne Shell"),
+        (".envrc", "Bourne Shell"),
+        # The lookup is by whole path: the same name elsewhere is not known.
+        ("sub/Makefile", cf.OTHER),
+        ("run", cf.OTHER),
+        # A name missing from the table falls back to Other, and an
+        # extensionless name is never read as an extension.
+        ("Dockerfile", cf.OTHER),
+        ("go", cf.OTHER),
+        # A file with an extension is classified by it alone.
+        ("a.py", "Python"),
+    )
+
+    def test_cases(self):
+        for path, language in self.CASES:
+            with self.subTest(path=path):
+                self.assertEqual(cf.language_for(path, self.TABLE), language)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -111,6 +111,7 @@ class TestParseSnapshots(unittest.TestCase):
 import concurrent.futures
 import os
 import shutil
+import subprocess
 import tempfile
 import threading
 import time
@@ -426,19 +427,54 @@ class TestRequireCloc(unittest.TestCase):
                 cl.require_cloc()
 
 
-BY_FILE_CSV = '''language,filename,blank,comment,code,"github.com/AlDanial/cloc v 2.10  T=0.5 s"
-Swift,App/Main.swift,1,2,3
-XML,MyApp/MyApp.xcprivacy,0,0,12
-XML,MyApp.xcodeproj/xcshareddata/xcschemes/MyApp.xcscheme,0,0,80
-Markdown,README.md,1,0,2
-SUM,,2,2,97
-'''
+def by_file(rows):
+    """A `cloc --git --by-file --json <rev>` report: {path: language}."""
+    report = {"header": {"cloc_version": "2.10", "n_files": len(rows)}}
+    for path, language in rows.items():
+        report[path] = {"blank": 0, "comment": 0, "code": 2, "language": language}
+    report["SUM"] = {"blank": 0, "comment": 0, "code": 2 * len(rows), "nFiles": len(rows)}
+    return report
+
+
+BY_FILE = by_file({"App/Main.swift": "Swift", "MyApp/MyApp.xcprivacy": "XML",
+                   "MyApp.xcodeproj/xcshareddata/xcschemes/MyApp.xcscheme": "XML", "README.md": "Markdown"})
+
+BY_FILE_EXTENSIONLESS = by_file({"App/Main.swift": "Swift", "Makefile": "make", "scripts/go": "Bourne Shell",
+                                 "go": "Python", ".envrc": "Bourne Shell",
+                                 # cloc does not quote its CSV, which split a name like this one.
+                                 "tools/de,ploy": "Bourne Shell"})
 
 
 class TestLearnedExtensions(unittest.TestCase):
-    def test_parse_by_file_csv_maps_extension_to_language(self):
-        learned = cl.parse_by_file_csv(BY_FILE_CSV)
+    def test_parse_by_file_json_maps_extension_to_language(self):
+        learned = cl.parse_by_file_json(BY_FILE)
         self.assertEqual(learned, {"swift": "Swift", "xcprivacy": "XML", "xcscheme": "XML", "md": "Markdown"})
+
+    def test_parse_by_file_json_keys_extensionless_files_by_path(self):
+        # A file called "go" is a path entry, never an entry for ".go".
+        learned = cl.parse_by_file_json(BY_FILE_EXTENSIONLESS)
+        self.assertEqual(learned, {"swift": "Swift",
+                                   cf.path_key("Makefile"): "make",
+                                   cf.path_key("scripts/go"): "Bourne Shell",
+                                   cf.path_key("go"): "Python",
+                                   cf.path_key(".envrc"): "Bourne Shell",
+                                   cf.path_key("tools/de,ploy"): "Bourne Shell"})
+
+    def test_a_path_key_is_the_path_behind_a_slash(self):
+        self.assertEqual((cf.path_key("Makefile"), cf.path_key("scripts/go")), ("/Makefile", "/scripts/go"))
+
+    def test_parse_by_file_json_skips_the_header_and_sum(self):
+        self.assertEqual(cl.parse_by_file_json({"header": {"n_files": 0}, "SUM": {"code": 0, "nFiles": 0}}), {})
+
+    def test_learned_paths_classify_diff_rows(self):
+        table = cl.merge_language_tables(cf.parse_extension_table(EXT_TEXT),
+                                         cl.parse_by_file_json(BY_FILE_EXTENSIONLESS))
+        counts = {"code": 2, "comment": 1, "blank": 0}
+        rows = {"added": {"Makefile": counts, "go": counts, "gone": counts},
+                "removed": {"scripts/go": counts}}
+        lines, _ = cl.classify_rows(rows, table, cf.DEFAULT_RULES)
+        self.assertEqual(lines, {"make": [2, 0, 1, 0, 0, 0], "Python": [2, 0, 1, 0, 0, 0],
+                                 "Bourne Shell": [0, 2, 0, 1, 0, 0], cf.OTHER: [2, 0, 1, 0, 0, 0]})
 
     def test_overlay_wins_over_show_ext(self):
         base = cf.parse_extension_table("swift  Swift\nm  MATLAB/Mathematica/Objective-C/MUMPS/Mercury\n")
@@ -458,6 +494,40 @@ class TestBuildLanguageTable(unittest.TestCase):
             self.assertEqual(table["swift"], "Swift")
             self.assertEqual(table["md"], "Markdown")
             self.assertIn("py", table)   # base show-ext entries are still present
+
+    def commit_files(self, repo, files):
+        for rel, text in files.items():
+            os.makedirs(os.path.dirname(os.path.join(repo, rel)), exist_ok=True)
+            with open(os.path.join(repo, rel), "w") as f:
+                f.write(text)
+        subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+        subprocess.run(["git", "-c", "user.name=T", "-c", "user.email=t@t", "commit", "-qm", "more"], cwd=repo, check=True)
+
+    def test_learns_a_name_with_a_comma_whole(self):
+        with tempfile.TemporaryDirectory() as d:
+            fx.make_extensionless_repo(d)
+            self.commit_files(d, {"de,ploy": "#!/bin/sh\necho one\necho two\n"})
+            learned = cl.learn_extensions(d, "HEAD")
+            self.assertEqual(learned.get(cf.path_key("de,ploy")), "Bourne Shell")
+            self.assertNotIn(cf.path_key("de"), learned)
+
+    def test_learns_every_copy_of_a_duplicated_file(self):
+        # cloc counts identical files once unless told otherwise; every path
+        # still needs its language, because each copy has its own diff rows.
+        with tempfile.TemporaryDirectory() as d:
+            fx.make_extensionless_repo(d)
+            script = "#!/bin/sh\necho same\n"
+            self.commit_files(d, {"copy-a": script, "tools/copy-b": script})
+            learned = cl.learn_extensions(d, "HEAD")
+            self.assertEqual((learned.get("/copy-a"), learned.get("/tools/copy-b")), ("Bourne Shell", "Bourne Shell"))
+
+    def test_learns_extensionless_paths_from_head(self):
+        with tempfile.TemporaryDirectory() as d:
+            fx.make_extensionless_repo(d)
+            table = cl.build_language_table(d, "HEAD")
+            for rel, (_, language) in fx.EXTENSIONLESS.items():
+                with self.subTest(path=rel):
+                    self.assertEqual(cf.language_for(rel, table), language)
 
 
 if __name__ == "__main__":

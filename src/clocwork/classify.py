@@ -48,11 +48,31 @@ def parse_extension_table(text):
     return table
 
 
-def language_for(path, table):
+def extension(path):
+    """The lower-cased extension of a path's filename, or None when it has none.
+
+    A leading dot alone does not make one: ".gitignore" has no extension.
+    """
     name = path.rsplit("/", 1)[-1]
     if "." not in name or name.startswith(".") and name.count(".") == 1:
-        return OTHER
-    ext = name.rsplit(".", 1)[-1].lower()
+        return None
+    return name.rsplit(".", 1)[-1].lower()
+
+
+def path_key(path):
+    """The language-table key for a file with no extension.
+
+    cloc names such files by filename or shebang, so the table holds them by
+    path. An extension never contains a slash, so the two kinds of key cannot
+    collide: a root file called "go" is not an entry for ".go".
+    """
+    return "/" + path
+
+
+def language_for(path, table):
+    ext = extension(path)
+    if ext is None:
+        return table.get(path_key(path), OTHER)
     return table.get(ext, OTHER)
 
 

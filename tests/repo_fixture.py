@@ -120,3 +120,25 @@ def make_polyglot_repo(root):
     _git(root, "commit", "-q", "-m", "Notes\n\nCo-Authored-By: Jules <jules@google.com>",
          date="2025-02-04T10:00:00+00:00")
     return _git(root, "log", "--reverse", "--format=%H", "main").splitlines()
+
+
+# Files cloc names by filename or shebang rather than by extension, with the
+# language cloc 2.10 gives each. Two lines of code apiece.
+EXTENSIONLESS = {
+    "Dockerfile": ("FROM alpine\nRUN true\n", "Dockerfile"),
+    "Makefile": ("all:\n\ttrue\n", "make"),
+    "bin/run": ("#!/bin/sh\necho hi\n", "Bourne Shell"),
+    "tool": ("#!/usr/bin/env python3\nprint(1)\n", "Python"),
+}
+
+
+def make_extensionless_repo(root):
+    """One commit adding the EXTENSIONLESS files, then one editing the shell script."""
+    _git(root, "init", "-q", "-b", "main")
+    for rel, (text, _) in EXTENSIONLESS.items():
+        _write(root, rel, text)
+    _git(root, "add", ".")
+    _git(root, "commit", "-q", "-m", "Initial", date="2025-01-01T10:00:00+00:00")
+    _write(root, "bin/run", EXTENSIONLESS["bin/run"][0] + "echo again\n")
+    _git(root, "commit", "-q", "-am", "Say it twice", date="2025-01-02T10:00:00+00:00")
+    return _git(root, "log", "--reverse", "--format=%H", "main").splitlines()
