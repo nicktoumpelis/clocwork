@@ -103,11 +103,15 @@ ERA_B = (1, 0, 62)    # uncached input for non-Anthropic providers
 ERA_C = (1, 3, 4)     # AI SDK v6: Anthropic input turns inclusive
 ERA_D = (1, 3, 6)     # uncached input for every provider
 ERA_E = (1, 3, 16)    # reasoning no longer inside output
+# The release the session_message table arrived in, which is the oldest
+# counter rule a row in it can have been written under.
+V2_TABLE_FROM = (1, 14, 34)
 
 # One model call. `key` is the part or message id the record was read under,
 # which the migrations preserve, so the same call read from two generations
 # merges instead of counting twice. `session` is a session id.
-Record = namedtuple("Record", "key session message_id time_ms provider model tokens")
+Record = namedtuple("Record", "key session message_id time_ms provider model tokens version v2",
+                    defaults=((), False))
 
 
 def default_homes(env):
@@ -167,13 +171,20 @@ def fork_copy(message_id, created_ms):
     return bool(id_time_ms(message_id))
 
 
+def model_name(model):
+    """The model's own name, without the gateway path in front of it: an
+    OpenRouter id is `openrouter/anthropic/claude-sonnet-4.5`, and what the
+    API behaves like is decided by the last part."""
+    return (tokens.text(model) or "").rsplit("/", 1)[-1]
+
+
 def anthropic_like(provider, model):
     """Whether the call went to an Anthropic-shaped API, whatever routed it."""
-    return provider in ANTHROPIC_PROVIDERS or (model or "").startswith("claude-")
+    return provider in ANTHROPIC_PROVIDERS or model_name(model).startswith("claude-")
 
 
 def google_like(provider, model):
-    return provider in GOOGLE_PROVIDERS or (model or "").startswith("gemini")
+    return provider in GOOGLE_PROVIDERS or model_name(model).startswith("gemini")
 
 
 def reasoning_outside(t, provider, model, version, base, reasoning):
@@ -207,8 +218,11 @@ def input_cache(t, provider, model, version, i, cr, cw):
     """
     if ERA_C <= version < ERA_D and anthropic_like(provider, model):
         return (cr, cw) if i >= cr + cw else (0, 0)
+    # A record with no version at all: only one that also has no `total` can
+    # predate v1.1.57, so only that one is read as era A. An empty version
+    # compares below every era, hence the explicit `version and`.
     unversioned = not version and not tokens.count(t.get("total"))
-    if (version < ERA_B or unversioned) and not anthropic_like(provider, model):
+    if ((version and version < ERA_B) or unversioned) and not anthropic_like(provider, model):
         return (cr, 0) if i >= cr else (0, 0)
     return 0, 0
 
@@ -354,7 +368,6 @@ def read_database(path):
                 message_id = tokens.text(pick(fields, data, "message_id", "messageID"))
                 if usage is not None and part_id and message_id:
                     parts.setdefault(message_id, []).append((part_id, usage))
-        assistants = set()
         for fields, data in table_rows(conn, "message"):
             message_id = tokens.text(pick(fields, data, "id"))
             session_id = tokens.text(pick(fields, data, "session_id", "sessionID"))
@@ -362,12 +375,9 @@ def read_database(path):
                 continue
             slot = session_slot(sessions, session_id)
             slot["roots"] |= message_roots(data)
-            found = message_records(session_id, message_id, data, parts.get(message_id, []))
-            if found:
-                assistants.add(session_id)
-            records += found
+            records += message_records(session_id, message_id, data, parts.get(message_id, []))
         if "session_message" in tables:
-            records += read_v2_messages(conn, sessions, assistants)
+            records += read_v2_messages(conn, sessions)
     except READ_ERRORS:
         return sessions, records, 1
     finally:
@@ -375,31 +385,34 @@ def read_database(path):
     return sessions, records, 0
 
 
-def read_v2_messages(conn, sessions, assistants):
-    """The experimental session_message rows of sessions that have no V1
-    assistant message.
+def read_v2_messages(conn, sessions):
+    """The assistant rows of the experimental session_message table.
 
-    The V2 tables are a projection of the V1 rows, so reading both would
-    count a call twice; a session is read here only when the V1 tables hold
-    nothing for it, which is what a session written by the V2 runner alone
-    looks like. Their counters are era E by construction.
+    These are a projection of the V1 rows and carry different ids, so
+    nothing merges them: scan() keeps them only for a session whose V1
+    tables hold no assistant message, which is what a session written by the
+    V2 runner alone looks like. The table exists from v1.14.34, so a row is
+    read as that release's counter rule when its session row names no
+    version of its own. A fork's copies are skipped here as they are in the
+    V1 tables, or a forked V2 session would count every call twice.
     """
     records = []
     for fields, data in table_rows(conn, "session_message"):
         session_id = tokens.text(pick(fields, data, "session_id", "sessionID"))
         row_id = tokens.text(pick(fields, data, "id"))
         kind = tokens.text(pick(fields, data, "type")) or tokens.text(data.get("role"))
-        if not session_id or not row_id or session_id in assistants or kind != "assistant":
+        if not session_id or not row_id or kind != "assistant":
             continue
         slot = session_slot(sessions, session_id)
         slot["roots"] |= message_roots(data)
         usage = data.get("tokens")
-        if isinstance(usage, dict):
-            t = data.get("time") if isinstance(data.get("time"), dict) else {}
+        t = data.get("time") if isinstance(data.get("time"), dict) else {}
+        created = tokens.count(t.get("created"))
+        if isinstance(usage, dict) and not fork_copy(row_id, created):
             records.append(Record(key=row_id, session=session_id, message_id=row_id,
-                                  time_ms=tokens.count(t.get("created")),
-                                  provider=tokens.text(data.get("providerID")),
-                                  model=tokens.text(data.get("modelID")), tokens=usage))
+                                  time_ms=created, provider=tokens.text(data.get("providerID")),
+                                  model=tokens.text(data.get("modelID")), tokens=usage,
+                                  version=slot["version"] or V2_TABLE_FROM, v2=True))
     return records
 
 
@@ -442,9 +455,12 @@ def read_file_store(sessions_glob, messages_glob, parts_glob, project_from_path=
         except READ_ERRORS:
             unreadable += 1
             continue
-        usage = step_tokens(doc if isinstance(doc, dict) else {})
-        part_id = tokens.text((doc or {}).get("id")) or os.path.splitext(os.path.basename(path))[0]
-        message_id = tokens.text((doc or {}).get("messageID")) or os.path.basename(os.path.dirname(path))
+        if not isinstance(doc, dict):
+            unreadable += 1
+            continue
+        usage = step_tokens(doc)
+        part_id = tokens.text(doc.get("id")) or os.path.splitext(os.path.basename(path))[0]
+        message_id = tokens.text(doc.get("messageID")) or os.path.basename(os.path.dirname(path))
         if usage is not None and message_id:
             parts.setdefault(message_id, []).append((part_id, usage))
     for path in sorted(glob.glob(messages_glob)):
@@ -616,12 +632,17 @@ def scan(repo, homes):
             if belongs(slot, repo_real, ids, known_commit)}
     if not mine and not skipped:
         return None
+    # The V2 table projects the V1 rows under different ids, so a session
+    # described by both would be counted twice. This is decided once every
+    # store has been read, because the two can sit in different databases.
+    v1_sessions = {r.session for r in records.values() if not r.v2}
     days = {}
     for record in records.values():
-        if record.session not in mine:
+        if record.session not in mine or (record.v2 and record.session in v1_sessions):
             continue
         date = tokens.day_ms(record.time_ms)
-        c = counters(record.tokens, record.provider, record.model, sessions[record.session]["version"])
+        version = record.version or sessions[record.session]["version"]
+        c = counters(record.tokens, record.provider, record.model, version)
         if date and any(c.values()):
             tokens.record(days, date, model_key(record), c)
     return tokens.ScanResult(days, 0, skipped)

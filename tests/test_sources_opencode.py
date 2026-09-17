@@ -134,6 +134,30 @@ class TestCounters(unittest.TestCase):
         self.assertEqual(self.counters(t, version="1.0.0"),
                          {"input": 40, "output": 5, "cache_read": 3_000, "cache_write": 0})
 
+    def test_a_record_with_no_version_but_a_total_is_not_read_as_the_oldest(self):
+        # A `total` means the record was written by v1.1.57 or later, whose
+        # input is already uncached, so nothing may come off it. Only a
+        # record with neither a version nor a total can predate v1.0.62.
+        has_total = {"input": 5_000, "output": 50, "reasoning": 0, "total": 8_000,
+                     "cache": {"read": 3_000, "write": 0}}
+        self.assertEqual(self.counters(has_total, version=None)["input"], 5_000)
+        neither = {k: v for k, v in has_total.items() if k != "total"}
+        self.assertEqual(self.counters(neither, version=None)["input"], 2_000)
+
+    def test_a_gateway_prefixed_model_is_read_by_its_own_name(self):
+        # An OpenRouter id names the gateway first; what the API behaves like
+        # is the last part, and era C's inclusive input hangs on it.
+        t = {"input": 5_000, "output": 50, "reasoning": 0, "cache": {"read": 3_000, "write": 1_000}}
+        for model in ("claude-sonnet-4.5", "anthropic/claude-sonnet-4.5",
+                      "openrouter/anthropic/claude-sonnet-4.5"):
+            with self.subTest(model=model):
+                self.assertEqual(self.counters(t, provider="openrouter", model=model,
+                                               version="1.3.4")["input"], 1_000)
+        # And the same for the Google reading of reasoning before v1.3.16.
+        g = {"input": 100, "output": 10, "reasoning": 4, "cache": {"read": 0, "write": 0}}
+        self.assertEqual(self.counters(g, provider="openrouter", model="google/gemini-2.5-pro",
+                                       version="1.2.15")["output"], 14)
+
     def test_counts_of_the_wrong_type_are_missing_rather_than_guessed(self):
         t = {"input": "4200", "output": 1.5, "reasoning": None, "cache": "none", "total": True}
         self.assertEqual(self.counters(t), tokens.empty_counts())
@@ -151,9 +175,6 @@ class TestCounters(unittest.TestCase):
         self.assertEqual(sum(outside.values()), 1_570)
         self.assertEqual(outside["output"] - inside["output"], 50)
 
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 def utc_day(ms):
@@ -307,18 +328,20 @@ class TestFixtureStores(unittest.TestCase):
 
 
 AT = 1780000000000   # 2026-05-28T...Z, a plain weekday inside every era E release
+PROJECT_ID = "d56552e46d00ecffe51919c7e8e32677db654334"   # the placeholder remote's id
 USAGE = {"total": 1_100, "input": 1_000, "output": 100, "reasoning": 0, "cache": {"read": 0, "write": 0}}
 
 
-def one_session_db(path, project, directory, version="1.14.50", root=None, usage=USAGE):
+def one_session_db(path, project, directory, version="1.14.50", root=None, usage=USAGE,
+                   at=AT, tail="testcase01"):
     """A database holding one session and one assistant message with usage."""
-    sid, mid = make_id("ses", AT, 1, "testcase01"), make_id("msg", AT, 1, "testcase01")
+    sid, mid = make_id("ses", at, 1, tail), make_id("msg", at, 1, tail)
     agent_logs.build_database(path, {
         "session": [{"id": sid, "project_id": project, "directory": directory, "version": version,
-                     "parent_id": None, "path": "", "time_created": AT}],
-        "message": [{"id": mid, "session_id": sid, "time_created": AT,
+                     "parent_id": None, "path": "", "time_created": at}],
+        "message": [{"id": mid, "session_id": sid, "time_created": at,
                      "data": {"role": "assistant", "modelID": "gpt-5.3-codex", "providerID": "openai",
-                              "time": {"created": AT}, "tokens": usage,
+                              "time": {"created": at}, "tokens": usage,
                               "path": {"cwd": root or directory, "root": root or directory}}}],
     })
     return sid
@@ -345,11 +368,11 @@ class TestMatching(unittest.TestCase):
     def test_the_remote_hash_is_the_id_opencode_writes(self):
         # sha1("git-remote:github.com/example/agent-sample"), which OpenCode
         # builds from origin the same way paths.remote_key does.
-        self.assertIn("d56552e46d00ecffe51919c7e8e32677db654334", self.project)
+        self.assertIn(PROJECT_ID, self.project)
 
     def test_a_session_of_the_same_remote_counts_wherever_it_ran(self):
         # Another clone's directory, which is not inside this repository.
-        one_session_db(self.db, "d56552e46d00ecffe51919c7e8e32677db654334",
+        one_session_db(self.db, PROJECT_ID,
                        os.path.join(self.tmp.name, "some-other-clone"))
         days, _ = scanned(self.repo, [self.home])
         self.assertEqual(sum(day["turns"] for day in days.values()), 1)
@@ -393,6 +416,87 @@ class TestMatching(unittest.TestCase):
         self.assertEqual(sum(day["turns"] for day in days.values()), 1)
 
 
+class TestTheV2Table(unittest.TestCase):
+    """The experimental session_message table, which projects the V1 rows."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = make_repo(os.path.join(self.tmp.name, "repo"))
+        self.home = os.path.join(self.tmp.name, "home")
+        os.makedirs(self.home)
+
+    def v2_db(self, path, rows, v1=()):
+        sid = make_id("ses", AT, 1, "v2case0001")
+        agent_logs.build_database(path, {
+            "session": [{"id": sid, "project_id": PROJECT_ID, "directory": self.repo,
+                         "version": "", "parent_id": None, "path": "", "time_created": AT}],
+            "message": list(v1) or [{"id": make_id("msg", AT, 8, "v2case0001"),
+                                     "session_id": sid, "time_created": AT,
+                                     "data": {"role": "user", "time": {"created": AT}}}],
+            "session_message": [{"id": mid, "session_id": sid, "type": "assistant", "seq": n + 1,
+                                 "time_created": AT,
+                                 "data": {"role": "assistant", "modelID": "claude-sonnet-5",
+                                          "providerID": "anthropic", "time": {"created": created},
+                                          "tokens": USAGE,
+                                          "path": {"cwd": self.repo, "root": self.repo}}}
+                                for n, (mid, created) in enumerate(rows)],
+        })
+        return sid
+
+    def test_a_forks_copy_in_the_v2_table_is_not_counted_again(self):
+        # The copy records the same time as the row it copies and carries an
+        # id minted a day later, exactly as it does in the V1 tables.
+        self.v2_db(os.path.join(self.home, "opencode.db"),
+                   [(make_id("msg", AT, 1, "v2case0001"), AT),
+                    (make_id("msg", AT + 86_400_000, 2, "v2forkcopy"), AT)])
+        days, _ = scanned(self.repo, [self.home])
+        self.assertEqual([day["turns"] for day in days.values()], [1])
+
+    def test_a_row_with_no_session_version_is_read_as_the_release_it_arrived_in(self):
+        # session_message exists from v1.14.34, which is past v1.3.16, so the
+        # reasoning is outside the output even when the session names no
+        # version: 1,100 = 1,000 + 100, and the 40 reasoning tokens are added.
+        usage = {"total": 1_140, "input": 1_000, "output": 100, "reasoning": 40,
+                 "cache": {"read": 0, "write": 0}}
+        sid = make_id("ses", AT, 1, "v2case0001")
+        agent_logs.build_database(os.path.join(self.home, "opencode.db"), {
+            "session": [{"id": sid, "project_id": PROJECT_ID, "directory": self.repo,
+                         "version": "", "parent_id": None, "path": "", "time_created": AT}],
+            "message": [{"id": make_id("msg", AT, 8, "v2case0001"), "session_id": sid,
+                         "time_created": AT, "data": {"role": "user", "time": {"created": AT}}}],
+            "session_message": [{"id": make_id("msg", AT, 1, "v2case0001"), "session_id": sid,
+                                 "type": "assistant", "seq": 1, "time_created": AT,
+                                 "data": {"role": "assistant", "modelID": "claude-sonnet-5",
+                                          "providerID": "anthropic", "time": {"created": AT},
+                                          "tokens": usage,
+                                          "path": {"cwd": self.repo, "root": self.repo}}}],
+        })
+        days, _ = scanned(self.repo, [self.home])
+        self.assertEqual(days[utc_day(AT)]["models"]["anthropic/claude-sonnet-5"],
+                         {"input": 1_000, "output": 140, "cache_read": 0, "cache_write": 0})
+
+    def test_v1_rows_in_one_database_and_v2_rows_in_another_are_one_call(self):
+        # A channel switch can leave the V1 rows in one file and the V2
+        # projection in the other. They carry different ids, so only the
+        # exclusion keeps the call from being counted twice.
+        sid = make_id("ses", AT, 1, "v2case0001")
+        v1 = [{"id": make_id("msg", AT, 3, "v1rowhere0"), "session_id": sid, "time_created": AT,
+               "data": {"role": "assistant", "modelID": "claude-sonnet-5", "providerID": "anthropic",
+                        "time": {"created": AT}, "tokens": USAGE,
+                        "path": {"cwd": self.repo, "root": self.repo}}}]
+        agent_logs.build_database(os.path.join(self.home, "opencode.db"), {
+            "session": [{"id": sid, "project_id": PROJECT_ID, "directory": self.repo,
+                         "version": "1.14.50", "parent_id": None, "path": "", "time_created": AT}],
+            "message": v1,
+        })
+        self.v2_db(os.path.join(self.home, "opencode-beta.db"),
+                   [(make_id("msg", AT, 1, "v2rowhere0"), AT)])
+        days, _ = scanned(self.repo, [self.home])
+        self.assertEqual([day["turns"] for day in days.values()], [1])
+        self.assertEqual(days[utc_day(AT)]["models"]["anthropic/claude-sonnet-5"]["input"], 1_000)
+
+
 class TestHomes(unittest.TestCase):
     def test_the_data_directory_follows_xdg(self):
         self.assertEqual(oc.default_homes({"XDG_DATA_HOME": "/data"}), ["/data/opencode"])
@@ -412,23 +516,34 @@ class TestHomes(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             repo = make_repo(os.path.join(tmp, "repo"))
             db = os.path.join(tmp, "elsewhere.db")
-            one_session_db(db, "d56552e46d00ecffe51919c7e8e32677db654334", repo)
+            one_session_db(db, PROJECT_ID, repo)
             days, _ = scanned(repo, [db])
             self.assertEqual(sum(day["turns"] for day in days.values()), 1)
 
     def test_every_channel_database_in_the_directory_is_read(self):
+        # A channel switch leaves a second database beside the first. Each
+        # gets a call of its own here, on a different day, so reading only
+        # opencode.db would lose one; and both also hold one shared record,
+        # which must still be counted once.
         with tempfile.TemporaryDirectory() as tmp:
             repo = make_repo(os.path.join(tmp, "repo"))
             home = os.path.join(tmp, "home")
             os.makedirs(home)
-            for name in ("opencode.db", "opencode-beta.db"):
-                one_session_db(os.path.join(home, name),
-                               "d56552e46d00ecffe51919c7e8e32677db654334", repo)
+            shared = one_session_db(os.path.join(home, "opencode.db"), PROJECT_ID, repo)
+            one_session_db(os.path.join(home, "opencode-beta.db"), PROJECT_ID, repo,
+                           at=AT + 86_400_000, tail="betachann1")
+            # The shared record, in the beta database too, under its own id.
+            with sqlite3.connect(os.path.join(home, "opencode-beta.db")) as conn:
+                for row in sqlite3.connect(os.path.join(home, "opencode.db")).execute(
+                        "SELECT id, session_id, time_created, data FROM message"):
+                    conn.execute("INSERT INTO message (id, session_id, time_created, data) "
+                                 "VALUES (?, ?, ?, ?)", row)
+                conn.execute("INSERT INTO session (id, project_id, directory, version, parent_id, "
+                             "path, time_created) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                             (shared, PROJECT_ID, repo, "1.14.50", None, "", AT))
             days, _ = scanned(repo, [home])
-            # The two databases hold the same ids, as a channel switch leaves
-            # them: one call, counted once.
-            self.assertEqual(sum(day["turns"] for day in days.values()), 1)
-            self.assertEqual(len(days), 1)
+            self.assertEqual(sorted(days), [utc_day(AT), utc_day(AT + 86_400_000)])
+            self.assertEqual([days[d]["turns"] for d in sorted(days)], [1, 1])
 
     def test_a_damaged_database_is_counted_not_raised(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -440,7 +555,23 @@ class TestHomes(unittest.TestCase):
             days, skipped = scanned(repo, [home])
             self.assertEqual((days, skipped), ({}, 1))
 
+    def test_a_part_file_that_is_json_but_not_an_object_is_counted(self):
+        # Valid JSON of the wrong shape must be counted as unreadable, not
+        # raised: one damaged file cannot be allowed to stop a run.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(os.path.join(tmp, "repo"))
+            home = os.path.join(tmp, "home")
+            part = os.path.join(home, "storage", "part", "msg_x", "prt_x.json")
+            os.makedirs(os.path.dirname(part))
+            with open(part, "w") as f:
+                f.write('"step-finish"\n')
+            days, skipped = scanned(repo, [home])
+            self.assertEqual((days, skipped), ({}, 1))
+
     def test_a_directory_with_no_store_is_no_logs_at_all(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = make_repo(os.path.join(tmp, "repo"))
             self.assertIsNone(oc.scan(repo, [os.path.join(tmp, "nothing-here")]))
+
+if __name__ == "__main__":
+    unittest.main()
