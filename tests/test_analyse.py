@@ -305,10 +305,23 @@ class TestInputs(unittest.TestCase):
                           "renames that change language will drift", lines)
             self.assertEqual(data["commits"][1]["status"], "ok")
             self.assertTrue(any(any(v.values()) for v in data["summary"]["reconciliation"].values()))
-            # As before replacement existed: the page's old name takes the
-            # table's language for its new name.
+            # The table's guess: the page's old name takes the table's
+            # language for its new name.
             self.assertEqual(data["commits"][0]["lines"],
                              {"Markdown": [1, 0, 0, 0, 0, 0], "PHP/Pascal/Fortran/Pawn/BitBake": [2, 0, 2, 0, 1, 0]})
+
+    def test_a_failed_count_still_resolves_a_chain_of_renames(self):
+        with tempfile.TemporaryDirectory() as d:
+            fx._git(d, "init", "-q", "-b", "main")
+            fx._write(d, "a.txt", "one\ntwo\nthree\nfour\n")
+            fx._git(d, "add", ".")
+            fx._git(d, "commit", "-q", "-m", "Add", date="2025-01-01T10:00:00+00:00")
+            for old, new, day in (("a.txt", "b.rst", 2), ("b.rst", "c.md", 3)):
+                fx._git(d, "mv", old, new)
+                fx._git(d, "commit", "-q", "-m", "Move", date=f"2025-01-0{day}T10:00:00+00:00")
+            with mock.patch.object(an.cl, "count_blobs", side_effect=OSError("no room")):
+                s = self.run_quietly(d)["summary"]
+            self.assert_no_drift(s)
 
     def test_a_name_renamed_away_and_created_again_keeps_its_own_language(self):
         # notes.txt's four lines leave Text at the rename, so the new

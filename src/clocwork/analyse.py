@@ -618,10 +618,17 @@ def analyse(repo_dir, output_path, cache_path, archive_path, *, config=None, bra
         uncounted = False
     except (cl.ClocError, OSError, ValueError) as e:
         log(f"  WARNING: could not count the renamed files ({e}); renames that change language will drift")
-        # The table's guess instead: each old name takes its new name's
-        # language, and with no counts to replace them by, cloc's rows stay.
-        guesses = [cf.language_for(r.new, table) for r in renames]
-        guesses = [(None, None if g in (cf.OTHER, cf.UNCOUNTED) else g) for g in guesses]
+        # The table's guess instead: a gone old name without an entry takes
+        # the language its new name has, newest first so that a chain
+        # resolves, unless that is Other; with no counts to replace them by,
+        # cloc's rows stay.
+        running, guesses = dict(table), []
+        for r in renames:
+            guess = cf.language_for(r.new, running)
+            guess = None if guess in (cf.OTHER, cf.UNCOUNTED) else guess
+            if guess and cf.path_key(r.old) not in running and r.old not in present:
+                running[cf.path_key(r.old)] = guess
+            guesses.append((None, guess))
         counted, uncounted = guesses + guesses, True
     before, after = counted[:len(renames)], counted[len(renames):]
     renamed_names, changed = cf.rename_plan(
