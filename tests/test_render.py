@@ -139,9 +139,11 @@ class TestAgentLabels(unittest.TestCase):
     that series in a stray colour."""
 
     def page_label(self, name):
-        m = re.search(r"^var " + name + r" = '([^']*)';", gh.template(), re.M)
-        self.assertIsNotNone(m, name + " is not named once near the top of the page's agent colours")
-        return m.group(1)
+        # Exactly one declaration: a second, later one is the value the page
+        # would use, and the first would no longer tell.
+        found = re.findall(r"^var " + name + r" = '([^']*)';", gh.template(), re.M)
+        self.assertEqual(len(found), 1, name + " should be declared once in the page: " + repr(found))
+        return found[0]
 
     def test_the_page_names_merges_as_the_analysis_does(self):
         from clocwork import analyse
@@ -158,22 +160,27 @@ class TestAgentLabels(unittest.TestCase):
         for name in ("HUMAN", "MISC", "UNKNOWN_CLAUDE"):
             label = self.page_label(name)
             with self.subTest(label=label):
-                self.assertEqual(t.count("'" + label + "'"), 1, label + " is spelled more than once")
+                copies = t.count("'" + label + "'") + t.count('"' + label + '"')
+                self.assertEqual(copies, 1, label + " is spelled more than once")
 
     def test_the_labels_that_are_no_agent_are_grey(self):
         t = gh.template()
         for name in ("HUMAN", "MISC", "UNKNOWN_CLAUDE"):
             with self.subTest(name=name):
-                m = re.search(r"^AGENT_COLORS\[" + name + r"\] = '([a-z0-9-]+)';", t, re.M)
-                self.assertIsNotNone(m, name + " has no colour of its own")
-                self.assertTrue(m.group(1).startswith("grey"), name + " is " + m.group(1))
+                # Every assignment, not the first: a later one would win.
+                found = re.findall(r"AGENT_COLORS\[" + name + r"\]\s*=\s*['\"]([a-z0-9-]+)['\"]", t)
+                self.assertEqual(len(found), 1, name + " should be given one colour: " + repr(found))
+                self.assertTrue(found[0].startswith("grey"), name + " is " + found[0])
 
     def test_every_fixed_colour_is_for_a_name_clocwork_reports(self):
         # A vendor renamed in agents.py would otherwise leave its colour on a
         # name nothing produces, and take a hashed one instead.
         from clocwork import agents
         block = re.search(r"^var AGENT_COLORS = \{(.*?)^\};", gh.template(), re.M | re.S).group(1)
-        keys = re.findall(r"^\s*'([^']+)':", block, re.M)
+        code = re.sub(r"//[^\n]*", "", block)
+        keys = re.findall(r"""['"]([^'"]+)['"]\s*:""", code)
+        # Every entry has one colon; a key the pattern missed would show here.
+        self.assertEqual(len(keys), code.count(":"))
         self.assertGreater(len(keys), 10)
         vendors = {name for _, name in agents.VENDORS}
         for key in keys:
