@@ -23,10 +23,12 @@ address's local part, or a whole label of its domain. The domain is the strict
 one because it is where the name of whoever owns the address sits: "Antigravity"
 is a common enough word that a contributor at a company called Antigravity
 Drones would otherwise be credited to an agent. A display name is the agent's
-own announcement, so a word in it counts. An unrecognised trailer stays
-unmatched rather than being guessed at: a wrong attribution is worse than a
-missing one, which is also why a name glued to a version ("Antigravity2") is
-left alone.
+own announcement, so a word in it counts - which means only the address's
+own domain gets the strict rule, and a domain written beside the address, in
+a note or a second pair of brackets, is read as part of the name. An
+unrecognised trailer stays unmatched rather than being guessed at: a wrong
+attribution is worse than a missing one, which is also why a name glued to a
+version ("Antigravity2") is left alone.
 
 A workspace's own rows are matched by the same rule, which is what keeps a
 short needle from spreading - "code" reaches no OpenCode trailer, because it

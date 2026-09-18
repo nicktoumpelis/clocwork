@@ -240,8 +240,8 @@ whoever owns the address sits. An extra is matched by the same whole-word
 rule, which is also what bounds a short `match`: `code` reaches no OpenCode
 trailer, because it is no whole word of `opencode`. The built-in names are
 tried before a workspace's own, so `[agents].extra` names agents the table
-does not know rather than renaming the ones it does. Both `match` and `name`
-have to be non-empty.
+does not know rather than renaming the ones it does. Neither `match` nor
+`name` may be blank.
 
 Antigravity writes no trailer of its own, and the ones people add agree on
 nothing but the word itself, so a trailer naming "Antigravity" — in its

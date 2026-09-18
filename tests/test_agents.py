@@ -165,7 +165,9 @@ class TestVendors(unittest.TestCase):
 
     def test_an_address_that_is_no_domain_is_read_as_a_name(self):
         # Without an `@` there is no domain to be strict about, so the word
-        # rule applies: `antigravity@stevens-imac-3` is a recorded shape.
+        # rule applies. No recorded trailer takes this shape; the recorded
+        # `antigravity@stevens-imac-3` has an `@`, and matches by its local
+        # part - the test below it covers that.
         self.assertEqual(ag.detect_agent("Fix\n\nCo-Authored-By: bot <opencode-bot>"), "OpenCode")
         self.assertIsNone(ag.detect_agent("Fix\n\nCo-Authored-By: bot <opencodebot>"))
 
