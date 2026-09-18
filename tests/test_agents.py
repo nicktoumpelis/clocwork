@@ -196,6 +196,12 @@ class TestVendors(unittest.TestCase):
         self.assertEqual(ag.detect_agent("Fix\n\nCo-Authored-By: @cursor <x@y.example>"), "Cursor")
         self.assertEqual(ag.detect_agent("Fix\n\nCo-Authored-By: Jane (@codex) <x@y.example>"), "Codex")
         self.assertEqual(ag.detect_agent("Fix\n\nCo-Authored-By: Jane <jane@x.example> (cc @codex)"), "Codex")
+        # Punctuation before the `@` is how a handle is written, not a local
+        # part, so these stay names beside the trailer's own address.
+        self.assertEqual(ag.detect_agent("Fix\n\nCo-Authored-By: Jane <jane@x.example> [@codex]"), "Codex")
+        self.assertEqual(ag.detect_agent('Fix\n\nCo-Authored-By: Jane <jane@x.example> "@codex"'), "Codex")
+        self.assertEqual(ag.detect_agent("Fix\n\nCo-Authored-By: Jane <jane@x.example> cc:@codex"), "Codex")
+        self.assertEqual(ag.detect_agent("Fix\n\nCo-Authored-By: [@codex]"), "Codex")
         # And in a trailer without brackets, a handle before the address does
         # not take the address's place.
         self.assertEqual(ag.detect_agent("Fix\n\nCo-Authored-By: Jane (@codex) jane@x.example"), "Codex")

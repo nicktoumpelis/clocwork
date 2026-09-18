@@ -116,11 +116,12 @@ def parse_claude_model(text):
 
 
 # The trailer's own address is its first pair of angle brackets, or, in a
-# trailer written without them, its first address. An address has a local
-# part before its `@`, spelled however its owner likes; "@codex" and
-# "(@codex)" are handles, which are names.
+# trailer written without them, its first address. An address's local part
+# is quoted, or ends in a letter or digit of any script ("josé"); punctuation
+# right before the `@` is how a handle is written - "@codex", "(@codex)",
+# "[@codex]", "cc:@codex" - and a handle is a name.
 OWN_ADDRESS = re.compile(r"<([^>]*)>")
-BARE_ADDRESS = re.compile(r"[^\s@<>()]+@\S*")
+BARE_ADDRESS = re.compile(r'(?:"[^"]+"|[^\s@<>()]*\w)@\S*')
 # A domain ends in a label of letters. Model ids end in digits or in a
 # suffix glued to them ("gemini-2.5-pro", "gpt-5.1-codex"), so they stay words.
 DOMAIN = re.compile(r"[0-9a-z-]+(?:\.[0-9a-z-]+)*\.[a-z]{2,}(?![0-9a-z-])")

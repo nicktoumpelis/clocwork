@@ -30,10 +30,11 @@ All notable changes to clocwork are recorded here. The format follows
 - Commits co-authored by Antigravity are recognised. It writes no trailer of
   its own, and the ones people add agree on nothing but the word itself, so a
   `Co-Authored-By:` trailer naming "Antigravity" in its display name or its
-  address counts as Antigravity — before Gemini, since such a trailer often
-  names the Gemini model that ran. A trailer that names a Claude model is
-  still read as that model, as `Cursor (Claude Sonnet 4.5)` always has been.
-  Antigravity's token usage is not read yet.
+  address, by the whole-word rule under Changed, counts as Antigravity —
+  before Gemini, since such a trailer often names the Gemini model that ran.
+  A trailer that names a Claude model is still read as that model, as
+  `Cursor (Claude Sonnet 4.5)` always has been. Antigravity's token usage is
+  not read yet.
 
 ### Changed
 
