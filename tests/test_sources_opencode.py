@@ -125,7 +125,7 @@ class TestCounters(unittest.TestCase):
     def test_era_e_openai_reasoning_outside_output(self):
         # A recorded v1.17.20 OpenAI record (tmux-pane-dash): 27,959 =
         # 27,919 + 18 + 22, so the reasoning is beside the output - the
-        # reverse of kimaki's v1.2.17 OpenAI records, which is why the
+        # reverse of kimaki's v1.2.17 OpenAI record, which is why the
         # record's own total decides and neither the provider nor the release.
         t = {"total": 27_959, "input": 27_919, "output": 18, "reasoning": 22,
              "cache": {"write": 0, "read": 0}}
@@ -302,9 +302,14 @@ class TestFixtureStores(unittest.TestCase):
         # Two recorded v1.3.13 records (opencode.el), reasoning inside the
         # output: inputs 56,075 + 6,066; outputs 569 + 197; cache reads
         # 0 + 52,752. The day also holds the hand-written empty-directory
-        # session, so the recording is read by its own model.
-        self.assertEqual(self.models("2026-04-03")["Gemini/gemini-3.1-pro-preview-new"],
-                         {"input": 62_141, "output": 766, "cache_read": 52_752, "cache_write": 0})
+        # session, 330 = 300 + 30, so the whole day is checked: nothing else
+        # may land on it.
+        self.assertEqual(self.models("2026-04-03"),
+                         {"Gemini/gemini-3.1-pro-preview-new":
+                          {"input": 62_141, "output": 766, "cache_read": 52_752, "cache_write": 0},
+                          "openai/gpt-5.3-codex":
+                          {"input": 300, "output": 30, "cache_read": 0, "cache_write": 0}})
+        self.assertEqual(self.result.days["2026-04-03"]["turns"], 3)
 
     def test_a_record_whose_stream_names_no_model(self):
         # codor's v1.17.14 stream carries ids and counts but no model, so the
