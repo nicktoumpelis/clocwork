@@ -164,12 +164,15 @@ class TestFixturesAreReduced(unittest.TestCase):
                        "ingo-eichhorst/Irrlicht", "a3f1f8d4683e1194049a92b6b40e44d0aa11aef0",
                        "Copyright (c) 2026 Furkan Kalaycioglu", "Copyright (c) 2025 Ingo Eichhorst",
                        "Permission is hereby granted, free of charge",
-                       # OpenCode's four sources, each at the commit read.
+                       # OpenCode's six sources, each at the commit read.
                        "OpenAgentsInc/openagents", "8f84d05896ef14edee491621bf977ee5315cc8ed",
                        "remorses/kimaki", "4a36f47e45bf4778f682c145d98c8511adb272b1",
                        "rjx18/codor", "03481a33f87f8b16b8a35522084e37ebf7c9c168",
                        "7812f069afad9289a615cb968c375dfaed093780",
+                       "xiopt/tmux-pane-dash", "1b358b9608e29fe550052ac5c9c13417cf2c9c95",
+                       "karta0807913/opencode.el", "31fccf10566c2e84e11d60f7f5fddb4fdc1c9689",
                        "Copyright (c) 2025 Kimaki", "Copyright (c) 2026 Richard Xiong",
+                       "Copyright (c) 2026 xiopt",
                        "Apache License, Version 2.0"):
             self.assertIn(needle, text)
 

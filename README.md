@@ -366,7 +366,7 @@ own synthetic variants regardless. Checks that assume the fixture's size,
 such as the 500-row cap, fail over a short history.
 
 `tests/fixtures/` holds real Codex CLI, Gemini CLI and OpenCode sessions
-from five public repositories, four MIT-licensed and one Apache-2.0, reduced
+from seven public repositories, five MIT-licensed and two Apache-2.0, reduced
 to identity, model, usage and timestamps; its README names each source with
 the commit it was taken at, carries their licence notices, and says which
 rows are as recorded and which are hand-written.
