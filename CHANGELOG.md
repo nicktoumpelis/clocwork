@@ -37,6 +37,15 @@ All notable changes to clocwork are recorded here. The format follows
 
 ### Changed
 
+- An agent's name is matched as a whole word in a `Co-Authored-By:` trailer's
+  display name or address local part, or as a whole label of its domain,
+  rather than as a substring anywhere in the line. A contributor whose
+  address is at a company called Antigravity Drones is no longer credited to
+  Antigravity, and `Codexterous` is not Codex. A workspace's
+  `[agents].extra` rows are matched by the same rule, and the built-in names
+  are tried first, so an extra names an agent the table does not know rather
+  than renaming one it does.
+
 - The dashboard's colours are Solarized's, in both themes, so agents,
   first-appearance lines and token sources have new hues. An agent's table
   badge now always takes that agent's chart colour. The main chart's line is

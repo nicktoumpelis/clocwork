@@ -85,9 +85,70 @@ class TestVendors(unittest.TestCase):
         reordered = "Fix\n\n" + "\n".join([antigravity, gemini, claude])
         self.assertEqual(ag.detect_agent(reordered), "Antigravity")
 
+    # Every trailer form this repository has recorded from a public commit,
+    # across the Antigravity and OpenCode searches and the earlier vendors.
+    # The matching rule may get stricter, but not at the cost of one of these.
+    RECORDED = (
+        ("GitHub Copilot <x@y>", "Copilot"),
+        ("Cursor Agent <x@y>", "Cursor"),
+        ("Codex <noreply@openai.com>", "Codex"),
+        ("Devin AI <x@y>", "Devin"),
+        ("aider (gpt-4o) <x@y>", "aider"),
+        ("Gemini CLI <x@y>", "Gemini"),
+        ("Google Gemini <gemini-ai@users.noreply.github.com>", "Gemini"),
+        ("gemini-code-assist[bot] <176961590+gemini-code-assist[bot]@users.noreply.github.com>",
+         "Gemini Code Assist"),
+        ("Antigravity AI <antigravity-ai@users.noreply.github.com>", "Antigravity"),
+        ("Antigravity (3.1 Pro) <gemini@google.com>", "Antigravity"),
+        ("DeepMind Antigravity <antigravity@google.com>", "Antigravity"),
+        ("Google Antigravity <242056456+google-antigravity@users.noreply.github.com>", "Antigravity"),
+        ("Antigravity <326255689+antigravity-selvakk2k[bot]@users.noreply.github.com>", "Antigravity"),
+        ("AGY <noreply@antigravity.dev>", "Antigravity"),
+        ("Antigravity CLI (Gemini 3.8 Flash) <antigravity@stevens-imac-3>", "Antigravity"),
+        ("Antigravity Agent <antigravity-bot@google.internal>", "Antigravity"),
+        ("Antigravity AI <ai@antigravity.google>", "Antigravity"),
+        ("opencode <noreply@opencode.ai>", "OpenCode"),
+        ("GLM-5.3 via OpenCode <noreply@opencode.ai>", "OpenCode"),
+        ("DeepSeek V4.1 Flash as OpenCode <noreply@opencode.ai>", "OpenCode"),
+        ("opencode-go/mimo-v2.5 <noreply@opencode.ai>", "OpenCode"),
+        ("opencode (glm-5.2) <ai@local>", "OpenCode"),
+        ("opencode-agent[bot] <41898282+opencode-agent[bot]@users.noreply.github.com>",
+         "OpenCode GitHub agent"),
+        ("Anthropic Claude <claude-ai@users.noreply.github.com>", None),   # the unknown version
+        ("Cursor (Claude Sonnet 4.5) <x@y>", "Claude Sonnet 4.5"),
+    )
+
+    def test_every_recorded_trailer_form_still_names_its_agent(self):
+        for text, name in self.RECORDED:
+            with self.subTest(text=text):
+                self.assertEqual(ag.detect_agent("Fix\n\nCo-Authored-By: " + text),
+                                 name or ag.UNKNOWN_CLAUDE)
+
     def test_mention_outside_a_trailer_is_not_attributed(self):
         self.assertIsNone(ag.detect_agent("Tidy up after Copilot suggested this\n\nSigned-off-by: A <a@b>"))
         self.assertIsNone(ag.detect_agent("See CLAUDE.md and the claude-fix branch"))
+
+    def test_a_vendor_word_inside_a_longer_word_is_not_that_vendor(self):
+        # "Antigravity" is a common enough word to appear in a company's name
+        # or its domain. A contributor at one is a person, not an agent, and
+        # the module would rather miss an agent than credit the wrong one.
+        for text in ("Jane Doe <jane@antigravity-drones.example>",
+                     "Jane Doe <jane@mail.antigravity-drones.example>",
+                     "Antigravitybot <bot@example.com>",
+                     "Codexterous <hi@example.com>",
+                     "Cursory Notes <hi@example.com>",
+                     "A Coder <coder@opencoded.example>"):
+            with self.subTest(text=text):
+                self.assertIsNone(ag.detect_agent("Fix\n\nCo-Authored-By: " + text))
+
+    def test_a_vendor_word_in_the_address_counts_only_as_a_whole_label(self):
+        # The domain is where a company's name sits, so a label has to match
+        # outright; the local part is the agent's own, so a word in it counts.
+        self.assertEqual(ag.detect_agent(TRAILER.format("AGY").replace(
+            "noreply@example.com", "noreply@antigravity.dev")), "Antigravity")
+        self.assertEqual(ag.detect_agent("Fix\n\nCo-Authored-By: AGY <antigravity-ai@example.com>"),
+                         "Antigravity")
+        self.assertIsNone(ag.detect_agent("Fix\n\nCo-Authored-By: AGY <agy@antigravityresearch.example>"))
 
     def test_unrecognised_trailer_is_unmatched(self):
         self.assertIsNone(ag.detect_agent(TRAILER.format("Jane Doe")))
@@ -96,6 +157,23 @@ class TestVendors(unittest.TestCase):
         table = ag.AgentTable(extra=[{"match": "Jules", "name": "Jules"}])
         self.assertEqual(table.detect(TRAILER.format("Jules by Google")), "Jules")
         self.assertIsNone(ag.DEFAULT_AGENTS.detect(TRAILER.format("Jules by Google")))
+
+    def test_a_built_in_row_wins_over_an_extra_that_overlaps_it(self):
+        # Extras name what the built-ins do not. A workspace cannot rename a
+        # built-in agent, which is also what stops a short needle from
+        # quietly claiming trailers it was never meant to.
+        table = ag.AgentTable(extra=[{"match": "Antigravity IDE", "name": "Antigravity IDE"},
+                                     {"match": "code", "name": "Some Editor"}])
+        self.assertEqual(table.detect(TRAILER.format("Antigravity IDE")), "Antigravity")
+        self.assertEqual(table.detect(TRAILER.format("opencode")), "OpenCode")
+        # And the short needle claims nothing on its own, because a vendor
+        # word has to be a whole word in the name or a label in the address.
+        self.assertIsNone(table.detect(TRAILER.format("opencoded")))
+
+    def test_an_extra_matches_by_the_same_rule_as_a_built_in(self):
+        table = ag.AgentTable(extra=[{"match": "Jules", "name": "Jules"}])
+        self.assertEqual(table.detect(TRAILER.format("Jules (agent)")), "Jules")
+        self.assertIsNone(table.detect(TRAILER.format("Julesy")))
 
     def test_empty_body(self):
         self.assertIsNone(ag.detect_agent(""))

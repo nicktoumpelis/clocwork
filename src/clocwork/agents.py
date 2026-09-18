@@ -17,9 +17,18 @@ Both normalise to "Claude <Family> <version>", with " (1M)" appended for the
 version is captured greedily, which is what keeps "Fable 5.1" from being read
 as "Fable 5".
 
-Other agents are matched by a substring of the trailer, from a vendor table a
-workspace can extend. An unrecognised trailer stays unmatched rather than
-being guessed at: a wrong attribution is worse than a missing one.
+Other agents are matched by name, from a vendor table a workspace can extend.
+A vendor's name has to be a whole word in the trailer's display name or the
+address's local part, or a whole label of its domain - "Antigravity" is a
+common enough word that a contributor at a company called Antigravity Drones
+would otherwise be credited to an agent. An unrecognised trailer stays
+unmatched rather than being guessed at: a wrong attribution is worse than a
+missing one.
+
+A workspace's own rows are matched the same way, and the built-in rows are
+tried first, so `[agents].extra` names what the table does not rather than
+renaming what it does. That is also what keeps a short needle from claiming
+trailers it was never meant to.
 """
 
 import re
@@ -37,6 +46,11 @@ MODEL_VERSION_FIRST = re.compile(
     re.IGNORECASE,
 )
 COAUTHOR_TRAILER = re.compile(r"^\s*Co-Authored-By:\s*(.+)$", re.IGNORECASE | re.MULTILINE)
+# Letters and digits either side of a vendor's name make it part of a longer
+# word, and a longer word is a different thing: "Codexterous" is not Codex.
+# Every other character is a boundary, so "opencode-go" and
+# "gemini-code-assist[bot]" still name their agents.
+WORD_EDGE = "(?<![0-9a-z]){}(?![0-9a-z])"
 
 UNKNOWN_CLAUDE = "Claude (unknown version)"
 
@@ -91,6 +105,29 @@ def parse_claude_model(text):
     return None
 
 
+def trailer_parts(trailer):
+    """(display name, address local part, domain labels) of a trailer, lower
+    cased. A trailer without an address is all name, which is how a person
+    who wrote one by hand may have left it."""
+    lowered = trailer.lower()
+    name, _, rest = lowered.partition("<")
+    local, _, domain = rest.partition(">")[0].rpartition("@")
+    return name.strip(), local, domain.split(".")
+
+
+def names_agent(needle, name, local, labels):
+    """Whether a vendor's name is the one this trailer credits.
+
+    It counts as a whole word in the display name, or in the address's local
+    part, which the agent chooses for itself. In the domain it has to be a
+    whole label: a domain is where the name of whoever owns the address sits,
+    and `antigravity-drones.example` is not Antigravity.
+    """
+    needle = needle.lower()
+    word = re.compile(WORD_EDGE.format(re.escape(needle)))
+    return bool(word.search(name)) or bool(local and word.search(local)) or needle in labels
+
+
 class AgentTable:
     """The vendor table plus a workspace's [agents].extra rows."""
 
@@ -101,9 +138,9 @@ class AgentTable:
         model = parse_claude_model(trailer)
         if model:
             return model
-        lowered = trailer.lower()
+        parts = trailer_parts(trailer)
         for needle, name in self.rules:
-            if needle.lower() in lowered:
+            if names_agent(needle, *parts):
                 return name
         return None
 
