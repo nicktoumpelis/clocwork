@@ -851,6 +851,14 @@ function annotationObjects(list) {
 var LANGS = RAW.languages;
 var ROWS = RAW.commits;   // [idx, hash, date, msg, agent, isMerge, lines, testLines, tokens, tokenKind]; lines = [[langIdx, [codeAdd, codeRem, commentAdd, commentRem, blankAdd, blankRem]], ...]
 var SUMMARY = RAW.summary;
+// The agent column's three labels that name no agent, spelled once here;
+// tests/test_render.py ties them to the analysis. An unattributed commit's
+// agent is null in full_commit_data.json, and the page calls it HUMAN; MISC
+// is analyse.MISC, a merge; UNKNOWN_CLAUDE is agents.UNKNOWN_CLAUDE, a
+// Claude trailer whose model cannot be read.
+var HUMAN = 'Human';
+var MISC = 'Misc';
+var UNKNOWN_CLAUDE = 'Claude (unknown version)';
 // Token data exist only when a coding agent's logs for the repository (Claude
 // Code, Codex CLI, Gemini CLI, OpenCode) were on the machine that generated
 // the workspace; a clone of someone else's repository never has any.
@@ -924,7 +932,7 @@ var SEL = (function() {
             runAll += net[i]; runTests += tp[0] - tp[1];
             cumulative[i] = runAll; testCumulative[i] = runTests;
             if (runAll > peakValue) { peakValue = runAll; peakIndex = i; }
-            var name = c[4] || 'Human';
+            var name = c[4] || HUMAN;
             var s = agents[name];
             if (!s) s = agents[name] = { commits: 0, added: 0, removed: 0, net: 0, first_date: c[2], last_date: c[2] };
             s.commits++; s.added += p[0]; s.removed += p[1]; s.net += net[i]; s.last_date = c[2];
@@ -1103,7 +1111,6 @@ function dateTitle(items) { return FMT.date(items[0].raw.x); }
 
 // Each agent's series colour, by name (THEME), so it follows the theme.
 var AGENT_COLORS = {
-    'Human': 'grey',
     'Claude Opus 4.5': 'violet',
     'Claude Opus 4.6': 'blue',
     'Claude Opus 4.6 (1M)': 'blue-2',
@@ -1119,8 +1126,6 @@ var AGENT_COLORS = {
     'Claude Sonnet 4.6': 'green',
     'Claude Sonnet 5': 'green-2',
     'Claude Haiku 4.5': 'green-3',
-    'Claude (unknown version)': 'grey-3',
-    'Misc': 'grey-2',
     // The agents.py vendors that commit often enough to want a colour of
     // their own; any other vendor takes one from the hash below.
     'Copilot': 'violet-2',
@@ -1131,12 +1136,16 @@ var AGENT_COLORS = {
     'Gemini Code Assist': 'violet-3',
     'Gemini': 'blue-3'
 };
+// The labels that name no agent are the greys.
+AGENT_COLORS[HUMAN] = 'grey';
+AGENT_COLORS[MISC] = 'grey-2';
+AGENT_COLORS[UNKNOWN_CLAUDE] = 'grey-3';
 // Any other agent (a Claude model the table does not list yet, an
 // [agents].extra name) takes a colour by a hash of its name: the same on
 // every chart and every run, and never a colour an agent above has.
 var AGENT_FALLBACK_PALETTE = ['orange-3', 'magenta-3', 'yellow-4', 'violet-4', 'cyan-4', 'green-4', 'blue-4', 'red-4'];
 function agentToken(a) {
-    a = a || 'Human';
+    a = a || HUMAN;
     if (Object.prototype.hasOwnProperty.call(AGENT_COLORS, a)) return AGENT_COLORS[a];
     var h = 0;
     for (var i = 0; i < a.length; i++) h = (h * 31 + a.charCodeAt(i)) >>> 0;
@@ -1336,7 +1345,7 @@ function resetMainZoom() {
                         label: function(ctx) {
                             var idx = ctx.dataIndex;
                             var s = SEL.stats();
-                            var agent = ROWS[idx][4] || 'Human';
+                            var agent = ROWS[idx][4] || HUMAN;
                             var delta = ctx.datasetIndex === 1
                                 ? s.testCumulative[idx] - (idx ? s.testCumulative[idx - 1] : 0)
                                 : s.net[idx];
@@ -1478,7 +1487,7 @@ function resetMainZoom() {
         var totals = {}, running = {};
         names.forEach(function(a) { totals[a] = 0; running[a] = []; });
         ROWS.forEach(function(c, i) {
-            var agent = c[4] || 'Human';
+            var agent = c[4] || HUMAN;
             if (totals[agent] !== undefined) totals[agent] += s.net[i];
             names.forEach(function(a) { running[a].push({ x: c[2], y: totals[a] }); });
         });
@@ -1954,7 +1963,7 @@ function resetMainZoom() {
 
     var SORT_VALUE = {
         message:    function(c) { return c[3].toLowerCase(); },
-        agent:      function(c) { return (c[4] || 'Human').toLowerCase(); },
+        agent:      function(c) { return (c[4] || HUMAN).toLowerCase(); },
         churn:      function(c) { var s = SEL.stats(); return s.added[c[0]] + s.removed[c[0]]; },
         net:        function(c) { return SEL.stats().net[c[0]]; },
         cumulative: function(c) { return SEL.stats().cumulative[c[0]]; },
@@ -1980,12 +1989,12 @@ function resetMainZoom() {
     // so new models show up without editing this list. Human comes first
     // and the Misc catch-all (merge commits) last.
     var agents = SEL.stats().agents;
-    var agentNames = ['all', 'Human'].concat(
+    var agentNames = ['all', HUMAN].concat(
         Object.keys(agents)
-            .filter(function(a) { return a !== 'Human' && a !== 'Misc'; })
+            .filter(function(a) { return a !== HUMAN && a !== MISC; })
             .sort(function(a, b) { return agents[a].first_date < agents[b].first_date ? -1 : agents[a].first_date > agents[b].first_date ? 1 : a < b ? -1 : 1; })
     );
-    if (agents['Misc']) agentNames.push('Misc');
+    if (agents[MISC]) agentNames.push(MISC);
 
     // Commit index (c[0]) is git order, so it orders same-day commits correctly
     // where the date string alone cannot.
@@ -2034,7 +2043,7 @@ function resetMainZoom() {
         var q = searchInput.value.trim().toLowerCase();
         var source = TABS[activeTab].rows();
         var rows = source.filter(function(c) {
-            var agent = c[4] || 'Human';
+            var agent = c[4] || HUMAN;
             return (activeFilter === 'all' || agent === activeFilter) && matchesSearch(c, q);
         });
         rows.sort(compareCommits);
@@ -2062,7 +2071,7 @@ function resetMainZoom() {
 
     function buildRow(c) {
         var s = SEL.stats(); var idx = c[0];
-        var agent = c[4] || 'Human';
+        var agent = c[4] || HUMAN;
         var row = document.createElement('tr');
         row.className = 'commit-row';
         row.setAttribute('data-hash', c[1]);
@@ -2240,7 +2249,7 @@ function resetMainZoom() {
         var w = widestStrings();
         var tbody = document.createElement('tbody');
         var agentNames = Object.keys(SEL.stats().agents);
-        if (!agentNames.length) agentNames = ['Human'];
+        if (!agentNames.length) agentNames = [HUMAN];
         agentNames.forEach(function(name) {
             var tr = document.createElement('tr');
             var cellsSpec = [

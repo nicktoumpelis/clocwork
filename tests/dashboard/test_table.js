@@ -5,6 +5,7 @@ const { load } = require('./harness');
 const { check, section, done } = require('./check');
 
 const page = load();
+const MISC = page.run('return MISC');   // a merge's label, as the page spells it
 const { RAW, byId, headers, tabs, cells } = page;
 const tbody = byId('allCommitsBody'), count = byId('allCommitsCount'), search = byId('commitSearch'), bar = byId('filterBar');
 const [, thDate, , thMsg, thAgent, thChurn, thNet, thCumul] = headers;
@@ -41,9 +42,9 @@ check(thDate.getAttribute('data-dir') === 'desc', 'date sorted desc by default')
 check(isoOf(rows()[0]) >= isoOf(rows()[499]), 'newest first');
 
 section('filter chips');
-chip('Misc').fire('click');
+chip(MISC).fire('click');
 check(new RegExp('^' + en(miscCount) + ' of ' + en(total) + ' commits · Misc').test(count.textContent), 'Misc headline');
-check(rows().every(r => cells(r)[3] === 'Misc'), 'only Misc rows');
+check(rows().every(r => cells(r)[3] === MISC), 'only Misc rows');
 chip('Human').fire('click');
 check(new RegExp('^' + en(humanCount) + ' of ' + en(total) + ' commits · Human').test(count.textContent), 'Human headline');
 check(rows().every(r => cells(r)[3] === 'Human'), 'only Human rows');
@@ -80,7 +81,7 @@ section('tabs');
 tabs[1].fire('click');
 check(rows().length === 25 && count.textContent === '25 commits', 'gains tab has 25 rows');
 check(thNet.getAttribute('data-dir') === 'desc', 'gains default net desc');
-check(rows().every(r => cells(r)[3] !== 'Misc'), 'no merges in gains');
+check(rows().every(r => cells(r)[3] !== MISC), 'no merges in gains');
 tabs[2].fire('click');
 check(rows().length === 15 && thNet.getAttribute('data-dir') === 'asc', 'drops tab has 15 rows net asc');
 tabs[0].fire('click');
@@ -144,7 +145,7 @@ section('tokens column');
     check(RAW.commits.every(c => !c[8] || c[9] === 'm' || c[9] === 'e'), 'every commit with tokens carries its kind');
   }
   check(rows().every(r => cells(r)[7] === expected(rawOf(r))), 'token cells show the attributed figure, approximate on estimated days, blank when none');
-  check(rows().some(r => cells(r)[7] !== '') && rows().filter(r => cells(r)[3] === 'Misc').every(r => cells(r)[7] === ''), 'AI commits carry tokens, merges do not');
+  check(rows().some(r => cells(r)[7] !== '') && rows().filter(r => cells(r)[3] === MISC).every(r => cells(r)[7] === ''), 'AI commits carry tokens, merges do not');
   const withTokens = rows().find(r => cells(r)[7] !== '');
   const title = withTokens && withTokens.children[8].title;
   check(!!title && title.indexOf(en(rawOf(withTokens)[8])) >= 0 && /measured|estimated/.test(title), 'token cell title gives the exact count and whether the day was measured or estimated: ' + title);

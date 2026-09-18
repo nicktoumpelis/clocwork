@@ -14,7 +14,8 @@ const [main, , agentCum, pie, agentNet] = charts;
 const theme = n => page.run('return THEME.colour(' + JSON.stringify(n) + ')');
 const GREYS = ['grey', 'grey-2', 'grey-3'].map(theme);
 check(theme('grey') === '#586e75' && theme('grey-2') === '#839496', 'the light greys are Solarized base01 and base0: ' + GREYS);
-const NEUTRAL = ['Human', 'Misc', 'Claude (unknown version)'];
+// The labels that name no agent, as the page spells them.
+const NEUTRAL = page.run('return [HUMAN, MISC, UNKNOWN_CLAUDE]');
 const hex = c => c.slice(0, 7).toLowerCase();   // drop the alpha suffix some charts append
 
 section('agent colours');

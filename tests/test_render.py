@@ -131,6 +131,65 @@ def full_data(**overrides):
     return data
 
 
+class TestAgentLabels(unittest.TestCase):
+    """The page keys colours and filters on the labels the analysis writes,
+    so each has to be spelled the same on both sides. Python has a constant
+    for two of them; the page spells all three once, and these tie the two
+    together, so a rename on one side alone fails here instead of drawing
+    that series in a stray colour."""
+
+    def page_label(self, name):
+        # Exactly one declaration: a second, later one is the value the page
+        # would use, and the first would no longer tell.
+        found = re.findall(r"^var " + name + r" = '([^']*)';", gh.template(), re.M)
+        self.assertEqual(len(found), 1, name + " should be declared once in the page: " + repr(found))
+        return found[0]
+
+    def test_the_page_names_merges_as_the_analysis_does(self):
+        from clocwork import analyse
+        self.assertEqual(self.page_label("MISC"), analyse.MISC)
+
+    def test_the_page_names_an_unknown_claude_as_the_matcher_does(self):
+        from clocwork import agents
+        self.assertEqual(self.page_label("UNKNOWN_CLAUDE"), agents.UNKNOWN_CLAUDE)
+
+    def test_each_label_is_spelled_once_in_the_page(self):
+        # A second spelling is a copy a rename would leave behind. "Human" is
+        # the page's own word for a commit whose agent is null.
+        t = gh.template()
+        for name in ("HUMAN", "MISC", "UNKNOWN_CLAUDE"):
+            label = self.page_label(name)
+            with self.subTest(label=label):
+                copies = t.count("'" + label + "'") + t.count('"' + label + '"')
+                self.assertEqual(copies, 1, label + " is spelled more than once")
+
+    def test_the_labels_that_are_no_agent_are_grey(self):
+        t = gh.template()
+        for name in ("HUMAN", "MISC", "UNKNOWN_CLAUDE"):
+            with self.subTest(name=name):
+                # Every assignment, not the first: a later one would win.
+                found = re.findall(r"AGENT_COLORS\[" + name + r"\]\s*=\s*['\"]([a-z0-9-]+)['\"]", t)
+                self.assertEqual(len(found), 1, name + " should be given one colour: " + repr(found))
+                self.assertTrue(found[0].startswith("grey"), name + " is " + found[0])
+
+    def test_every_fixed_colour_is_for_a_name_clocwork_reports(self):
+        # A vendor renamed in agents.py would otherwise leave its colour on a
+        # name nothing produces, and take a hashed one instead.
+        from clocwork import agents
+        block = re.search(r"^var AGENT_COLORS = \{(.*?)^\};", gh.template(), re.M | re.S).group(1)
+        code = re.sub(r"//[^\n]*", "", block)
+        keys = re.findall(r"""['"]([^'"]+)['"]\s*:""", code)
+        # Every entry has one colon; a key the pattern missed would show here.
+        self.assertEqual(len(keys), code.count(":"))
+        self.assertGreater(len(keys), 10)
+        vendors = {name for _, name in agents.VENDORS}
+        for key in keys:
+            with self.subTest(key=key):
+                trailer = "Co-Authored-By: " + key.replace("(1M)", "(1M context)") + " <noreply@anthropic.com>"
+                self.assertTrue(key in vendors or agents.parse_claude_model(trailer) == key,
+                                key + " is not a name agents.py produces")
+
+
 class TestRenderPage(unittest.TestCase):
     PLACEHOLDERS = ("__TITLE__", "__REPO_NAME__", "__DATA__", "__ANNOTATIONS__")
 
