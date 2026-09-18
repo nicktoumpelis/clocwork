@@ -47,7 +47,14 @@ All notable changes to clocwork are recorded here. The format follows
   so an extra names an agent the table does not know rather than renaming one
   it does. An `[agents].extra` row whose `match` or `name` is blank is now a
   configuration error; under the substring rule such a row matched every
-  trailer, and under this one it would match none.
+  trailer, and under this one it would match none. Whitespace around a
+  `match` is ignored.
+
+- Only a trailer's own address is read as its address. A second one, in
+  another pair of brackets or in a note (`(was jane@opencode.ai)`), is
+  dropped, and a domain written in a note is judged label by label like the
+  address's own, so neither can credit an agent. A note that names an agent
+  in words (`(via Codex)`) still does, now after a bare address too.
 
 - The dashboard's colours are Solarized's, in both themes, so agents,
   first-appearance lines and token sources have new hues. An agent's table

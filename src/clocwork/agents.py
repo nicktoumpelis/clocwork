@@ -22,13 +22,15 @@ A vendor's name has to be a whole word in the trailer's display name or the
 address's local part, or a whole label of its domain. The domain is the strict
 one because it is where the name of whoever owns the address sits: "Antigravity"
 is a common enough word that a contributor at a company called Antigravity
-Drones would otherwise be credited to an agent. A display name is the agent's
-own announcement, so a word in it counts - which means only the address's
-own domain gets the strict rule, and a domain written beside the address, in
-a note or a second pair of brackets, is read as part of the name. An
-unrecognised trailer stays unmatched rather than being guessed at: a wrong
-attribution is worse than a missing one, which is also why a name glued to a
-version ("Antigravity2") is left alone.
+Drones would otherwise be credited to an agent. So a domain is judged that
+way wherever the trailer writes it, in the address or in a note beside it.
+Only the trailer's own address counts as one: a second address, bracketed or
+not ("was jane@opencode.ai"), is someone else's and is dropped. The rest is
+the display name, the agent's own announcement, so a word in it counts - "via
+Codex" after the address included. An unrecognised trailer stays unmatched
+rather than being guessed at: a wrong attribution is worse than a missing
+one, which is also why a name glued to a version ("Antigravity2") is left
+alone.
 
 A workspace's own rows are matched by the same rule, which is what keeps a
 short needle from spreading - "code" reaches no OpenCode trailer, because it
@@ -113,48 +115,65 @@ def parse_claude_model(text):
     return None
 
 
-def trailer_parts(trailer):
-    """(display name, address local part, domain labels) of a trailer, lower
-    cased.
+# The trailer's own address is its first pair of angle brackets, or, in a
+# trailer written without them, its first address. An address has a local
+# part before its `@`; "@codex" is a handle, which is a name.
+OWN_ADDRESS = re.compile(r"<([^>]*)>")
+BARE_ADDRESS = re.compile(r"[0-9a-z._%+-]+@\S*")
+# A domain ends in a label of letters. Model ids end in digits or in a
+# suffix glued to them ("gemini-2.5-pro", "gpt-5.1-codex"), so they stay words.
+DOMAIN = re.compile(r"[0-9a-z-]+(?:\.[0-9a-z-]+)*\.[a-z]{2,}(?![0-9a-z-])")
 
-    Anything outside the angle brackets is the name, on either side of them,
-    so a note after the address still names its agent. A trailer written
-    without brackets is an address when it holds an `@` - a bare address is
-    the form a hand-written trailer most often takes, and reading it as a
-    name would put its domain under the looser rule that a domain must not
-    have. An address with no `@` is nobody's domain, so it is read as a local
-    part instead.
+
+def trailer_parts(trailer):
+    """(display name, address local part, domains) of a trailer, lower cased.
+
+    Only the trailer's own address is an address: any other, in a second
+    pair of brackets or a note ("was jane@opencode.ai"), is someone else's and
+    says nothing about who wrote the commit, so it is dropped. A domain
+    written anywhere else is still a domain, and is returned beside the
+    address's own. What is left is the name, from both sides of the address,
+    so a note after it still names its agent. An address with no `@` is
+    nobody's domain, so it is read as a local part instead.
     """
     lowered = trailer.lower()
-    before, bracket, rest = lowered.partition("<")
-    address, _, after = rest.partition(">")
-    name = (before + " " + after).strip()
-    if not bracket and "@" in before:
-        name, address = "", before
+    own = OWN_ADDRESS.search(lowered)
+    if own:
+        address = own.group(1)
+    else:
+        own = BARE_ADDRESS.search(lowered)
+        address = own.group(0) if own else ""
+    rest = lowered[:own.start()] + " " + lowered[own.end():] if own else lowered
+    rest = BARE_ADDRESS.sub(" ", OWN_ADDRESS.sub(" ", rest))
+    domains = DOMAIN.findall(rest)
+    name = DOMAIN.sub(" ", rest).strip()
     local, at, domain = address.strip().rpartition("@")
     if not at:
-        return name, address.strip(), []
-    return name, local.strip(), [label.strip() for label in domain.split(".")]
+        return name, address.strip(), domains
+    own_domain = ".".join(label.strip() for label in domain.split("."))
+    return name, local.strip(), [own_domain] + domains
 
 
-def names_agent(needle, name, local, labels):
+def names_agent(needle, name, local, domains):
     """Whether a vendor's name is the one this trailer credits.
 
     It counts as a whole word in the display name, or in the address's local
-    part, which the agent chooses for itself. In the domain it has to be a
-    whole label: a domain is where the name of whoever owns the address sits,
-    and `antigravity-drones.example` is not Antigravity.
+    part, which the agent chooses for itself. In a domain it has to be whole
+    labels: a domain is where the name of whoever owns the address sits, and
+    `antigravity-drones.example` is not Antigravity.
     """
     needle = needle.lower()
     word = re.compile(WORD_EDGE.format(re.escape(needle)))
-    return bool(word.search(name) or word.search(local)) or needle in labels
+    labels = re.compile(r"(?:^|\.){}(?:\.|$)".format(re.escape(needle)))
+    return bool(word.search(name) or word.search(local)
+                or any(labels.search(domain) for domain in domains))
 
 
 class AgentTable:
     """The vendor table plus a workspace's [agents].extra rows."""
 
     def __init__(self, extra=()):
-        self.rules = list(VENDORS) + [(e["match"], e["name"]) for e in extra]
+        self.rules = list(VENDORS) + [(e["match"].strip(), e["name"]) for e in extra]
 
     def match(self, trailer):
         model = parse_claude_model(trailer)

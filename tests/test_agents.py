@@ -150,6 +150,9 @@ class TestVendors(unittest.TestCase):
         self.assertIsNone(ag.detect_agent(TRAILER.format("Antigravity2")))
         self.assertEqual(ag.detect_agent(TRAILER.format("Codex 5")), "Codex")
         self.assertEqual(ag.detect_agent(TRAILER.format("Antigravity-2")), "Antigravity")
+        # On either side: a digit before the name joins it too.
+        self.assertIsNone(ag.detect_agent(TRAILER.format("v2codex")))
+        self.assertIsNone(ag.detect_agent(TRAILER.format("3gemini")))
 
     def test_a_trailer_written_without_brackets_is_read_as_an_address(self):
         # A bare address is the form a hand-written trailer most often takes,
@@ -173,6 +176,46 @@ class TestVendors(unittest.TestCase):
 
     def test_whitespace_inside_an_address_does_not_hide_its_domain(self):
         self.assertEqual(ag.detect_agent("Fix\n\nCo-Authored-By: Bot <x@ opencode.ai >"), "OpenCode")
+
+    def test_only_the_trailers_own_address_is_an_address(self):
+        # A second address is someone else's - a former one, a reviewer's -
+        # and says nothing about who wrote the commit, whatever its domain.
+        self.assertIsNone(ag.detect_agent(
+            "Fix\n\nCo-Authored-By: Jane <jane@example.com> <bob@antigravity-drones.example>"))
+        self.assertIsNone(ag.detect_agent("Fix\n\nCo-Authored-By: Jane <jane@example.com> (was jane@opencode.ai)"))
+        self.assertIsNone(ag.detect_agent("Fix\n\nCo-Authored-By: Jane <jane@example.com> <bot@opencode.ai>"))
+        # Spaced out inside its brackets, it is still one address.
+        self.assertIsNone(ag.detect_agent("Fix\n\nCo-Authored-By: Jane <jane@example.com> <bot@ opencode.ai >"))
+
+    def test_a_handle_is_a_name_not_an_address(self):
+        # An address has someone's name before its `@`; "@codex" is a handle,
+        # the way people write an agent's name, and it stays in the name.
+        self.assertEqual(ag.detect_agent("Fix\n\nCo-Authored-By: @cursor <x@y.example>"), "Cursor")
+        self.assertEqual(ag.detect_agent("Fix\n\nCo-Authored-By: Jane (@codex) <x@y.example>"), "Codex")
+        self.assertEqual(ag.detect_agent("Fix\n\nCo-Authored-By: Jane <jane@x.example> (cc @codex)"), "Codex")
+        # And in a trailer without brackets, a handle before the address does
+        # not take the address's place.
+        self.assertEqual(ag.detect_agent("Fix\n\nCo-Authored-By: Jane (@codex) jane@x.example"), "Codex")
+
+    def test_a_domain_in_a_note_is_judged_as_a_domain(self):
+        # Wherever a domain is written, the name of whoever owns it sits in
+        # it, so it has to match label by label there too.
+        self.assertIsNone(ag.detect_agent(
+            "Fix\n\nCo-Authored-By: Jane Doe <jane@antigravity-drones.example>, antigravity-drones.example"))
+        self.assertIsNone(ag.detect_agent("Fix\n\nCo-Authored-By: Jane <jane@example.com> (see antigravity-drones.example)"))
+        self.assertEqual(ag.detect_agent("Fix\n\nCo-Authored-By: Someone <s@x.example> (via opencode.ai)"), "OpenCode")
+
+    def test_a_version_is_not_a_domain(self):
+        # A domain ends in a label of letters. Model ids end in digits or in
+        # a suffix glued to them, so they stay words.
+        self.assertEqual(ag.detect_agent(TRAILER.format("gemini-2.5-pro")), "Gemini")
+        self.assertEqual(ag.detect_agent(TRAILER.format("Antigravity (gemini-2.5-pro)")), "Antigravity")
+        self.assertEqual(ag.detect_agent(TRAILER.format("opencode/gemini-2.5-pro")), "OpenCode")
+        self.assertEqual(ag.detect_agent(TRAILER.format("GPT-5.1-Codex")), "Codex")
+
+    def test_a_note_after_a_bare_address_still_names_its_agent(self):
+        self.assertEqual(ag.detect_agent("Fix\n\nCo-Authored-By: jane@x.example (via Codex)"), "Codex")
+        self.assertIsNone(ag.detect_agent("Fix\n\nCo-Authored-By: jane@antigravity-drones.example (reviewed)"))
 
     def test_a_vendor_word_in_the_address_counts_only_as_a_whole_label(self):
         # The domain is where a company's name sits, so a label has to match
@@ -208,6 +251,15 @@ class TestVendors(unittest.TestCase):
         table = ag.AgentTable(extra=[{"match": "Jules", "name": "Jules"}])
         self.assertEqual(table.detect(TRAILER.format("Jules (agent)")), "Jules")
         self.assertIsNone(table.detect(TRAILER.format("Julesy")))
+
+    def test_a_dotted_extra_matches_whole_labels(self):
+        # A needle with a dot in it is a domain's name, matched as a run of
+        # whole labels wherever the trailer writes it.
+        table = ag.AgentTable(extra=[{"match": "jules.google", "name": "Jules"}])
+        self.assertEqual(table.detect("Co-Authored-By: Bot <x@jules.google>"), "Jules")
+        self.assertEqual(table.detect("Co-Authored-By: Bot <x@mail.jules.google>"), "Jules")
+        self.assertEqual(table.detect("Co-Authored-By: Jules.Google <x@example.com>"), "Jules")
+        self.assertIsNone(table.detect("Co-Authored-By: Bot <x@jules.google-mirror.example>"))
 
     def test_empty_body(self):
         self.assertIsNone(ag.detect_agent(""))
