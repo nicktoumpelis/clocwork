@@ -1,3 +1,4 @@
+import time
 import unittest
 
 from clocwork import agents as ag
@@ -161,6 +162,11 @@ class TestVendors(unittest.TestCase):
         self.assertIsNone(ag.detect_agent("Fix\n\nCo-Authored-By: bot@mail.antigravity-drones.example"))
         self.assertEqual(ag.detect_agent("Fix\n\nCo-Authored-By: jane@antigravity.dev"), "Antigravity")
         self.assertEqual(ag.detect_agent("Fix\n\nCo-Authored-By: antigravity@google.com"), "Antigravity")
+        # A local part that ends in punctuation after its letters is still one.
+        self.assertIsNone(ag.detect_agent("Fix\n\nCo-Authored-By: jane.@antigravity-drones"))
+        self.assertIsNone(ag.detect_agent("Fix\n\nCo-Authored-By: bot-@codex-labs"))
+        self.assertIsNone(ag.detect_agent("Fix\n\nCo-Authored-By: Jane bot+@codex-labs"))
+        self.assertIsNone(ag.detect_agent("Fix\n\nCo-Authored-By: jane_@antigravity-drones"))
         # Whatever its local part is spelled with, it is still an address.
         self.assertIsNone(ag.detect_agent("Fix\n\nCo-Authored-By: josé@antigravity-drones"))
         self.assertIsNone(ag.detect_agent('Fix\n\nCo-Authored-By: "j d"@antigravity-drones'))
@@ -202,6 +208,10 @@ class TestVendors(unittest.TestCase):
         self.assertEqual(ag.detect_agent('Fix\n\nCo-Authored-By: Jane <jane@x.example> "@codex"'), "Codex")
         self.assertEqual(ag.detect_agent("Fix\n\nCo-Authored-By: Jane <jane@x.example> cc:@codex"), "Codex")
         self.assertEqual(ag.detect_agent("Fix\n\nCo-Authored-By: [@codex]"), "Codex")
+        # A local part has a letter or digit in it; "_@codex" and "-@codex"
+        # have none, so they are handles too.
+        self.assertEqual(ag.detect_agent("Fix\n\nCo-Authored-By: Jane <jane@x.example> _@codex"), "Codex")
+        self.assertEqual(ag.detect_agent("Fix\n\nCo-Authored-By: Jane <jane@x.example> -@codex"), "Codex")
         # And in a trailer without brackets, a handle before the address does
         # not take the address's place.
         self.assertEqual(ag.detect_agent("Fix\n\nCo-Authored-By: Jane (@codex) jane@x.example"), "Codex")
@@ -276,6 +286,18 @@ class TestVendors(unittest.TestCase):
         self.assertEqual(table.detect("Co-Authored-By: Bot <x@mail.jules.google>"), "Jules")
         self.assertEqual(table.detect("Co-Authored-By: Jules.Google <x@example.com>"), "Jules")
         self.assertIsNone(table.detect("Co-Authored-By: Bot <x@jules.google-mirror.example>"))
+
+    def test_a_long_trailer_takes_no_longer_than_its_length(self):
+        # Each pattern is tried once per token, not once per character, so a
+        # line of any length costs about its length. Quadratic, these took
+        # seconds at 10,000 characters; the bound leaves a wide margin.
+        for label, text in (("letters", "a" * 20000), ("quotes", '"' * 20000),
+                            ("dotted labels", "a." * 10000 + "b"),
+                            ("letters beside an address", "Jane <j@x.example> " + "a" * 20000)):
+            with self.subTest(label=label):
+                start = time.perf_counter()
+                ag.detect_agent("Fix\n\nCo-Authored-By: " + text)
+                self.assertLess(time.perf_counter() - start, 0.5)
 
     def test_empty_body(self):
         self.assertIsNone(ag.detect_agent(""))

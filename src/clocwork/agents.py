@@ -117,14 +117,18 @@ def parse_claude_model(text):
 
 # The trailer's own address is its first pair of angle brackets, or, in a
 # trailer written without them, its first address. An address's local part
-# is quoted, or ends in a letter or digit of any script ("josé"); punctuation
-# right before the `@` is how a handle is written - "@codex", "(@codex)",
-# "[@codex]", "cc:@codex" - and a handle is a name.
+# is quoted, or holds a letter or digit of any script ("josé") and may end in
+# `.`, `_`, `+` or `-` after it ("jane.@"). With no letter before the `@` it is
+# a handle - "@codex", "(@codex)", "[@codex]", "cc:@codex", "_@codex" - and a
+# handle is a name. Both patterns here start only where a token does, so a
+# line is tried once per token rather than once per character, and costs
+# about its length however long it is.
 OWN_ADDRESS = re.compile(r"<([^>]*)>")
-BARE_ADDRESS = re.compile(r'(?:"[^"]+"|[^\s@<>()]*\w)@\S*')
+BARE_ADDRESS = re.compile(r'(?<![^\s<>()])(?:"[^"]+"|[^\s@<>()]*[^\W_][._+-]*)@\S*')
 # A domain ends in a label of letters. Model ids end in digits or in a
 # suffix glued to them ("gemini-2.5-pro", "gpt-5.1-codex"), so they stay words.
-DOMAIN = re.compile(r"[0-9a-z-]+(?:\.[0-9a-z-]+)*\.[a-z]{2,}(?![0-9a-z-])")
+# It starts where a label does, never partway into one.
+DOMAIN = re.compile(r"(?<![0-9a-z.-])[0-9a-z-]+(?:\.[0-9a-z-]+)*\.[a-z]{2,}(?![0-9a-z-])")
 
 
 def trailer_parts(trailer):
