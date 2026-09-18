@@ -92,6 +92,11 @@ All notable changes to clocwork are recorded here. The format follows
 - A file cloc names against its extension (`CMakeLists.txt`, a script by its
   shebang) counts under that name in every commit, where it used to show as
   drift.
+- A `Co-Authored-By:` trailer is read from its own line. An empty one used to
+  take the next line of the message as its value, so `Co-Authored-By:`
+  followed by "Codex wrote the tests" credited Codex; it now credits no one.
+  Reading trailers no longer slows with the square of the message's length
+  when blank lines follow the last one.
 
 ## [0.1.1] - 2026-09-17
 
