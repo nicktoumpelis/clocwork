@@ -236,16 +236,25 @@ in the address's local part, or a **whole label** of its domain. So
 are all recognised, while `Jane Doe <jane@antigravity-drones.example>` is a
 person at a company whose name happens to start the same way, and stays
 unattributed — the domain is the strict one because that is where the name of
-whoever owns the address sits. An extra is matched by the same whole-word
+whoever owns the address sits, and a domain written in a note beside the
+address is judged the same way. Only the trailer's own address counts: in
+`Jane <jane@example.com> (was jane@opencode.ai)` the second address is
+someone else's, and says nothing about who wrote the commit. A note naming
+an agent in words still counts, as in `Someone <s@example.com> (via Codex)`.
+A dotted version such as `gemini-2.5-pro` is a word, not a domain, because a
+domain ends in a label of letters. An extra is matched by the same whole-word
 rule, which is also what bounds a short `match`: `code` reaches no OpenCode
 trailer, because it is no whole word of `opencode`. The built-in names are
 tried before a workspace's own, so `[agents].extra` names agents the table
 does not know rather than renaming the ones it does. Neither `match` nor
-`name` may be blank.
+`name` may be blank, and whitespace around a `match` is ignored; a `match`
+with a dot in it (`jules.google`) matches a domain only as whole labels, so
+`x@jules.google-mirror.example` is not it.
 
 Antigravity writes no trailer of its own, and the ones people add agree on
 nothing but the word itself, so a trailer naming "Antigravity" — in its
-display name or its address — counts as Antigravity. It is matched before Gemini,
+display name or its address, by the rules above — counts as Antigravity. It
+is matched before Gemini,
 because such a trailer often names the Gemini model that ran
 (`Antigravity CLI (Gemini 3.8 Flash)`) or uses a `gemini@google.com`
 address.

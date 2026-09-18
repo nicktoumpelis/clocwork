@@ -38,6 +38,12 @@ class TestParse(unittest.TestCase):
         with self.assertRaises(cfg.ConfigError):
             cfg.parse('title = 3\n', "x.toml")
 
+    def test_an_extra_match_is_read_without_its_padding(self):
+        # Whitespace around a match is how a hand-edited TOML file looks, and
+        # a needle that kept it would be a whole word of nothing.
+        c = cfg.parse('[agents]\nextra = [{ match = " Jules ", name = "Jules" }]\n', "x.toml")
+        self.assertEqual(c.agents.detect("Co-Authored-By: Jules <j@example.com>"), "Jules")
+
     def test_a_blank_extra_row_is_an_error(self):
         # An empty match names no agent in particular, and what it claimed
         # would depend on where the empty string fell in a trailer.
