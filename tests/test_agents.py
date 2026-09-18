@@ -167,6 +167,13 @@ class TestVendors(unittest.TestCase):
         self.assertIsNone(ag.detect_agent("Fix\n\nCo-Authored-By: bot-@codex-labs"))
         self.assertIsNone(ag.detect_agent("Fix\n\nCo-Authored-By: Jane bot+@codex-labs"))
         self.assertIsNone(ag.detect_agent("Fix\n\nCo-Authored-By: jane_@antigravity-drones"))
+        # An address or a domain glued to punctuation is still one: after a
+        # dot, an `@` or a character that opens a quoted local part.
+        self.assertIsNone(ag.detect_agent("Fix\n\nCo-Authored-By: Jane .antigravity-drones.example"))
+        self.assertIsNone(ag.detect_agent("Fix\n\nCo-Authored-By: Jane x..antigravity-drones.example"))
+        self.assertIsNone(ag.detect_agent("Fix\n\nCo-Authored-By: @jane@antigravity-drones"))
+        self.assertIsNone(ag.detect_agent('Fix\n\nCo-Authored-By: x"j d"@antigravity-drones'))
+        self.assertIsNone(ag.detect_agent('Fix\n\nCo-Authored-By: a"b c"@codex-labs'))
         # Whatever its local part is spelled with, it is still an address.
         self.assertIsNone(ag.detect_agent("Fix\n\nCo-Authored-By: josé@antigravity-drones"))
         self.assertIsNone(ag.detect_agent('Fix\n\nCo-Authored-By: "j d"@antigravity-drones'))
@@ -293,11 +300,24 @@ class TestVendors(unittest.TestCase):
         # seconds at 10,000 characters; the bound leaves a wide margin.
         for label, text in (("letters", "a" * 20000), ("quotes", '"' * 20000),
                             ("dotted labels", "a." * 10000 + "b"),
-                            ("letters beside an address", "Jane <j@x.example> " + "a" * 20000)):
+                            ("letters beside an address", "Jane <j@x.example> " + "a" * 20000),
+                            ("unclosed brackets", "<" * 20000),
+                            ("unclosed brackets beside an address", "Jane <j@x.example> " + "<" * 20000),
+                            ("text between brackets", "<a" * 10000)):
             with self.subTest(label=label):
                 start = time.perf_counter()
                 ag.detect_agent("Fix\n\nCo-Authored-By: " + text)
                 self.assertLess(time.perf_counter() - start, 0.5)
+        # And a body of any number of lines: blank lines after the trailer
+        # leave nothing to find, which is the case that has to be linear.
+        start = time.perf_counter()
+        ag.detect_agent("Fix\n\nCo-Authored-By: Codex <x@y.example>" + "\n" * 20000)
+        self.assertLess(time.perf_counter() - start, 0.5)
+
+    def test_a_trailer_is_read_from_its_own_line(self):
+        # An empty trailer does not borrow the next line as its value.
+        self.assertIsNone(ag.detect_agent("Fix\n\nCo-Authored-By:\nCodex wrote the tests"))
+        self.assertEqual(ag.detect_agent("Fix\n\n  Co-Authored-By:\tCodex <x@y.example>"), "Codex")
 
     def test_empty_body(self):
         self.assertIsNone(ag.detect_agent(""))
