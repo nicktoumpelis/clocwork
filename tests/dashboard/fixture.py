@@ -32,6 +32,11 @@ import random
 import sys
 from datetime import date, timedelta
 
+# The label a merge carries is the analysis's own, so a rename there reaches
+# the page this fixture feeds.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "src"))
+from clocwork.analyse import MISC  # noqa: E402
+
 LANGS = ["Swift", "Markdown", "Python"]
 AGENTS = [None, None, "Claude Opus 4.6", "Claude Fable 5.1", "Copilot"]
 TYPES = ("code", "comment", "blank")
@@ -89,7 +94,7 @@ def build(tokens=True, sources=False, crowded=False):
     for i in range(520):
         day = start + timedelta(days=i // 2)
         is_merge = i % 40 == 39
-        agent = "Misc" if is_merge else (AGENTS[i % len(AGENTS)] if i > 60 else None)
+        agent = MISC if is_merge else (AGENTS[i % len(AGENTS)] if i > 60 else None)
         if sources and agent == "Claude Fable 5.1":
             agent = "Codex"
         # Half of Copilot's slots go to an agent the page has no fixed colour
@@ -119,7 +124,7 @@ def build(tokens=True, sources=False, crowded=False):
         })
     first = {}
     for c in commits:
-        if c["agent"] and c["agent"] != "Misc" and c["agent"] not in first:
+        if c["agent"] and c["agent"] != MISC and c["agent"] not in first:
             first[c["agent"]] = {"date": c["date"], "hash": c["hash"], "index": c["index"], "message": c["message"]}
     if crowded:
         last = date.fromisoformat(commits[-1]["date"])
@@ -154,7 +159,7 @@ def build(tokens=True, sources=False, crowded=False):
     head["Swift"]["code"] += 7
     reconciliation = json.loads(json.dumps(zero))
     reconciliation["Swift"]["code"] = -7
-    ai_commits = [c for c in commits if c["agent"] and c["agent"] != "Misc"]
+    ai_commits = [c for c in commits if c["agent"] and c["agent"] != MISC]
     # With the archive only the commits of agents without logs lack a figure;
     # without it, every agent's do.
     unmeasured = [c for c in ai_commits if not c["agent"].startswith(tuple(shares))] if tokens else ai_commits
@@ -170,7 +175,7 @@ def build(tokens=True, sources=False, crowded=False):
         "summary": {
             "total_commits": len(commits), "ai_assisted_commits": len(ai_commits),
             "human_only_commits": sum(1 for c in commits if not c["agent"]),
-            "misc_commits": sum(1 for c in commits if c["agent"] == "Misc"),
+            "misc_commits": sum(1 for c in commits if c["agent"] == MISC),
             "first_date": commits[0]["date"], "last_date": commits[-1]["date"],
             "repo_url": REMOTE,
             "analysed_by": {"version": "0.0.0", "commit": None},
