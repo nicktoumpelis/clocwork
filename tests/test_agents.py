@@ -3,6 +3,8 @@ import unittest
 from clocwork import agents as ag
 
 TRAILER = "Fix\n\nCo-Authored-By: {} <noreply@example.com>"
+# Spelled out in the table below, so a row can also say "no agent at all".
+UNKNOWN = ag.UNKNOWN_CLAUDE
 
 
 class TestClaude(unittest.TestCase):
@@ -114,15 +116,14 @@ class TestVendors(unittest.TestCase):
         ("opencode (glm-5.2) <ai@local>", "OpenCode"),
         ("opencode-agent[bot] <41898282+opencode-agent[bot]@users.noreply.github.com>",
          "OpenCode GitHub agent"),
-        ("Anthropic Claude <claude-ai@users.noreply.github.com>", None),   # the unknown version
+        ("Anthropic Claude <claude-ai@users.noreply.github.com>", UNKNOWN),
         ("Cursor (Claude Sonnet 4.5) <x@y>", "Claude Sonnet 4.5"),
     )
 
     def test_every_recorded_trailer_form_still_names_its_agent(self):
         for text, name in self.RECORDED:
             with self.subTest(text=text):
-                self.assertEqual(ag.detect_agent("Fix\n\nCo-Authored-By: " + text),
-                                 name or ag.UNKNOWN_CLAUDE)
+                self.assertEqual(ag.detect_agent("Fix\n\nCo-Authored-By: " + text), name)
 
     def test_mention_outside_a_trailer_is_not_attributed(self):
         self.assertIsNone(ag.detect_agent("Tidy up after Copilot suggested this\n\nSigned-off-by: A <a@b>"))
@@ -140,6 +141,36 @@ class TestVendors(unittest.TestCase):
                      "A Coder <coder@opencoded.example>"):
             with self.subTest(text=text):
                 self.assertIsNone(ag.detect_agent("Fix\n\nCo-Authored-By: " + text))
+
+    def test_a_digit_is_part_of_a_name_too(self):
+        # A version glued to a name may be a product of its own, and this
+        # module would rather miss an agent than name the wrong one. Spelled
+        # the way real trailers do it, both still match.
+        self.assertIsNone(ag.detect_agent(TRAILER.format("Codex5")))
+        self.assertIsNone(ag.detect_agent(TRAILER.format("Antigravity2")))
+        self.assertEqual(ag.detect_agent(TRAILER.format("Codex 5")), "Codex")
+        self.assertEqual(ag.detect_agent(TRAILER.format("Antigravity-2")), "Antigravity")
+
+    def test_a_trailer_written_without_brackets_is_read_as_an_address(self):
+        # A bare address is the form a hand-written trailer most often takes,
+        # and its domain must not fall under the looser rule for a name.
+        self.assertIsNone(ag.detect_agent("Fix\n\nCo-Authored-By: jane@antigravity-drones.example"))
+        self.assertIsNone(ag.detect_agent("Fix\n\nCo-Authored-By: bot@mail.antigravity-drones.example"))
+        self.assertEqual(ag.detect_agent("Fix\n\nCo-Authored-By: jane@antigravity.dev"), "Antigravity")
+        self.assertEqual(ag.detect_agent("Fix\n\nCo-Authored-By: antigravity@google.com"), "Antigravity")
+
+    def test_a_note_beside_the_address_still_names_its_agent(self):
+        self.assertEqual(ag.detect_agent("Fix\n\nCo-Authored-By: Someone <s@x.example> (via Codex)"),
+                         "Codex")
+
+    def test_an_address_that_is_no_domain_is_read_as_a_name(self):
+        # Without an `@` there is no domain to be strict about, so the word
+        # rule applies: `antigravity@stevens-imac-3` is a recorded shape.
+        self.assertEqual(ag.detect_agent("Fix\n\nCo-Authored-By: bot <opencode-bot>"), "OpenCode")
+        self.assertIsNone(ag.detect_agent("Fix\n\nCo-Authored-By: bot <opencodebot>"))
+
+    def test_whitespace_inside_an_address_does_not_hide_its_domain(self):
+        self.assertEqual(ag.detect_agent("Fix\n\nCo-Authored-By: Bot <x@ opencode.ai >"), "OpenCode")
 
     def test_a_vendor_word_in_the_address_counts_only_as_a_whole_label(self):
         # The domain is where a company's name sits, so a label has to match
@@ -159,15 +190,16 @@ class TestVendors(unittest.TestCase):
         self.assertIsNone(ag.DEFAULT_AGENTS.detect(TRAILER.format("Jules by Google")))
 
     def test_a_built_in_row_wins_over_an_extra_that_overlaps_it(self):
-        # Extras name what the built-ins do not. A workspace cannot rename a
-        # built-in agent, which is also what stops a short needle from
-        # quietly claiming trailers it was never meant to.
+        # Extras name what the built-ins do not, so a workspace cannot rename
+        # a built-in agent. What bounds the short needle below is the word
+        # rule, not this ordering.
         table = ag.AgentTable(extra=[{"match": "Antigravity IDE", "name": "Antigravity IDE"},
                                      {"match": "code", "name": "Some Editor"}])
         self.assertEqual(table.detect(TRAILER.format("Antigravity IDE")), "Antigravity")
         self.assertEqual(table.detect(TRAILER.format("opencode")), "OpenCode")
-        # And the short needle claims nothing on its own, because a vendor
-        # word has to be a whole word in the name or a label in the address.
+        # And the short needle claims nothing of its own: a needle has to be
+        # a whole word in the name or local part, or a whole label of the
+        # domain.
         self.assertIsNone(table.detect(TRAILER.format("opencoded")))
 
     def test_an_extra_matches_by_the_same_rule_as_a_built_in(self):

@@ -19,16 +19,20 @@ as "Fable 5".
 
 Other agents are matched by name, from a vendor table a workspace can extend.
 A vendor's name has to be a whole word in the trailer's display name or the
-address's local part, or a whole label of its domain - "Antigravity" is a
-common enough word that a contributor at a company called Antigravity Drones
-would otherwise be credited to an agent. An unrecognised trailer stays
+address's local part, or a whole label of its domain. The domain is the strict
+one because it is where the name of whoever owns the address sits: "Antigravity"
+is a common enough word that a contributor at a company called Antigravity
+Drones would otherwise be credited to an agent. A display name is the agent's
+own announcement, so a word in it counts. An unrecognised trailer stays
 unmatched rather than being guessed at: a wrong attribution is worse than a
-missing one.
+missing one, which is also why a name glued to a version ("Antigravity2") is
+left alone.
 
-A workspace's own rows are matched the same way, and the built-in rows are
-tried first, so `[agents].extra` names what the table does not rather than
-renaming what it does. That is also what keeps a short needle from claiming
-trailers it was never meant to.
+A workspace's own rows are matched by the same rule, which is what keeps a
+short needle from spreading - "code" reaches no OpenCode trailer, because it
+is no whole word of "opencode". The built-in rows are tried first, so
+`[agents].extra` names what the table does not rather than renaming what it
+does.
 """
 
 import re
@@ -46,15 +50,17 @@ MODEL_VERSION_FIRST = re.compile(
     re.IGNORECASE,
 )
 COAUTHOR_TRAILER = re.compile(r"^\s*Co-Authored-By:\s*(.+)$", re.IGNORECASE | re.MULTILINE)
-# Letters and digits either side of a vendor's name make it part of a longer
-# word, and a longer word is a different thing: "Codexterous" is not Codex.
-# Every other character is a boundary, so "opencode-go" and
-# "gemini-code-assist[bot]" still name their agents.
+# An ASCII letter or digit either side of a vendor's name makes it part of a
+# longer word, and a longer word is a different name: "Codexterous" is not
+# Codex, and "Antigravity2" is not Antigravity - it may be a product of its
+# own, and a missing attribution is the cheaper mistake. Every other
+# character is a boundary, so "opencode-go" and "gemini-code-assist[bot]"
+# still name their agents.
 WORD_EDGE = "(?<![0-9a-z]){}(?![0-9a-z])"
 
 UNKNOWN_CLAUDE = "Claude (unknown version)"
 
-# (substring of the trailer, reported name)
+# (the agent's name in a trailer, what to report it as)
 VENDORS = (
     # OpenCode's GitHub Actions agent commits as opencode-agent[bot], and its
     # logs stay on the runner, so it is a separate agent from the OpenCode
@@ -107,12 +113,26 @@ def parse_claude_model(text):
 
 def trailer_parts(trailer):
     """(display name, address local part, domain labels) of a trailer, lower
-    cased. A trailer without an address is all name, which is how a person
-    who wrote one by hand may have left it."""
+    cased.
+
+    Anything outside the angle brackets is the name, on either side of them,
+    so a note after the address still names its agent. A trailer written
+    without brackets is an address when it holds an `@` - a bare address is
+    the form a hand-written trailer most often takes, and reading it as a
+    name would put its domain under the looser rule that a domain must not
+    have. An address with no `@` is nobody's domain, so it is read as a local
+    part instead.
+    """
     lowered = trailer.lower()
-    name, _, rest = lowered.partition("<")
-    local, _, domain = rest.partition(">")[0].rpartition("@")
-    return name.strip(), local, domain.split(".")
+    before, bracket, rest = lowered.partition("<")
+    address, _, after = rest.partition(">")
+    name = (before + " " + after).strip()
+    if not bracket and "@" in before:
+        name, address = "", before
+    local, at, domain = address.strip().rpartition("@")
+    if not at:
+        return name, address.strip(), []
+    return name, local.strip(), [label.strip() for label in domain.split(".")]
 
 
 def names_agent(needle, name, local, labels):
@@ -125,7 +145,7 @@ def names_agent(needle, name, local, labels):
     """
     needle = needle.lower()
     word = re.compile(WORD_EDGE.format(re.escape(needle)))
-    return bool(word.search(name)) or bool(local and word.search(local)) or needle in labels
+    return bool(word.search(name) or word.search(local)) or needle in labels
 
 
 class AgentTable:

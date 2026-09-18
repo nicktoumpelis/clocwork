@@ -235,10 +235,13 @@ in the address's local part, or a **whole label** of its domain. So
 `Antigravity AI`, `AGY <noreply@antigravity.dev>` and `opencode-go/mimo-v2.5`
 are all recognised, while `Jane Doe <jane@antigravity-drones.example>` is a
 person at a company whose name happens to start the same way, and stays
-unattributed. The built-in names are tried before a workspace's own, so
-`[agents].extra` names agents the table does not know rather than renaming
-the ones it does — and a short `match` cannot quietly claim trailers it was
-never meant to. An extra is matched by the same whole-word rule.
+unattributed — the domain is the strict one because that is where the name of
+whoever owns the address sits. An extra is matched by the same whole-word
+rule, which is also what bounds a short `match`: `code` reaches no OpenCode
+trailer, because it is no whole word of `opencode`. The built-in names are
+tried before a workspace's own, so `[agents].extra` names agents the table
+does not know rather than renaming the ones it does. Both `match` and `name`
+have to be non-empty.
 
 Antigravity writes no trailer of its own, and the ones people add agree on
 nothing but the word itself, so a trailer naming "Antigravity" — in its

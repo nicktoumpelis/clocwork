@@ -29,8 +29,8 @@ All notable changes to clocwork are recorded here. The format follows
 
 - Commits co-authored by Antigravity are recognised. It writes no trailer of
   its own, and the ones people add agree on nothing but the word itself, so a
-  `Co-Authored-By:` trailer carrying "Antigravity" in its name or address
-  counts as Antigravity — before Gemini, since such a trailer often names the
+  `Co-Authored-By:` trailer naming "Antigravity" in its display name or its
+  address counts as Antigravity — before Gemini, since such a trailer often names the
   Gemini model that ran. A trailer that names a Claude model is still read as
   that model, as `Cursor (Claude Sonnet 4.5)` always has been. Antigravity's
   token usage is not read yet.
@@ -42,9 +42,11 @@ All notable changes to clocwork are recorded here. The format follows
   rather than as a substring anywhere in the line. A contributor whose
   address is at a company called Antigravity Drones is no longer credited to
   Antigravity, and `Codexterous` is not Codex. A workspace's
-  `[agents].extra` rows are matched by the same rule, and the built-in names
-  are tried first, so an extra names an agent the table does not know rather
-  than renaming one it does.
+  `[agents].extra` rows are matched by the same rule, so a short `match` no
+  longer spreads across longer words, and the built-in names are tried first,
+  so an extra names an agent the table does not know rather than renaming one
+  it does. An `[agents].extra` row with an empty `match` or `name` is now a
+  configuration error rather than a row that matches everything.
 
 - The dashboard's colours are Solarized's, in both themes, so agents,
   first-appearance lines and token sources have new hues. An agent's table
