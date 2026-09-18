@@ -53,7 +53,9 @@ MODEL_VERSION_FIRST = re.compile(
     rf"Claude\s+({CLAUDE_VERSION})\s+({CLAUDE_FAMILIES}){CLAUDE_CONTEXT}",
     re.IGNORECASE,
 )
-COAUTHOR_TRAILER = re.compile(r"^\s*Co-Authored-By:\s*(.+)$", re.IGNORECASE | re.MULTILINE)
+# A trailer is one line: `\s` would run across line breaks, from every line
+# start, and read the next line as an empty trailer's value.
+COAUTHOR_TRAILER = re.compile(r"^[ \t]*Co-Authored-By:[ \t]*(.+)$", re.IGNORECASE | re.MULTILINE)
 # An ASCII letter or digit either side of a vendor's name makes it part of a
 # longer word, and a longer word is a different name: "Codexterous" is not
 # Codex, and "Antigravity2" is not Antigravity - it may be a product of its
@@ -117,14 +119,22 @@ def parse_claude_model(text):
 
 # The trailer's own address is its first pair of angle brackets, or, in a
 # trailer written without them, its first address. An address's local part
-# is quoted, or ends in a letter or digit of any script ("josé"); punctuation
-# right before the `@` is how a handle is written - "@codex", "(@codex)",
-# "[@codex]", "cc:@codex" - and a handle is a name.
-OWN_ADDRESS = re.compile(r"<([^>]*)>")
-BARE_ADDRESS = re.compile(r'(?:"[^"]+"|[^\s@<>()]*\w)@\S*')
+# is quoted, or holds a letter or digit of any script ("josé") and may end in
+# `.`, `_`, `+` or `-` after it ("jane.@"). With no letter before the `@` it is
+# a handle - "@codex", "(@codex)", "[@codex]", "cc:@codex", "_@codex" - and a
+# handle is a name. An unquoted local part starts where a token does - after
+# whitespace, a bracket or another `@` - and an address in brackets holds no
+# bracket of its own, so each is tried once per token rather than once per
+# character, and a line costs about its length however long it is. A quoted
+# local part may follow anything, since its quotes mark where it begins.
+OWN_ADDRESS = re.compile(r"<([^<>]*)>")
+BARE_ADDRESS = re.compile(r'(?:"[^"]+"|(?<![^\s<>()@])[^\s@<>()]*[^\W_][._+-]*)@\S*')
 # A domain ends in a label of letters. Model ids end in digits or in a
 # suffix glued to them ("gemini-2.5-pro", "gpt-5.1-codex"), so they stay words.
-DOMAIN = re.compile(r"[0-9a-z-]+(?:\.[0-9a-z-]+)*\.[a-z]{2,}(?![0-9a-z-])")
+# It starts where a label does, never partway into one, and never at a label
+# that is the tail of a longer domain; a dot with no label before it
+# (".antigravity-drones.example") is punctuation, not part of the domain.
+DOMAIN = re.compile(r"(?<![0-9a-z-])(?<![0-9a-z-]\.)[0-9a-z-]+(?:\.[0-9a-z-]+)*\.[a-z]{2,}(?![0-9a-z-])")
 
 
 def trailer_parts(trailer):
