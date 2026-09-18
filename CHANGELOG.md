@@ -53,8 +53,10 @@ All notable changes to clocwork are recorded here. The format follows
 - Only a trailer's own address is read as its address. A second one, in
   another pair of brackets or in a note (`(was jane@opencode.ai)`), is
   dropped, and a domain written in a note is judged label by label like the
-  address's own, so neither can credit an agent. A note that names an agent
-  in words (`(via Codex)`) still does, now after a bare address too.
+  address's own, so `(see antigravity-drones.example)` no longer credits
+  Antigravity while `(via opencode.ai)` still credits OpenCode. A note that
+  names an agent in words (`(via Codex)`) still does, now after a bare
+  address too.
 
 - The dashboard's colours are Solarized's, in both themes, so agents,
   first-appearance lines and token sources have new hues. An agent's table

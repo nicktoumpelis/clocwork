@@ -161,6 +161,9 @@ class TestVendors(unittest.TestCase):
         self.assertIsNone(ag.detect_agent("Fix\n\nCo-Authored-By: bot@mail.antigravity-drones.example"))
         self.assertEqual(ag.detect_agent("Fix\n\nCo-Authored-By: jane@antigravity.dev"), "Antigravity")
         self.assertEqual(ag.detect_agent("Fix\n\nCo-Authored-By: antigravity@google.com"), "Antigravity")
+        # Whatever its local part is spelled with, it is still an address.
+        self.assertIsNone(ag.detect_agent("Fix\n\nCo-Authored-By: josé@antigravity-drones"))
+        self.assertIsNone(ag.detect_agent('Fix\n\nCo-Authored-By: "j d"@antigravity-drones'))
 
     def test_a_note_beside_the_address_still_names_its_agent(self):
         self.assertEqual(ag.detect_agent("Fix\n\nCo-Authored-By: Someone <s@x.example> (via Codex)"),
@@ -212,6 +215,10 @@ class TestVendors(unittest.TestCase):
         self.assertEqual(ag.detect_agent(TRAILER.format("Antigravity (gemini-2.5-pro)")), "Antigravity")
         self.assertEqual(ag.detect_agent(TRAILER.format("opencode/gemini-2.5-pro")), "OpenCode")
         self.assertEqual(ag.detect_agent(TRAILER.format("GPT-5.1-Codex")), "Codex")
+        # Two digits after the dot are still a version, and a domain ends
+        # where its label does, not partway into "mimo-v2".
+        self.assertEqual(ag.detect_agent(TRAILER.format("gemini-1.15")), "Gemini")
+        self.assertEqual(ag.detect_agent(TRAILER.format("opencode-go.mimo-v2")), "OpenCode")
 
     def test_a_note_after_a_bare_address_still_names_its_agent(self):
         self.assertEqual(ag.detect_agent("Fix\n\nCo-Authored-By: jane@x.example (via Codex)"), "Codex")
@@ -225,6 +232,9 @@ class TestVendors(unittest.TestCase):
         self.assertEqual(ag.detect_agent("Fix\n\nCo-Authored-By: AGY <antigravity-ai@example.com>"),
                          "Antigravity")
         self.assertIsNone(ag.detect_agent("Fix\n\nCo-Authored-By: AGY <agy@antigravityresearch.example>"))
+        # A label is whole on both sides.
+        self.assertIsNone(ag.detect_agent("Fix\n\nCo-Authored-By: Bot <x@myopencode.ai>"))
+        self.assertIsNone(ag.detect_agent("Fix\n\nCo-Authored-By: Bot <x@mail.my-opencode.ai>"))
 
     def test_unrecognised_trailer_is_unmatched(self):
         self.assertIsNone(ag.detect_agent(TRAILER.format("Jane Doe")))

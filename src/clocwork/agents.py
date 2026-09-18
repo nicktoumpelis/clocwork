@@ -117,9 +117,10 @@ def parse_claude_model(text):
 
 # The trailer's own address is its first pair of angle brackets, or, in a
 # trailer written without them, its first address. An address has a local
-# part before its `@`; "@codex" is a handle, which is a name.
+# part before its `@`, spelled however its owner likes; "@codex" and
+# "(@codex)" are handles, which are names.
 OWN_ADDRESS = re.compile(r"<([^>]*)>")
-BARE_ADDRESS = re.compile(r"[0-9a-z._%+-]+@\S*")
+BARE_ADDRESS = re.compile(r"[^\s@<>()]+@\S*")
 # A domain ends in a label of letters. Model ids end in digits or in a
 # suffix glued to them ("gemini-2.5-pro", "gpt-5.1-codex"), so they stay words.
 DOMAIN = re.compile(r"[0-9a-z-]+(?:\.[0-9a-z-]+)*\.[a-z]{2,}(?![0-9a-z-])")
@@ -130,7 +131,9 @@ def trailer_parts(trailer):
 
     Only the trailer's own address is an address: any other, in a second
     pair of brackets or a note ("was jane@opencode.ai"), is someone else's and
-    says nothing about who wrote the commit, so it is dropped. A domain
+    says nothing about who wrote the commit, so it is dropped. Without
+    brackets nothing tells a note's address from the trailer's own, so the
+    first one is taken, wherever it sits. A domain
     written anywhere else is still a domain, and is returned beside the
     address's own. What is left is the name, from both sides of the address,
     so a note after it still names its agent. An address with no `@` is

@@ -253,7 +253,8 @@ with a dot in it (`jules.google`) matches a domain only as whole labels, so
 
 Antigravity writes no trailer of its own, and the ones people add agree on
 nothing but the word itself, so a trailer naming "Antigravity" — in its
-display name or its address — counts as Antigravity. It is matched before Gemini,
+display name or its address, by the rules above — counts as Antigravity. It
+is matched before Gemini,
 because such a trailer often names the Gemini model that ran
 (`Antigravity CLI (Gemini 3.8 Flash)`) or uses a `gemini@google.com`
 address.
