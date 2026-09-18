@@ -38,6 +38,17 @@ class TestParse(unittest.TestCase):
         with self.assertRaises(cfg.ConfigError):
             cfg.parse('title = 3\n', "x.toml")
 
+    def test_a_blank_extra_row_is_an_error(self):
+        # An empty match names no agent in particular, and what it claimed
+        # would depend on where the empty string fell in a trailer.
+        for row in ('{ match = "", name = "Jules" }',
+                    '{ match = "  ", name = "Jules" }',
+                    '{ match = "Jules", name = "" }'):
+            with self.subTest(row=row):
+                with self.assertRaises(cfg.ConfigError) as ctx:
+                    cfg.parse(f'[agents]\nextra = [{row}]\n', "x.toml")
+                self.assertIn("match and a name", str(ctx.exception))
+
 
 class TestLoad(unittest.TestCase):
     def test_absent_everywhere_is_defaults(self):

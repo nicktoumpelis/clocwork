@@ -63,6 +63,10 @@ def parse(text, source):
             isinstance(e, dict) and isinstance(e.get("match"), str) and isinstance(e.get("name"), str)
             for e in extra):
         raise ConfigError(f"{source}: [agents].extra must be a list of {{ match, name }} tables")
+    # An empty match would name no agent in particular, and what it claimed
+    # would depend on where the empty string happened to fall in a trailer.
+    if any(not e["match"].strip() or not e["name"].strip() for e in extra):
+        raise ConfigError(f"{source}: an [agents].extra row needs a match and a name")
     return Config(title=title, rules=rules, agents=AgentTable(extra=extra), source=source)
 
 

@@ -198,7 +198,7 @@ exclude = ["tests/fixtures/**"]         # applied last, wins over everything
 replace = false                         # true drops the built-ins entirely
 
 [agents]
-extra = [{ match = "Jules", name = "Jules" }]   # substring of a Co-Authored-By trailer, reported name
+extra = [{ match = "Jules", name = "Jules" }]   # a name in a Co-Authored-By trailer, and what to report it as
 ```
 
 Globs match the whole path from the repository root: `**` matches across
@@ -226,13 +226,26 @@ re-measure.
 Attribution comes from `Co-Authored-By:` trailers only, so a commit that
 merely mentions an agent is not counted. Any Claude model is recognised and
 normalised (`Claude Opus 4.6`, `Claude Opus 5 (1M)`), and Copilot, Cursor,
-Codex, Devin, aider, Antigravity, Gemini and Gemini Code Assist are
-recognised by name. Anything else stays unmatched rather than guessed at;
-`[agents].extra` names the rest.
+Codex, Devin, aider, Antigravity, OpenCode, Gemini and Gemini Code Assist
+are recognised by name. Anything else stays unmatched rather than guessed
+at; `[agents].extra` names the rest.
+
+An agent's name has to be a **whole word** in the trailer's display name or
+in the address's local part, or a **whole label** of its domain. So
+`Antigravity AI`, `AGY <noreply@antigravity.dev>` and `opencode-go/mimo-v2.5`
+are all recognised, while `Jane Doe <jane@antigravity-drones.example>` is a
+person at a company whose name happens to start the same way, and stays
+unattributed — the domain is the strict one because that is where the name of
+whoever owns the address sits. An extra is matched by the same whole-word
+rule, which is also what bounds a short `match`: `code` reaches no OpenCode
+trailer, because it is no whole word of `opencode`. The built-in names are
+tried before a workspace's own, so `[agents].extra` names agents the table
+does not know rather than renaming the ones it does. Neither `match` nor
+`name` may be blank.
 
 Antigravity writes no trailer of its own, and the ones people add agree on
-nothing but the word itself, so a trailer carrying "Antigravity" — in the
-name or the address — counts as Antigravity. It is matched before Gemini,
+nothing but the word itself, so a trailer naming "Antigravity" — in its
+display name or its address — counts as Antigravity. It is matched before Gemini,
 because such a trailer often names the Gemini model that ran
 (`Antigravity CLI (Gemini 3.8 Flash)`) or uses a `gemini@google.com`
 address.
