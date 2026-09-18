@@ -25,8 +25,9 @@ prompt count four different ways and the output count two, and *where
 reasoning sits was never a property of the release*: it is the provider's.
 The v5 SDK put OpenAI's reasoning inside the output and Google's beside it,
 so one release writes both shapes depending on which model ran - the
-recordings show v1.2.15 storing it outside and v1.2.17 inside. From v1.3.16
-OpenCode subtracts it itself, for every provider.
+recordings show v1.2.15 storing it outside and v1.2.17 inside - and a v1.3.13
+recording, on the v6 SDK, has Google's inside too. From v1.3.16 OpenCode
+subtracts it itself, for every provider, as a v1.17.20 OpenAI recording shows.
 
 So `counters()` asks the record before it asks anything else: when `total`
 is there, `total == input + output + cache` means reasoning is already
@@ -43,8 +44,9 @@ The prompt count is version-keyed, because nothing in a record reveals it:
 before v1.0.62 it held cache reads for every provider but Anthropic, and in
 v1.3.4 and v1.3.5 it held them *only* for Anthropic, which the v6 SDK had
 just changed. Neither of those two windows appears in any public recording,
-so their fixtures are hand-written and say so, as are the cache-write cases:
-every real record found has `cache.write` of 0.
+so their fixtures are hand-written and say so. A cache write does appear in
+one: v1.17.20 Anthropic records, from 36 to 51,300 tokens written, each
+counted in full beside the input.
 
 **A fork copies its messages and parts under new ids**, keeping the original
 `time.created`. Ids encode their own creation time, so a record whose id was

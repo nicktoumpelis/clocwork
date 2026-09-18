@@ -96,6 +96,42 @@ class TestCounters(unittest.TestCase):
         self.assertEqual(self.counters(t, model="qwen/qwen3-4b", version="1.14.50"),
                          {"input": 21_600, "output": 181, "cache_read": 0, "cache_write": 0})
 
+    def test_era_d_reasoning_inside_output(self):
+        # Recorded v1.3.13 records (opencode.el), the last window before
+        # v1.3.16: 56,644 = 56,075 + 569 and 59,015 = 6,066 + 197 + 52,752,
+        # so the 442 and 140 reasoning tokens are already inside the output.
+        t = {"total": 56_644, "input": 56_075, "output": 569, "reasoning": 442,
+             "cache": {"read": 0, "write": 0}}
+        self.assertEqual(self.counters(t, provider="Gemini", model="gemini-3.1-pro-preview-new", version="1.3.13"),
+                         {"input": 56_075, "output": 569, "cache_read": 0, "cache_write": 0})
+        t = {"total": 59_015, "input": 6_066, "output": 197, "reasoning": 140,
+             "cache": {"read": 52_752, "write": 0}}
+        self.assertEqual(self.counters(t, provider="Gemini", model="gemini-3.1-pro-preview-new", version="1.3.13"),
+                         {"input": 6_066, "output": 197, "cache_read": 52_752, "cache_write": 0})
+
+    def test_a_recorded_cache_write(self):
+        # Recorded v1.17.20 Anthropic records (tmux-pane-dash), the first
+        # with a cache write: 51,296 = 2 + 56 + 48,860 + 2,378, and a first
+        # turn that writes the whole prompt, 51,273 = 2 + 33 + 51,238.
+        t = {"total": 51_296, "input": 2, "output": 56, "reasoning": 0,
+             "cache": {"write": 2_378, "read": 48_860}}
+        self.assertEqual(self.counters(t, provider="anthropic", model="claude-fable-5", version="1.17.20"),
+                         {"input": 2, "output": 56, "cache_read": 48_860, "cache_write": 2_378})
+        t = {"total": 51_273, "input": 2, "output": 33, "reasoning": 0,
+             "cache": {"write": 51_238, "read": 0}}
+        self.assertEqual(self.counters(t, provider="anthropic", model="claude-fable-5", version="1.17.20"),
+                         {"input": 2, "output": 33, "cache_read": 0, "cache_write": 51_238})
+
+    def test_era_e_openai_reasoning_outside_output(self):
+        # A recorded v1.17.20 OpenAI record (tmux-pane-dash): 27,959 =
+        # 27,919 + 18 + 22, so the reasoning is beside the output - the
+        # reverse of kimaki's v1.2.17 OpenAI record, which is why the
+        # record's own total decides and neither the provider nor the release.
+        t = {"total": 27_959, "input": 27_919, "output": 18, "reasoning": 22,
+             "cache": {"write": 0, "read": 0}}
+        self.assertEqual(self.counters(t, model="gpt-5.6-terra", version="1.17.20"),
+                         {"input": 27_919, "output": 40, "cache_read": 0, "cache_write": 0})
+
     def test_a_total_that_fits_neither_reading_falls_back_to_the_version(self):
         t = {"input": 100, "output": 10, "reasoning": 4, "cache": {"read": 0, "write": 0}, "total": 999}
         self.assertEqual(self.counters(t, version="1.14.50")["output"], 14)
@@ -251,6 +287,30 @@ class TestFixtureStores(unittest.TestCase):
         self.assertEqual(self.models("2026-05-22"),
                          {"Qwen/Qwen3-Coder-Next": {"input": 19_642, "output": 2, "cache_read": 0, "cache_write": 0}})
 
+    def test_the_recorded_cache_write_day(self):
+        # Three recorded v1.17.20 records (tmux-pane-dash). Anthropic: inputs
+        # 2 + 2; outputs 33 + 56; cache reads 0 + 48,860; cache writes
+        # 51,238 + 2,378. OpenAI: 27,919 input, 18 output + 22 reasoning.
+        self.assertEqual(self.models("2026-07-17"),
+                         {"anthropic/claude-fable-5":
+                          {"input": 4, "output": 89, "cache_read": 48_860, "cache_write": 53_616},
+                          "openai/gpt-5.6-terra":
+                          {"input": 27_919, "output": 40, "cache_read": 0, "cache_write": 0}})
+        self.assertEqual(self.result.days["2026-07-17"]["turns"], 3)
+
+    def test_the_recorded_era_d_day(self):
+        # Two recorded v1.3.13 records (opencode.el), reasoning inside the
+        # output: inputs 56,075 + 6,066; outputs 569 + 197; cache reads
+        # 0 + 52,752. The day also holds the hand-written empty-directory
+        # session, 330 = 300 + 30, so the whole day is checked: nothing else
+        # may land on it.
+        self.assertEqual(self.models("2026-04-03"),
+                         {"Gemini/gemini-3.1-pro-preview-new":
+                          {"input": 62_141, "output": 766, "cache_read": 52_752, "cache_write": 0},
+                          "openai/gpt-5.3-codex":
+                          {"input": 300, "output": 30, "cache_read": 0, "cache_write": 0}})
+        self.assertEqual(self.result.days["2026-04-03"]["turns"], 3)
+
     def test_a_record_whose_stream_names_no_model(self):
         # codor's v1.17.14 stream carries ids and counts but no model, so the
         # archive says unknown rather than guessing: 10,134 = 10,119 + 3 + 12.
@@ -325,7 +385,8 @@ class TestFixtureStores(unittest.TestCase):
     def test_every_day_belongs_to_a_session_of_this_repository(self):
         self.assertEqual(sorted(self.result.days), [
             "2025-08-01", "2026-01-05", "2026-02-01", "2026-03-04", "2026-03-06", "2026-03-29",
-            "2026-03-30", "2026-04-02", "2026-04-03", "2026-05-22", "2026-05-29", "2026-07-10"])
+            "2026-03-30", "2026-04-02", "2026-04-03", "2026-05-22", "2026-05-29", "2026-07-10",
+            "2026-07-17"])
 
 
 AT = 1780000000000   # 2026-05-28T...Z, a plain weekday inside every era E release

@@ -39,18 +39,19 @@ database:
 
 - **`s1/`: rows as recorded.** Identity, counts and timestamps are as the
   recording holds them; only the project id and the working directory are
-  swapped for the placeholders. Two of the recordings carry no session row
-  of their own - kimaki's is an event stream and codor's a run stream - so
-  those session rows are assembled here from what the stream does say, and
-  codor's version comes from the name of the file it ships in.
+  swapped for the placeholders. Four of the recordings carry no session row
+  of their own - kimaki's, tmux-pane-dash's and opencode.el's are event
+  streams and codor's a run stream - so those session rows are assembled
+  here from what the stream does say: its `session.updated` event where it
+  has one, and for codor the name of the file it ships in.
 - **`s1-derived/`: recorded counts, minted ids.** Irrlicht's recorder
   strips ids, model providers and session rows, so the token counts and
   timestamps are real and everything that identifies them was minted here.
 - **`s1-synthetic/`: hand-written.** The releases and providers no public
-  recording covers: the counter rules of v1.0.x and of v1.3.4-v1.3.5, a
-  non-zero `cache.write`, a fork's copy, a session whose project id belongs
-  to another repository, a session only the experimental V2 table holds, and
-  a session whose directory is empty.
+  recording covers: the counter rules of v1.0.x and of v1.3.4-v1.3.5 (whose
+  Anthropic records need a cache write to show them), a fork's copy, a
+  session whose project id belongs to another repository, a session only
+  the experimental V2 table holds, and a session whose directory is empty.
 
 The file stores are hand-written too, in the layouts the releases wrote:
 `storage/` as v0.6.0 to v1.1.65 wrote it, and
@@ -78,25 +79,53 @@ reader is shown counting a migrated record once.
   [rjx18/codor](https://github.com/rjx18/codor) at
   `03481a33f87f8b16b8a35522084e37ebf7c9c168`,
   `packages/adapters/opencode/fixtures/live-pong-1.17.14.jsonl`. MIT.
+- `s1/`, the v1.17.20 records (two Anthropic messages with a cache write
+  and one OpenAI message with reasoning, of the 18 the streams hold):
+  [xiopt/tmux-pane-dash](https://github.com/xiopt/tmux-pane-dash) at
+  `1b358b9608e29fe550052ac5c9c13417cf2c9c95`,
+  `opencode-plugin/tests/fixtures/{basic-idle,rich-permission-question-subagent,session-switch}.jsonl`.
+  MIT. Event streams, placed into rows as kimaki's are.
+- `s1/`, the v1.3.13 records (two Gemini messages with reasoning), the only
+  recording from the window before v1.3.16:
+  [karta0807913/opencode.el](https://github.com/karta0807913/opencode.el) at
+  `31fccf10566c2e84e11d60f7f5fddb4fdc1c9689`,
+  `test/fixtures/commit-tools-with-thinking/streaming-scenario.txt`.
+  Apache-2.0. An event stream, placed into rows as kimaki's is. Its provider
+  id, `Gemini`, is the user's own name for a custom provider.
 - `s1-derived/`, the v1.14.50 counts:
   [ingo-eichhorst/Irrlicht](https://github.com/ingo-eichhorst/Irrlicht) at
   `7812f069afad9289a615cb968c375dfaed093780`,
   `replaydata/agents/opencode/scenarios/{5-3_model-switch-midsession,1-1_session-start}/`.
   MIT.
 
-Across the four recordings, **8 records carry any reasoning tokens at all**,
-and they are what decided the rule the reader uses: 3 whose `total` equals
+Across the six recordings, **11 records carry any reasoning tokens at all**,
+and they are what decided the rule the reader uses: 5 whose `total` equals
 input + output + cache, so the reasoning is already inside the output
-(kimaki's OpenAI records, 50,769 / 46,737 / 47,319), and 5 where it equals
-that plus the reasoning (kimaki's Gemini 39,176 / 39,110 / 43,610, codor's
-10,134 and Irrlicht's 21,781). Every record in all four recordings has a
-`cache.write` of 0, which is why the only cache-write case here is
-hand-written.
+(kimaki's OpenAI records, 50,769 / 46,737 / 47,319, and opencode.el's Gemini
+56,644 / 59,015), and 6 where it equals that plus the reasoning (kimaki's
+Gemini 39,176 / 39,110 / 43,610, codor's 10,134, Irrlicht's 21,781 and
+tmux-pane-dash's OpenAI 27,959). The same provider appears on both sides,
+which is why the record's own `total` decides and neither the provider nor
+the release. tmux-pane-dash's streams are the only ones with a cache write:
+15 of their 18 records, from 36 to 51,300 tokens.
+
+Three cases still have no recording, and are tested against hand-written
+rows only:
+
+- **A session only the experimental V2 table holds.** No OpenCode release
+  note up to v1.18.31 says the V2 runner became the default, and every
+  recorded store keeps its usage in the V1 tables, so a V2-only session is
+  not yet one a user of a release would have.
+- **The counter rules of v1.0.x and of v1.3.4-v1.3.5.** Both windows are
+  superseded releases, and their readings come from `getUsage` as shipped at
+  those tags.
+- **The two file stores**, as v0.1.0 to v1.1.65 wrote them, which v1.2.0
+  migrates into the database.
 
 ## Licences
 
-The Codex, Gemini and Irrlicht material is MIT-licensed, as is kimaki's and
-codor's; OpenAgents' is Apache-2.0.
+The Codex, Gemini and Irrlicht material is MIT-licensed, as is kimaki's,
+codor's and tmux-pane-dash's; OpenAgents' and opencode.el's are Apache-2.0.
 
 Copyright (c) 2026 Furkan Kalaycioglu
 
@@ -105,6 +134,8 @@ Copyright (c) 2025 Ingo Eichhorst
 Copyright (c) 2025 Kimaki
 
 Copyright (c) 2026 Richard Xiong
+
+Copyright (c) 2026 xiopt
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -124,8 +155,9 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-The OpenAgents rows are used under the Apache License, Version 2.0; a copy
-is at <https://www.apache.org/licenses/LICENSE-2.0>. They are reduced to
-token counts, ids and timestamps, with no modification beyond that and the
-placeholder swaps, and the source repository is named above as the licence's
-attribution notice requires.
+The OpenAgents and opencode.el rows are used under the
+Apache License, Version 2.0; a copy is at
+<https://www.apache.org/licenses/LICENSE-2.0>. They are reduced to token
+counts, ids and timestamps, with no modification beyond that and the
+placeholder swaps, and each source repository is named above as the
+licence's attribution notice requires.
