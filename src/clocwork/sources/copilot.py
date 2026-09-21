@@ -1,8 +1,10 @@
 """GitHub Copilot CLI: one events.jsonl per session under
 $COPILOT_HOME/session-state/<session id>/, a JSON record per line with a
-type, an ISO 8601 timestamp and a data object.
+type, an ISO 8601 timestamp and a data object; and, from about 1.0.83,
+$COPILOT_HOME/session-store.db, whose assistant_usage_events table holds a
+row per model call.
 
-Only session.shutdown carries token counts, in modelMetrics, and they are
+In the log, only session.shutdown carries token counts, in modelMetrics, and they are
 **cumulative for the session so far** rather than per response: an
 assistant.message reports its output alone, and session.usage_checkpoint
 reports billing units and no tokens at all. A session that is resumed goes on
@@ -19,15 +21,21 @@ it. A row that disagrees is counted rather than archived: a format that has
 moved under us should show up as a number in the log, not as quietly halved
 usage.
 
-Usage exists only at shutdown, so a session's tokens land on the UTC day of
-the snapshot that carried them. This is the one source without per-message
-records, and a session held open across midnight is dated by its snapshots,
-which is as fine-grained as the format allows.
+In the log, usage exists only at shutdown, so a session read from its
+snapshots lands on the UTC day of the snapshot that carried them. The store's
+rows are per call and carry their own created_at, and on 1.0.87 they sum
+exactly to the same session's last snapshot. scan() reads each session from
+one of the two, never both: the one holding more tokens, and the rows on a
+tie. A row's input_tokens contains both cache buckets, as inputTokens does,
+and its token_details_json names the uncached remainder, so a row is read
+and checked exactly as a snapshot row is.
 """
 
 import json
 import os
 import re
+import sqlite3
+import urllib.request
 
 from clocwork import paths, tokens
 from clocwork.sources.codex import commit_lookup
@@ -54,6 +62,11 @@ READ_ERRORS = (OSError, UnicodeError)
 # Only these lines matter; messages, tool calls and checkpoints are skipped
 # before they are parsed.
 WANTED = ('"session.start"', '"session.resume"', '"session.shutdown"')
+# The SQLite store beside session-state/, and its table of one row per model
+# call. A store that will not open or query is counted as unreadable.
+STORE = "session-store.db"
+USAGE = "assistant_usage_events"
+STORE_ERRORS = (OSError, ValueError, TypeError, sqlite3.Error)
 
 
 def default_homes(env):
@@ -320,9 +333,126 @@ def archive_session(days, snapshots):
     return malformed
 
 
+def stores(homes):
+    """Every session-store.db the homes reach, each once. A home is the
+    session-state directory, so its store sits beside it; one given as the
+    Copilot directory itself holds it directly."""
+    found = {}
+    for home in homes:
+        home = os.path.normpath(home)
+        for path in (os.path.join(os.path.dirname(home), STORE), os.path.join(home, STORE)):
+            if os.path.isfile(path):
+                found.setdefault(os.path.realpath(path), path)
+    return sorted(found.values())
+
+
+def row_metric(input_tokens, output_tokens, cache_read, cache_write, details):
+    """A store row in the shape of a shutdown's modelMetrics row, so the two
+    are read by the same counters() and checked by the same agrees(). The
+    row's token_details_json lists its buckets by tokenType; the input one
+    is its own uncached figure, as tokenDetails.input is a snapshot's."""
+    metric = {"usage": {"inputTokens": input_tokens, "outputTokens": output_tokens,
+                        "cacheReadTokens": cache_read, "cacheWriteTokens": cache_write}}
+    try:
+        buckets = json.loads(details) if isinstance(details, str) else None
+    except ValueError:
+        buckets = None
+    for bucket in buckets if isinstance(buckets, list) else ():
+        if isinstance(bucket, dict) and bucket.get("tokenType") == "input":
+            metric["tokenDetails"] = {"input": {"tokenCount": bucket.get("tokenCount")}}
+    return metric
+
+
+def read_store(path):
+    """(calls, directories, unreadable) from one session-store.db: each
+    session's calls as {row id: (date, model, metric)}, and the working
+    directory the store records for each session. Keyed by the row's id, so a
+    copy of the store read beside the original adds no call twice.
+
+    A store from before the usage table holds no calls, which is not damage.
+    One that will not open or query at all is unreadable, and nothing in it
+    is used.
+    """
+    calls, directories = {}, {}
+    try:
+        uri = "file:" + urllib.request.pathname2url(os.path.abspath(path)) + "?mode=ro"
+        conn = sqlite3.connect(uri, uri=True)
+    except STORE_ERRORS:
+        return {}, {}, 1
+    try:
+        tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if "sessions" in tables:
+            for session, cwd in conn.execute("SELECT id, cwd FROM sessions"):
+                if tokens.text(session) and tokens.text(cwd):
+                    directories[session] = cwd
+        if USAGE in tables:
+            for row, session, model, *usage, details, created in conn.execute(
+                    "SELECT id, session_id, model, input_tokens, output_tokens, cache_read_tokens,"
+                    " cache_write_tokens, token_details_json, created_at"
+                    f" FROM {USAGE} ORDER BY id"):
+                if tokens.text(session):
+                    calls.setdefault(session, {})[row] = (tokens.day(created), model,
+                                                          row_metric(*usage, details))
+    except STORE_ERRORS:
+        return {}, {}, 1
+    finally:
+        conn.close()
+    return calls, directories, 0
+
+
+def archive_calls(days, calls):
+    """Record one session's per-call rows, each its own turn on its own
+    day; the rows that could not be read."""
+    malformed = 0
+    for date, model, metric in calls:
+        if not agrees(metric) or not date:
+            malformed += 1
+            continue
+        tokens.record(days, date, model, counters(metric))
+    return malformed
+
+
+def everything(days):
+    """Every token a scan's days hold, across days, models and counters."""
+    return sum(tokens.source_total(day) for day in days.values())
+
+
+def add_days(days, more):
+    """Add one session's days to the scan's."""
+    for date, day in more.items():
+        for model, counts in day["models"].items():
+            tokens.record(days, date, model, counts, turns=0)
+        days.setdefault(date, {"turns": 0, "models": {}})["turns"] += day["turns"]
+
+
 def scan(repo, homes):
     """The repository's Copilot CLI usage, or None when no session in the
-    homes belongs to it and none was unreadable."""
+    homes belongs to it and none was unreadable.
+
+    A session can be read two ways: from its shutdown snapshots, and from the
+    store's per-call rows. It is counted from one of them, never both, and
+    from the one that holds more tokens -- the rows on a tie, because they
+    date each call. The snapshots hold more when the session began before
+    the table existed and the rows cover only its later calls; the rows hold
+    more when the session ended without a shutdown. A session whose log is
+    gone is placed by the directory the store records for it. A malformed
+    snapshot or row is counted whichever source the session is read from:
+    it is damage in the logs either way.
+
+    A log whose starts name no session keys them by its directory, the
+    second and later with an ordinal (`dir#1`); the store keys the same
+    calls by the directory alone. So the rows are weighed against every
+    part of the log at once -- against the first alone they would win, and
+    the later parts be counted again beside them.
+
+    The archive keeps the larger record per day, so a session's tokens must
+    not move between days from one run to the next. Here they move when the
+    store cannot give the rows its logs cover -- rows pruned, or the whole
+    store unreadable for one run, say locked while Copilot writes it: the
+    session falls back to its snapshots and lands on its shutdown days,
+    beside the per-call days already archived. The unreadable store is
+    counted as skipped. Whether Copilot prunes the store is not known.
+    """
     repo_real = os.path.realpath(repo)
     remote = paths.remote_key(repo) if os.path.isdir(repo) else None
     known_commit = commit_lookup(repo)
@@ -333,11 +463,37 @@ def scan(repo, homes):
                 malformed += read_log(iter(f), path, sessions)
         except READ_ERRORS:
             skipped += 1
-    for session in sessions.values():
-        if not belongs(session["context"], repo_real, remote, known_commit):
+    stored, directories = {}, {}
+    for path in stores(homes):
+        calls, where, unreadable = read_store(path)
+        skipped += unreadable
+        for session, rows in calls.items():
+            stored.setdefault(session, {}).update(rows)
+        directories.update(where)
+    parts = {}
+    for key in sessions:
+        parts.setdefault(key.split("#", 1)[0], []).append(key)
+    for key in sorted(set(parts) | set(stored)):
+        logged = [sessions[part] for part in sorted(parts.get(key, ()))]
+        if key not in stored:
+            # No rows: each part of the log stands alone, as it always has.
+            for session in logged:
+                if belongs(session["context"], repo_real, remote, known_commit):
+                    belonged = True
+                    malformed += archive_session(days, session["snapshots"])
+            continue
+        contexts = [session["context"] for session in logged if session["context"]]
+        context = contexts[0] if contexts else (
+            {"cwd": directories[key]} if key in directories else {})
+        if not belongs(context, repo_real, remote, known_commit):
             continue
         belonged = True
-        malformed += archive_session(days, session["snapshots"])
+        from_logs, from_rows = {}, {}
+        for session in logged:
+            malformed += archive_session(from_logs, session["snapshots"])
+        malformed += archive_calls(from_rows, stored[key].values())
+        rows_win = everything(from_rows) >= everything(from_logs)
+        add_days(days, from_rows if rows_win else from_logs)
     if not belonged and not skipped:
         return None
     return tokens.ScanResult(days, malformed, skipped)

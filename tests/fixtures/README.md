@@ -33,6 +33,10 @@ pointed at a temporary repository.
   `bf9c07a50c715afde1b8f674061ef49fff9d9b27`,
   `replaydata/agents/copilot/scenarios/{1-2_session-end,1-4_session-resume}/`,
   the first recording of each — Copilot CLI 1.0.77 and 1.0.78. See below.
+- `copilot-store/`: recorded for this repository on 2026-09-21 with Copilot
+  CLI 1.0.87, in a throwaway git repository with `COPILOT_HOME` pointed at a
+  temporary directory. Nobody else's data, so there is no licence to carry.
+  See below.
 
 ## Copilot CLI
 
@@ -87,9 +91,10 @@ against. `reasoningTokens` is reported beside `outputTokens` in all four
 reasoning bucket in `tokenDetails`, and no record carries a total that could
 settle whether it sits inside the output the way OpenCode's does.
 
-The same identity held on a real Copilot CLI 1.0.87 install, run once for
-#67 and not committed: `inputTokens` 47,986, cache read 35,818, cache write
-12,156 and `tokenDetails.input.tokenCount` 12. That run also confirmed the
+The same identity held on a real Copilot CLI 1.0.87 install, run for #67
+and committed as `copilot-store/` (below): its first shutdown has
+`inputTokens` 47,986, cache read 35,818, cache write 12,156 and
+`tokenDetails.input.tokenCount` 12. That run also confirmed the
 layout these files are committed in (`$COPILOT_HOME/session-state/<session
 id>/events.jsonl`, the directory named for `session.start`'s `sessionId`) and
 that `COPILOT_HOME` moves the whole tree.
@@ -101,6 +106,48 @@ placeholder and `cwd` a directory below it, as recorded, the branch is
 together spell the placeholder remote. The recorded commit hashes are kept,
 because they are a public repository's and the reader is shown asking git
 about hashes that are not the test repository's.
+
+## Copilot CLI store
+
+`copilot-store/` is one real session read both ways Copilot CLI 1.0.87
+records it: its `events.jsonl`, and the `session-store.db` beside
+`session-state/`, whose `assistant_usage_events` table holds a row per model
+call. The session made four calls, shut down, was resumed with `--resume`,
+made a fifth and shut down again.
+
+- **`session-state/20fdee16…/events.jsonl`**: only `session.start`,
+  `session.resume` and the two `session.shutdown` records, each reduced to
+  the fields the reader reads plus the version and the start, resume and
+  shutdown fields the older recordings keep. The rest of the log — the
+  system prompt, the messages, the tool calls — was dropped.
+- **`s1/sessions.jsonl` and `s1/assistant_usage_events.jsonl`**: rows of the
+  store's `sessions` and `assistant_usage_events` tables, which
+  `tests/agent_logs.py` builds into `session-store.db`. The usage rows keep
+  their ids, session id, turn index, model, the five token columns,
+  `initiator`, `finish_reason` and `created_at` as recorded. Their
+  `token_details_json` keeps each bucket's `tokenType` and `tokenCount` and
+  drops its `model`, `batchSize` and `costPerBatch`. Every other usage
+  column was dropped: `agent_id`, `parent_tool_call_id` and
+  `copilot_usage_model` (null on every row here), `total_nano_aiu`,
+  `request_multiplier`, the four latency columns, `api_endpoint`,
+  `reasoning_effort` and `content_filter_triggered`. The session row keeps
+  `id`, `cwd`, `repository`, `branch` and `created_at`, and drops
+  `host_type`, `updated_at` and `summary`, which holds the prompt's text.
+  None of the store's other tables is here; the reader reads only these two.
+
+The counts are as recorded. The five rows sum to 15 uncached input, 248
+output, 47,632 cache read and 12,503 cache write, which is exactly what the
+second shutdown's cumulative `modelMetrics` reports (60,150 input, less
+47,632 and 12,503, is 15). So the per-call path and the snapshot path agree
+on this session, which is what lets the reader choose between them without
+changing a total. Each row's `input_tokens` contains both cache buckets, as
+`inputTokens` does, and its `token_details_json` input figure is the
+uncached remainder (3 on every row).
+
+The scratch paths are replaced by the placeholder, both in the log's
+`cwd` and `gitRoot` and in the store's `sessions.cwd`. The repository had no
+remote, so the store's `repository` is null and the log records none. The
+commit hashes are the throwaway repository's.
 
 ## Kilo Code
 

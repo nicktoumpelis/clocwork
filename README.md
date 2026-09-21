@@ -277,7 +277,7 @@ archives per-day totals, per agent and model, into `token_usage.json`:
 |---|---|---|
 | Claude Code | `~/.claude/projects/`, the directory named after the repository's path | none |
 | Codex CLI | `~/.codex/sessions/` and `~/.codex/archived_sessions/` | `CODEX_HOME` replaces `~/.codex` |
-| Copilot CLI | `~/.copilot/session-state/`, one `events.jsonl` per session | `COPILOT_HOME` replaces `~/.copilot` |
+| Copilot CLI | `~/.copilot/session-state/`, one `events.jsonl` per session, and `~/.copilot/session-store.db` beside it | `COPILOT_HOME` replaces `~/.copilot` |
 | Gemini CLI | `~/.gemini/tmp/` and `~/.cache/.gemini/tmp/`, sessions started in the repository or a directory it tracks | `GEMINI_CLI_HOME` replaces `~` |
 | Kilo Code | `~/.local/share/kilo`, on macOS and Windows as well: its `kilo*.db` databases, an `opencode-*.db` left there by the fork's rename, and the file stores its 1.0.x releases wrote | `XDG_DATA_HOME` replaces `~/.local/share`; `KILO_DB` adds the database it names |
 | OpenCode | `~/.local/share/opencode`, on macOS and Windows as well: its `opencode*.db` databases and the file stores older releases wrote | `XDG_DATA_HOME` replaces `~/.local/share`; `OPENCODE_DB` adds the database it names |
@@ -295,14 +295,19 @@ A Copilot CLI session records its repository as `owner/name` beside its
 host, which is the identity clocwork builds from `origin`, so it belongs by
 the same rule as a Codex session: the same remote from any clone, otherwise
 the repository's directory plus one of its commits, otherwise the directory
-alone. It is the one agent whose log records tokens only once per session,
-at shutdown, as a running total per model rather than per response; a
-session resumed and shut down again writes a further total, and clocwork
-archives the increase, so a session recorded twice is counted once. The
-day a session's tokens land on is therefore the day of the shutdown that
-reported them. A shutdown also reports its uncached input directly, and
-clocwork checks every row that reports it against the figure it
-derives: a row that disagrees is counted in the log as unparseable rather
+alone. Its log records tokens only at shutdown, as a running total per
+model rather than per response; a session resumed and shut down again writes
+a further total, and clocwork archives the increase, so a session recorded
+twice is counted once. Releases from about 1.0.83 on also keep a row per
+model call in `session-store.db`, each with its own time, and clocwork reads
+a session from whichever of the two holds more tokens — the rows when they
+agree, so each call lands on its own day rather than on the day of the
+shutdown that reported it. The snapshots hold more for a session begun
+before the table existed; the rows hold more for one that never shut down.
+A session whose log is gone is placed by the working directory the store
+records for it. Both report their uncached input directly, and clocwork
+checks every row and snapshot that reports it against the figure it
+derives: one that disagrees is counted in the log as unparseable rather
 than archived, because a format that has changed should be visible instead
 of quietly halving a total.
 Gemini CLI identifies a session's project only by a hash of the directory it

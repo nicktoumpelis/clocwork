@@ -380,7 +380,10 @@ class TestRecordings(unittest.TestCase):
         self.assertEqual(self.scan().days, RECORDED)
 
 
-class TestRules(unittest.TestCase):
+class LogHome(unittest.TestCase):
+    """A Copilot home to write hand-made logs into, and the scan of it. It
+    holds no tests of its own."""
+
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -402,6 +405,8 @@ class TestRules(unittest.TestCase):
     def day(self, date="2026-08-05"):
         return self.scan().days[date]
 
+
+class TestRules(LogHome):
     def test_one_snapshot_is_recorded_as_it_stands(self):
         self.write([start(self.repo), shutdown({"m": metric(100, 20, cache_read=5)})])
         self.assertEqual(self.day()["models"]["m"], counts(100, 20, cache_read=5))
@@ -646,6 +651,215 @@ class TestRules(unittest.TestCase):
         path = self.write([start(self.repo), shutdown({"m": metric(100, 20)})])
         os.rename(path, os.path.join(os.path.dirname(path), "events.jsonl.bak"))
         self.assertIsNone(self.scan())
+
+
+# The per-call rows of the Copilot CLI 1.0.87 store in tests/fixtures/
+# copilot-store, summed with SQL over the unreduced store and without the
+# reader: five calls, one of them after a resume, all on one day.
+STORE_RECORDED = {"2026-09-21": {"turns": 5, "models": {
+    "gpt-5.6-luna": {"input": 15, "output": 248, "cache_read": 47_632, "cache_write": 12_503}}}}
+STORE_SESSION = "20fdee16-9f7d-40df-8c24-65473aa11a9b"
+
+
+class TestStoreRecording(unittest.TestCase):
+    """A real session-store.db beside the events.jsonl of the same session,
+    installed where Copilot writes them."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = os.path.realpath(tmp.name)
+        self.repo = os.path.join(self.root, "agent-sample")
+        os.makedirs(self.repo)
+        self.home = os.path.join(self.root, "home", ".copilot")
+        agent_logs.install("copilot-store", self.home, self.repo, database=copilot.STORE)
+
+    def scan(self):
+        return copilot.scan(self.repo, copilot.default_homes({"COPILOT_HOME": self.home}))
+
+    def test_every_recorded_call(self):
+        result = self.scan()
+        self.assertEqual(result.days, STORE_RECORDED)
+        self.assertEqual((result.malformed, result.skipped), (0, 0))
+
+    def test_the_rows_and_the_snapshots_agree_on_the_session(self):
+        # The same session read from its shutdown snapshots alone: the
+        # fallback must reach the same totals, or choosing between the two
+        # would change a figure rather than only its days.
+        os.remove(os.path.join(self.home, copilot.STORE))
+        self.assertEqual(self.scan().days, STORE_RECORDED)
+
+    def test_the_rows_alone_still_find_their_repository(self):
+        # With the session's log gone, the store's own working directory is
+        # what ties its rows to the repository.
+        shutil.rmtree(os.path.join(self.home, "session-state", STORE_SESSION))
+        self.assertEqual(self.scan().days, STORE_RECORDED)
+
+
+def call(n, session="s1", model="m", input=0, output=0, cache_read=0, cache_write=0,
+         at="2026-08-05T10:00:00.000Z", details=True):
+    """One row of assistant_usage_events: input_tokens contains both cache
+    buckets, as Copilot writes it."""
+    row = {"id": n, "session_id": session, "turn_index": 0, "model": model,
+           "input_tokens": input + cache_read + cache_write, "output_tokens": output,
+           "cache_read_tokens": cache_read, "cache_write_tokens": cache_write,
+           "reasoning_tokens": 0, "created_at": at, "token_details_json": None}
+    if details:
+        row["token_details_json"] = [{"tokenType": "input", "tokenCount": input},
+                                     {"tokenType": "cache_read", "tokenCount": cache_read},
+                                     {"tokenType": "cache_write", "tokenCount": cache_write},
+                                     {"tokenType": "output", "tokenCount": output}]
+    return row
+
+
+class TestStoreRules(LogHome):
+    """session-store.db's per-call rows, and how they share a session with
+    its shutdown snapshots."""
+
+    def store(self, calls, sessions=None):
+        tables = {"sessions": sessions if sessions is not None else
+                  [{"id": "s1", "cwd": self.repo, "repository": None, "branch": "main",
+                    "created_at": "2026-08-05T09:00:00.000Z"}]}
+        if calls is not None:
+            tables["assistant_usage_events"] = calls
+        agent_logs.build_database(os.path.join(self.home, copilot.STORE), tables)
+
+    def test_each_call_is_dated_by_its_own_time(self):
+        # The shutdown reports both calls on the day it ran; the rows put
+        # each call on its own day, which is what the table is for.
+        self.write([start(self.repo), shutdown({"m": metric(300, 30, requests=2)},
+                                               "2026-08-06T00:30:00.000Z")])
+        self.store([call(1, input=100, output=10, at="2026-08-05T23:50:00.000Z"),
+                    call(2, input=200, output=20, at="2026-08-06T00:10:00.000Z")])
+        days = self.scan().days
+        self.assertEqual({d: (v["turns"], v["models"]["m"]) for d, v in days.items()},
+                         {"2026-08-05": (1, counts(100, 10)), "2026-08-06": (1, counts(200, 20))})
+
+    def test_a_session_in_both_is_counted_once(self):
+        # The shutdown runs the day after the calls, so the days say which
+        # source was read: counted from the rows, as a tie is, and not also
+        # from the snapshot.
+        self.write([start(self.repo), shutdown({"m": metric(300, 30, cache_read=50, requests=2)},
+                                               "2026-08-06T09:00:00.000Z")])
+        self.store([call(1, input=100, output=10, cache_read=50),
+                    call(2, input=200, output=20)])
+        days = self.scan().days
+        self.assertEqual({d: (v["turns"], v["models"]["m"]) for d, v in days.items()},
+                         {"2026-08-05": (2, counts(300, 30, cache_read=50))})
+
+    def test_a_snapshot_that_holds_more_than_the_rows_wins(self):
+        # A session begun before the table existed and resumed after it: the
+        # rows hold only the later calls, the snapshot the whole session.
+        self.write([start(self.repo), shutdown({"m": metric(900, 90, requests=3)})])
+        self.store([call(1, input=300, output=30)])
+        day = self.day()
+        self.assertEqual((day["turns"], day["models"]["m"]), (3, counts(900, 90)))
+
+    def test_rows_that_hold_more_than_the_snapshots_win(self):
+        # A session that ended without a shutdown -- killed, or still open --
+        # has rows past its last snapshot.
+        self.write([start(self.repo), shutdown({"m": metric(100, 10)})])
+        self.store([call(1, input=100, output=10), call(2, input=200, output=20)])
+        day = self.day()
+        self.assertEqual((day["turns"], day["models"]["m"]), (2, counts(300, 30)))
+
+    def test_rows_with_no_log_at_all_are_counted(self):
+        self.store([call(1, input=100, output=10)])
+        self.assertEqual(self.day()["models"]["m"], counts(100, 10))
+
+    def test_rows_with_no_log_from_another_directory_are_not(self):
+        self.store([call(1, input=100, output=10)],
+                   sessions=[{"id": "s1", "cwd": os.path.join(self.root, "other")}])
+        self.assertIsNone(self.scan())
+
+    def test_rows_with_no_log_and_no_session_row_are_not(self):
+        # Nothing then says where the session ran: the store describes other
+        # sessions, but not this one.
+        self.store([call(1, input=100, output=10)], sessions=[{"id": "other", "cwd": self.repo}])
+        self.assertIsNone(self.scan())
+
+    def test_a_log_s_context_decides_over_the_store_s_directory(self):
+        # The log records the remote and the commit, so where it says the
+        # session ran elsewhere, a store row naming this directory does not
+        # overrule it.
+        self.write([start(os.path.join(self.root, "other")), shutdown({"m": metric(100, 10)})])
+        self.store([call(1, input=100, output=10)])
+        self.assertIsNone(self.scan())
+
+    def test_a_store_without_the_usage_table_is_read_as_before(self):
+        # Releases before the table: the store exists and holds none of it.
+        self.write([start(self.repo), shutdown({"m": metric(100, 10)})])
+        self.store(None)
+        result = self.scan()
+        self.assertEqual((result.days["2026-08-05"]["models"]["m"], result.skipped), (counts(100, 10), 0))
+
+    def test_a_damaged_store_is_counted_and_the_logs_still_read(self):
+        self.write([start(self.repo), shutdown({"m": metric(100, 10)})])
+        os.makedirs(self.home, exist_ok=True)
+        with open(os.path.join(self.home, copilot.STORE), "w", encoding="utf-8") as f:
+            f.write("not a database")
+        result = self.scan()
+        self.assertEqual((result.days["2026-08-05"]["models"]["m"], result.skipped), (counts(100, 10), 1))
+
+    def test_a_row_whose_own_uncached_input_disagrees_is_counted_not_archived(self):
+        bad = call(2, input=200, output=20)
+        bad["token_details_json"][0]["tokenCount"] = 7
+        self.store([call(1, input=100, output=10), bad])
+        result = self.scan()
+        self.assertEqual((result.days["2026-08-05"]["models"]["m"], result.malformed), (counts(100, 10), 1))
+
+    def test_a_row_with_no_details_is_taken_as_it_stands(self):
+        self.store([call(1, input=100, output=10, cache_read=5, details=False)])
+        self.assertEqual(self.day()["models"]["m"], counts(100, 10, cache_read=5))
+
+    def test_sqlite_s_own_timestamp_form_is_read(self):
+        # created_at defaults to datetime('now'), which has no T and no Z.
+        self.store([call(1, input=100, output=10, at="2026-08-05 10:00:00")])
+        self.assertEqual(self.day()["models"]["m"], counts(100, 10))
+
+    def test_a_row_with_no_day_is_counted(self):
+        self.store([call(1, input=100, output=10, at=None), call(2, input=200, output=20)])
+        result = self.scan()
+        self.assertEqual((result.days["2026-08-05"]["models"]["m"], result.malformed), (counts(200, 20), 1))
+
+    def test_two_copies_of_one_store_count_each_call_once(self):
+        # A backed-up Copilot directory beside the live one: two files, the
+        # same rows. A row keeps its id in the copy, so it is counted once,
+        # as a copied log's snapshots are.
+        self.store([call(1, input=100, output=10)])
+        backup = os.path.join(self.root, "backup", ".copilot")
+        shutil.copytree(self.home, backup)
+        result = copilot.scan(self.repo, copilot.default_homes({"COPILOT_HOME": self.home})
+                              + copilot.default_homes({"COPILOT_HOME": backup}))
+        day = result.days["2026-08-05"]
+        self.assertEqual((day["turns"], day["models"]["m"]), (1, counts(100, 10)))
+
+    def test_unnamed_sessions_in_one_log_meet_their_rows_together(self):
+        # A log whose starts name no session is keyed by its directory, and
+        # a second unnamed start by an ordinal after it. The store keys the
+        # same calls by the directory alone, so the rows must be weighed
+        # against both parts of the log -- weighed against the first alone,
+        # they win, and the second part is then counted again on its own.
+        unnamed = start(self.repo)
+        del unnamed["data"]["sessionId"]
+        self.write([unnamed, shutdown({"m": metric(40, 0)}, "2026-08-05T12:00:00.000Z"),
+                    unnamed, shutdown({"m": metric(100, 0)}, "2026-08-05T13:00:00.000Z")])
+        self.store([call(1, input=100)])
+        self.assertEqual(self.day()["models"]["m"], counts(140, 0))
+
+    def test_a_store_reached_from_two_homes_is_read_once(self):
+        # Once through the Copilot directory, once through a link to it: two
+        # paths, one file. Read twice, every call would be counted twice.
+        self.store([call(1, input=100, output=10)])
+        state = os.path.join(self.home, "session-state")
+        os.makedirs(state, exist_ok=True)
+        alias = os.path.join(self.root, "alias")
+        os.symlink(self.home, alias)
+        homes = [state, self.home, os.path.join(alias, "session-state")]
+        self.assertEqual(len(copilot.stores(homes)), 1)
+        result = copilot.scan(self.repo, homes)
+        self.assertEqual((result.days["2026-08-05"]["models"]["m"], result.malformed),
+                         (counts(100, 10), 0))
 
 
 if __name__ == "__main__":
