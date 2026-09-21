@@ -673,6 +673,25 @@ var ANNOTATIONS = __ANNOTATIONS__;   // [[date, label, colourIndex], ...] from f
 // Chart annotations are data: one dashed line per first appearance, coloured
 // by index into a fixed palette so the assignment is stable across runs.
 var ANNOTATION_PALETTE = ['violet', 'blue', 'orange', 'blue-2', 'cyan-2', 'magenta-2', 'yellow', 'green-2', 'red-2', 'yellow-2'];
+// The token chart's hue for each source sources.SOURCES reads, keyed by its
+// KEY. It belongs to the source, so it stays put whichever other agents have
+// logs.
+var SOURCE_COLOURS = {
+    'claude-code': 'blue', 'codex': 'green-2', 'copilot': 'violet',
+    'gemini': 'orange', 'kilo': 'magenta', 'opencode': 'cyan'
+};
+// A key this version does not know, as an archive written by a newer
+// clocwork can carry, takes from the palette less those hues, counted among
+// such keys alone: it never wears a known source's colour, and a known
+// source coming or going never moves it. Families no known source uses come
+// first, so the first stranger is not a second shade of Claude Code's blue.
+var SOURCE_SPARE = (function() {
+    var taken = Object.keys(SOURCE_COLOURS).map(function(k) { return SOURCE_COLOURS[k]; });
+    var family = function(t) { return t.split('-')[0]; };
+    var free = ANNOTATION_PALETTE.filter(function(t) { return taken.indexOf(t) < 0; });
+    var near = function(t) { return taken.some(function(u) { return family(u) === family(t); }); };
+    return free.filter(function(t) { return !near(t); }).concat(free.filter(near));
+})();
 // A theme colour by name (THEME, in <head>): a role such as 'surface' or a
 // series colour such as 'blue-2'.
 function themeColour(name) { return THEME.colour(name); }
@@ -1688,8 +1707,7 @@ function resetMainZoom() {
 
     // One source keeps the original pair of series. With logs from several
     // agents, each gets a measured and an estimated series in one stack, in its
-    // own hue, and the legend names each agent once.
-    var SOURCE_COLOURS = { 'claude-code': 'blue', 'codex': 'green-2', 'gemini': 'orange' };
+    // own hue (SOURCE_COLOURS), and the legend names each agent once.
     var charted = sources.filter(function(s) { return s.per_day && s.per_day.length; });
     var stacked = charted.length > 1;
     var datasets = [];
@@ -1710,8 +1728,9 @@ function resetMainZoom() {
     // accent for measured and grey for estimated when there is one.
     function paintData() {
         if (stacked) {
+            var unknown = 0;
             charted.forEach(function(s, i) {
-                var colour = themeColour(SOURCE_COLOURS[s.key] || ANNOTATION_PALETTE[i % ANNOTATION_PALETTE.length]);
+                var colour = themeColour(SOURCE_COLOURS[s.key] || SOURCE_SPARE[unknown++ % SOURCE_SPARE.length]);
                 datasets[2 * i].backgroundColor = hexToRgba(colour, 0.6);
                 datasets[2 * i].borderColor = colour;
                 datasets[2 * i + 1].backgroundColor = hexToRgba(colour, 0.2);

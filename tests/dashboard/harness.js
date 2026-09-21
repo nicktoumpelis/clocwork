@@ -97,6 +97,9 @@ function load(opts) {
   // machine running the suite can say about its own build.
   if (opts.renderedBy === null) delete RAW.rendered_by;
   else if (opts.renderedBy !== undefined) RAW.rendered_by = opts.renderedBy;
+  // opts.raw edits the data blob in place before the page runs, to build a
+  // workspace the fixture has no variant for (test_source_colours.js).
+  if (opts.raw) opts.raw(RAW);
   src = src.replace(/^var RAW = .*;$/m, () => 'var RAW = ' + JSON.stringify(RAW) + ';');
 
   // Only ids the page's markup declares exist, as in a browser: any other
