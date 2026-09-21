@@ -168,6 +168,16 @@ class TestVendors(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual(ag.detect_agent("Fix\n\nCo-Authored-By: " + text), name)
 
+    def test_the_trailer_copilot_cli_asks_for_names_copilot(self):
+        # Copilot CLI 1.0.87's system prompt, while includeCoAuthoredBy is on
+        # (the default), asks the model to end every commit message with this
+        # trailer. sources.copilot ties its tokens to the name it resolves to.
+        from clocwork.sources import copilot
+        body = ("Add hello\n\n"
+                "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>\n")
+        self.assertEqual(ag.detect_agent(body), "Copilot")
+        self.assertTrue(copilot.AGENT.match(ag.detect_agent(body)))
+
     def test_mention_outside_a_trailer_is_not_attributed(self):
         self.assertIsNone(ag.detect_agent("Tidy up after Copilot suggested this\n\nSigned-off-by: A <a@b>"))
         self.assertIsNone(ag.detect_agent("See CLAUDE.md and the claude-fix branch"))
