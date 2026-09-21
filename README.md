@@ -334,8 +334,8 @@ case, not an error.
 
 Tokens land only on the commits of the agent whose logs measured them,
 split across that agent's commits of the day by lines changed. A commit
-carries no token figure when its agent's logs are not read (Copilot, Cursor,
-Devin, aider, Antigravity, Gemini Code Assist or any other), or when they
+carries no token figure when its agent's logs are not read (Cursor, Devin,
+aider, Antigravity, Gemini Code Assist or any other), or when they
 cover no day on which that agent's commits changed lines, and it is never
 priced at another agent's rate. When the repository has token data, the run
 summary counts those commits and names their agents. Gemini Code Assist is
@@ -349,8 +349,13 @@ commit credits Gemini by hand, in a trailer such as
 `Co-Authored-By: Gemini CLI <address>`; otherwise the page says its tokens
 land on no commit. Codex rollouts that Codex has compressed are read on
 Python 3.14 and later; earlier versions count them as unreadable and say so
-in the log. Copilot CLI's tokens land on the commits whose trailers credit
-Copilot, whether the agent wrote the trailer or its author added it.
+in the log. Copilot CLI asks its model to end commit messages with
+`Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>` unless
+`includeCoAuthoredBy` is turned off, and its tokens land on the commits whose
+trailers credit Copilot, whether the agent wrote the trailer or its author
+added it. GitHub's cloud Copilot agent credits the same name, so on a day
+when both worked on the repository, the CLI's tokens are shared across the
+cloud agent's commits too.
 
 Kilo Code adds no trailer of its own either — the one its GitHub agent
 writes credits the person who dispatched the workflow, and the agent itself
