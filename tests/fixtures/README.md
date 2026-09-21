@@ -1,7 +1,7 @@
 # Agent log fixtures
 
-Real Codex CLI, Copilot CLI, Gemini CLI and OpenCode session logs, reduced
-to what clocwork's token readers use: session identity, working directory,
+Real Codex CLI, Copilot CLI, Gemini CLI, Kilo Code and OpenCode session
+logs, reduced to what clocwork's token readers use: session identity, working directory,
 remote, model, token usage and timestamps. Prompts, replies, reasoning, tool
 calls, instructions, branch names and time zones were removed, as were
 commit hashes everywhere but the Copilot sessions, which keep theirs for the
@@ -95,6 +95,63 @@ together spell the placeholder remote. The recorded commit hashes are kept,
 because they are a public repository's and the reader is shown asking git
 about hashes that are not the test repository's.
 
+## Kilo Code
+
+Kilo Code is a fork of OpenCode and keeps the same store, so its rows are
+committed the same way OpenCode's are — as JSONL, one file per table, built
+into a database by `tests/agent_logs.py` — under `kilo/`, and installed as
+`kilo.db`.
+
+- **`s1/`: rows as recorded.** `message.jsonl` and `part.jsonl` hold the
+  message and part ids, the models, the timestamps and the token counts as
+  the export gives them. Two columns are filled in: the `session_id`, minted
+  here to match the derived row below because the export names no session
+  anywhere, and each part's `time_created`, taken from the message it hangs
+  off, because the export carries a timestamp per message and not per part.
+- **`s1-derived/`: the session row.** The export carries none, so this one
+  is assembled here: a minted id, the placeholder project and directory, and
+  the release its own provenance note states. Its roll-up columns are the
+  true sums of the messages beside it.
+
+The export is post-join JSON — each message with its parts — not SQL, so the
+rows here are that shape unpacked back into the two tables Kilo writes.
+Everything the reader does not read was dropped, which for this recording
+means most of it: the prompts, the replies, the reasoning text, the tool
+calls and their output, and the `path` the messages carry (its `cwd` was a
+scratch directory and its `root` was `/`, and the session row's directory is
+what places a session anyway). The `step-start` parts are kept, bare, to
+show a part with no usage being passed over.
+
+Six messages, four of them assistant messages carrying usage, all on
+2026-08-10, and each one's
+`total` equals its input + output + cache read **plus** its reasoning, so
+every one of them says its reasoning sits outside the output:
+
+| | input | output | reasoning | cache read | total |
+|---|---|---|---|---|---|
+| | 9,493 | 34 | 34 | 2,048 | 11,609 |
+| | 411 | 98 | 153 | 11,264 | 11,926 |
+| | 364 | 86 | 37 | 11,648 | 12,135 |
+| | 9,890 | 47 | 17 | 2,048 | 12,002 |
+| **sum** | **20,158** | **265** | **241** | **27,008** | |
+
+So the archive records 20,158 input, 506 output (265 + 241), 27,008 cache
+read and no cache write, over four turns.
+
+Two things in it are the reason it was worth having. Every **assistant**
+message names the model as `kilo-auto/free`, the router alias the user
+chose, while every `step-finish` part names `stepfun/step-3.7-flash`, which
+actually served the call — so a reader that took the message's name would file real usage under
+a name that is not a model and has no price. And the session row's roll-up
+columns hold Kilo's own sums of these same messages, so a reader that
+counted them as well would report every figure twice.
+
+No cache **write** appears anywhere in it, and no public Kilo store records
+a session-row `version` — neither a `7.x.y` string nor the literal `local` a
+build from source writes. Those two are covered by hand-written rows in
+`tests/test_sources_kilo.py` instead, and the search that establishes their
+absence is described in the source list below.
+
 ## OpenCode
 
 OpenCode keeps its sessions in SQLite, which no repository can hold as a
@@ -158,6 +215,18 @@ reader is shown counting a migrated record once.
   `test/fixtures/commit-tools-with-thinking/streaming-scenario.txt`.
   Apache-2.0. An event stream, placed into rows as kimaki's is. Its provider
   id, `Gemini`, is the user's own name for a custom provider.
+- `kilo/`, one real Kilo Code 7.4.20 session (four assistant messages, the
+  router alias beside the resolved model, no cache write):
+  [autonomous-ai/openharness](https://github.com/autonomous-ai/openharness)
+  at `a67e082b6e2985e7f226bf5737ebd3b39ce1d60b`,
+  `cli/src/lib/__fixtures__/kilo-session.json`. **Apache-2.0** — the
+  repository is MIT today, but it was relicensed on 2026-08-17, a week
+  *after* the commit these rows come from, so they are used under the
+  licence in force at that commit and not the current one. Its own spec
+  describes the file as "a REAL kilo 7.4.20 session, exported from this
+  machine's own kilo.db with the home directory scrubbed", which is where
+  the release number comes from — the export holds no session row to read it
+  off.
 - `s1-derived/`, the v1.14.50 counts:
   [ingo-eichhorst/Irrlicht](https://github.com/ingo-eichhorst/Irrlicht) at
   `7812f069afad9289a615cb968c375dfaed093780`,
@@ -191,8 +260,8 @@ rows only:
 ## Licences
 
 The Codex, Copilot, Gemini and Irrlicht material is MIT-licensed, as is
-kimaki's, codor's and tmux-pane-dash's; OpenAgents' and opencode.el's are
-Apache-2.0.
+kimaki's, codor's and tmux-pane-dash's; OpenAgents', opencode.el's and
+openharness's are Apache-2.0.
 
 Copyright (c) 2026 Furkan Kalaycioglu
 
@@ -222,9 +291,22 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-The OpenAgents and opencode.el rows are used under the
+The OpenAgents, opencode.el and openharness rows are used under the
 Apache License, Version 2.0; a copy is at
 <https://www.apache.org/licenses/LICENSE-2.0>. They are reduced to token
 counts, ids and timestamps, with no modification beyond that and the
 placeholder swaps, and each source repository is named above as the
 licence's attribution notice requires.
+
+openharness ships a NOTICE file at the commit its rows come from, whose
+attribution the same licence requires be carried on:
+
+> Autonomous Harness — Provider Protocol
+> Copyright 2026 Autonomous, Inc.
+>
+> This product includes software developed at Autonomous, Inc.
+>
+> This repository is a *profile* of the Agent2Agent (A2A) protocol
+> (<https://github.com/a2aproject/A2A>), which is itself licensed under
+> Apache-2.0. It defines no competing protocol; everything specific to
+> Autonomous is expressed as a declared A2A extension.

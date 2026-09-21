@@ -21,7 +21,7 @@ in git diff mode and cached per file, so a first run over a long history is slow
 .I index.html
 (its charts load Chart.js and its plugins from a CDN) plus a
 .I commit_bodies.js
-sidecar, written to a workspace next to the repository, never inside it: lines per language and type at every commit, which commits an AI agent co\-authored and when each model first appeared, and, when a coding agent's logs for the repository are on the machine (Claude Code, Codex CLI, Copilot CLI, Gemini CLI, OpenCode), what the work cost in tokens.
+sidecar, written to a workspace next to the repository, never inside it: lines per language and type at every commit, which commits an AI agent co\-authored and when each model first appeared, and, when a coding agent's logs for the repository are on the machine (Claude Code, Codex CLI, Copilot CLI, Gemini CLI, Kilo Code, OpenCode), what the work cost in tokens.
 .PP
 A first argument that is not a command is taken as
 .IR REPO ,
@@ -117,6 +117,13 @@ and
 .I .cache/.gemini/tmp/
 below it.
 .TP
+.B KILO_DB
+A Kilo Code database to read besides every
+.I kilo*.db
+and
+.I opencode\-*.db
+in its data directory; absolute, or relative to that directory.
+.TP
 .B OPENCODE_DB
 An OpenCode database to read besides every
 .I opencode*.db
@@ -133,11 +140,13 @@ wins over both. Only
 uses the cache.
 .TP
 .B XDG_DATA_HOME
-Where OpenCode keeps its sessions, read from
+Where OpenCode and Kilo Code keep their sessions, read from
 .I opencode/
+and
+.I kilo/
 below it; the default is
 .I ~/.local/share
-on every system, OpenCode having no variable of its own.
+on every system, neither having a variable of its own.
 .SH FILES
 .TP
 .I <repo\-parent>/<repo\-name>\-stats/

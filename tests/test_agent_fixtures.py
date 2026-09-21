@@ -1,8 +1,8 @@
 """The committed agent logs carry only what the token readers need.
 
-tests/fixtures holds real Codex CLI, Copilot CLI, Gemini CLI and OpenCode
-sessions from public repositories, reduced to identity, model, usage and
-timestamps. These checks fail if a later refresh lets anything else in: a
+tests/fixtures holds real Codex CLI, Copilot CLI, Gemini CLI, Kilo Code and
+OpenCode sessions from public repositories, reduced to identity, model,
+usage and timestamps. These checks fail if a later refresh lets anything else in: a
 prompt, a reply, a real path.
 """
 
@@ -56,7 +56,7 @@ MODEL_ID = re.compile(r"^[0-9a-z][0-9a-z.-]*$")
 # as repositoryHost and repository, so the path half stands alone in a
 # reduced record and is a placeholder like the remote it comes from.
 REMOTE_PATH = paths.parse_remote(agent_logs.REMOTE)[1]
-AGENTS = ("codex", "copilot", "gemini", "opencode")
+AGENTS = ("codex", "copilot", "gemini", "kilo", "opencode")
 COPILOT_KEYS = {
     "baseCommit", "branch", "cacheReadTokens", "cacheWriteTokens", "cache_read", "cache_write",
     "context", "copilotVersion", "cost", "count", "cwd", "data", "gitRoot", "headCommit", "hostType",
@@ -71,6 +71,24 @@ COPILOT_KEYS = {
 # Pinning the set means a key nobody meant - one valid for another table, or
 # a spelling these fixtures do not use - fails here instead of quietly
 # becoming a column of its own and leaving the real one empty.
+# Kilo Code's rows are OpenCode's, plus the session roll-up its
+# session_usage migration added - which the reader must not count, and which
+# is pinned here so a fixture refresh cannot quietly drop the columns that
+# prove it does not.
+KILO_KEYS = {
+    "cache", "cost", "created", "data", "directory", "id", "input", "message_id", "model",
+    "modelID", "output", "parent_id", "path", "project_id", "providerID", "read", "reasoning",
+    "role", "session_id", "time", "time_created", "time_updated", "tokens", "tokens_cache_read",
+    "tokens_cache_write", "tokens_input", "tokens_output", "tokens_reasoning", "total", "type",
+    "version", "write",
+}
+KILO_COLUMNS = {
+    "session": {"id", "project_id", "parent_id", "directory", "version", "path",
+                "time_created", "time_updated", "cost", "tokens_input", "tokens_output",
+                "tokens_reasoning", "tokens_cache_read", "tokens_cache_write"},
+    "message": {"id", "session_id", "time_created", "data"},
+    "part": {"id", "message_id", "session_id", "time_created", "data"},
+}
 OPENCODE_COLUMNS = {
     "session": {"id", "project_id", "parent_id", "directory", "version", "path",
                 "time_created", "time_updated"},
@@ -130,11 +148,12 @@ def names_a_model(path):
 
 class TestFixturesAreReduced(unittest.TestCase):
     def test_every_agent_has_its_sessions(self):
-        self.assertEqual(tuple(len(agent_logs.files(a)) for a in AGENTS), (13, 4, 5, 17))
+        self.assertEqual(tuple(len(agent_logs.files(a)) for a in AGENTS), (13, 4, 5, 3, 17))
 
     def test_only_allow_listed_keys(self):
         for agent, allowed in (("codex", CODEX_KEYS), ("copilot", COPILOT_KEYS),
-                               ("gemini", GEMINI_KEYS), ("opencode", OPENCODE_KEYS)):
+                               ("gemini", GEMINI_KEYS), ("kilo", KILO_KEYS),
+                               ("opencode", OPENCODE_KEYS)):
             for rel in agent_logs.files(agent):
                 with self.subTest(file=rel):
                     records = agent_logs.records(agent, rel)
@@ -227,6 +246,39 @@ class TestFixturesAreReduced(unittest.TestCase):
             seen.setdefault(table, set()).update(keys)
         self.assertEqual(seen, OPENCODE_COLUMNS)
 
+    def test_the_kilo_rows_name_only_their_tables_columns(self):
+        # Same reason as OpenCode's: install() infers each table's columns
+        # from the rows, so a key nobody meant becomes a column of its own
+        # and leaves the one the reader looks for empty.
+        seen = {}
+        for rel in agent_logs.files("kilo"):
+            table = os.path.splitext(os.path.basename(rel))[0]
+            rows = agent_logs.records("kilo", rel)
+            with self.subTest(file=rel):
+                self.assertIn(table, KILO_COLUMNS)
+                self.assertTrue(rows, "a fixture table with no rows tests nothing")
+                self.assertLessEqual(set().union(*(set(r) for r in rows)), KILO_COLUMNS[table])
+            seen.setdefault(table, set()).update(*(set(r) for r in rows))
+        # Every column named must be used by some row, or the guard above is
+        # laxer than it reads -- the same property OpenCode's pins.
+        self.assertEqual(seen, KILO_COLUMNS)
+
+    def test_the_kilo_session_row_carries_the_roll_up_it_must_ignore(self):
+        # The reader is only shown ignoring these columns if they are here.
+        rows = agent_logs.records("kilo", os.path.join("s1-derived", "session.jsonl"))
+        self.assertEqual(len(rows), 1)
+        for column in ("cost", "tokens_input", "tokens_output", "tokens_reasoning",
+                       "tokens_cache_read", "tokens_cache_write"):
+            with self.subTest(column=column):
+                self.assertIn(column, rows[0])
+        self.assertEqual(rows[0]["tokens_input"], 20_158)
+
+    def test_the_kilo_buckets_say_which_rows_were_recorded(self):
+        # The export holds no session row, so that one is derived; the
+        # message and part rows are as recorded.
+        self.assertEqual({rel.split(os.sep)[0] for rel in agent_logs.files("kilo")},
+                         {"s1", "s1-derived"})
+
     def test_the_opencode_buckets_are_what_the_readme_describes(self):
         # Provenance is the point of the three buckets: a test that claims a
         # recorded count must be able to say which recording it came from.
@@ -256,6 +308,13 @@ class TestFixturesAreReduced(unittest.TestCase):
                        "karta0807913/opencode.el", "31fccf10566c2e84e11d60f7f5fddb4fdc1c9689",
                        "Copyright (c) 2025 Kimaki", "Copyright (c) 2026 Richard Xiong",
                        "Copyright (c) 2026 xiopt",
+                       # Kilo Code's recorded session.
+                       "autonomous-ai/openharness", "a67e082b6e2985e7f226bf5737ebd3b39ce1d60b",
+                       # openharness was Apache-2.0 at the commit its rows
+                       # come from, so its NOTICE attribution is carried,
+                       # not an MIT copyright line.
+                       "Copyright 2026 Autonomous, Inc.",
+                       "This product includes software developed at Autonomous, Inc.",
                        "Apache License, Version 2.0"):
             self.assertIn(needle, text)
 

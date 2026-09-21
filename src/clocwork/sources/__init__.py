@@ -20,9 +20,9 @@ An agent name must match at most one source, or one commit's lines would be
 counted against two sources' tokens. source_for() takes the first match.
 """
 
-from clocwork.sources import claude_code, codex, copilot, gemini, opencode
+from clocwork.sources import claude_code, codex, copilot, gemini, kilo, opencode
 
-SOURCES = (claude_code, codex, copilot, gemini, opencode)
+SOURCES = (claude_code, codex, copilot, gemini, kilo, opencode)
 
 
 def by_key(key):

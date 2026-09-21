@@ -860,8 +860,9 @@ var HUMAN = 'Human';
 var MISC = 'Misc';
 var UNKNOWN_CLAUDE = 'Claude (unknown version)';
 // Token data exist only when a coding agent's logs for the repository (Claude
-// Code, Codex CLI, Copilot CLI, Gemini CLI, OpenCode) were on the machine that generated
-// the workspace; a clone of someone else's repository never has any.
+// Code, Codex CLI, Copilot CLI, Gemini CLI, Kilo Code, OpenCode) were on the
+// machine that generated the workspace; a clone of someone else's repository
+// never has any.
 // Without them the token section and the table's Tokens column are left out
 // altogether, because an empty section reads as a defect rather than an absence.
 var HAVE_TOKENS = !!(SUMMARY.tokens && SUMMARY.tokens.per_day && SUMMARY.tokens.per_day.length);
