@@ -151,6 +151,26 @@ class TestArchiveRoundTrip(unittest.TestCase):
             tu.archive("/repo", os.path.join(d, "t.json"), [source], log=lines.append)
         self.assertIn("  NOTE: could not read 2 Zed files", lines)
 
+    def test_sessions_a_source_held_back_are_counted_with_its_reason(self):
+        source = types.SimpleNamespace(KEY="z", LABEL="Zed", HELD="their rows are missing",
+                                       default_homes=lambda env: [],
+                                       scan=lambda repo, homes: tu.ScanResult({}, 0, 0, 2))
+        lines = []
+        with tempfile.TemporaryDirectory() as d:
+            tu.archive("/repo", os.path.join(d, "t.json"), [source], log=lines.append)
+        self.assertIn("  NOTE: held back 2 Zed sessions: their rows are missing", lines)
+
+    def test_one_held_session_is_singular(self):
+        source = types.SimpleNamespace(KEY="z", LABEL="Zed", default_homes=lambda env: [],
+                                       scan=lambda repo, homes: tu.ScanResult({}, 0, 0, 1))
+        lines = []
+        with tempfile.TemporaryDirectory() as d:
+            tu.archive("/repo", os.path.join(d, "t.json"), [source], log=lines.append)
+        self.assertIn("  NOTE: held back 1 Zed session", lines)
+
+    def test_a_result_that_names_no_held_sessions_reports_none(self):
+        self.assertEqual(tu.ScanResult({}, 0).held, 0)
+
     def write_raw(self, path, data):
         with open(path, "w") as f:
             json.dump(data, f)

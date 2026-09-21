@@ -1,6 +1,6 @@
 """GitHub Copilot CLI: one events.jsonl per session under
 $COPILOT_HOME/session-state/<session id>/, a JSON record per line with a
-type, an ISO 8601 timestamp and a data object; and, from about 1.0.83,
+type, an ISO 8601 timestamp and a data object; and, from 1.0.69,
 $COPILOT_HOME/session-store.db, whose assistant_usage_events table holds a
 row per model call.
 
@@ -25,8 +25,9 @@ In the log, usage exists only at shutdown, so a session read from its
 snapshots lands on the UTC day of the snapshot that carried them. The store's
 rows are per call and carry their own created_at, and on 1.0.87 they sum
 exactly to the same session's last snapshot. scan() reads each session from
-one of the two, never both: the one holding more tokens, and the rows on a
-tie. A row's input_tokens contains both cache buckets, as inputTokens does,
+one of the two, never both: a session from a release that writes the rows
+from its rows alone, and an earlier one from the source holding more tokens.
+A row's input_tokens contains both cache buckets, as inputTokens does,
 and its token_details_json names the uncached remainder, so a row is read
 and checked exactly as a snapshot row is.
 """
@@ -55,6 +56,8 @@ SKIPPED = "damaged, or not readable as text"
 # contradicts the one derived from it, a snapshot grown in one counter and
 # fallen in another, and a snapshot with no day to archive under.
 MALFORMED_UNIT = "records"
+# Why a session is held back: see scan().
+HELD = "per-call rows missing from the store; the archive keeps what earlier runs gave it"
 
 # A file that cannot be read at all is counted as unreadable rather than
 # stopping the run; a record of the wrong shape is read as missing instead.
@@ -67,6 +70,16 @@ WANTED = ('"session.start"', '"session.resume"', '"session.shutdown"')
 STORE = "session-store.db"
 USAGE = "assistant_usage_events"
 STORE_ERRORS = (OSError, ValueError, TypeError, sqlite3.Error)
+# The first release that writes assistant_usage_events. Each release was run
+# once against a fresh COPILOT_HOME: 1.0.68 writes schema_version 5 and no
+# table, 1.0.69 schema_version 6 and a row per call, as does every release
+# checked after it (1.0.70, 1.0.78, 1.0.80, 1.0.82, 1.0.83, 1.0.87). Its
+# columns this reader selects are the same in all of them, and in every one
+# the rows' requests, input, output, cache read and cache write equal the
+# session's last shutdown snapshot -- single calls up to 1.0.83, and five
+# calls across a resume on 1.0.87. That is what lets such a session be read
+# from its rows alone.
+ROWS_FROM = (1, 0, 69)
 
 
 def default_homes(env):
@@ -285,7 +298,9 @@ def read_log(lines, path, sessions):
                 if key is None:
                     key = os.path.basename(os.path.dirname(path))
                     key, unnamed = (f"{key}#{unnamed}" if unnamed else key), unnamed + 1
-                current = sessions.setdefault(key, {"context": {}, "snapshots": []})
+                current = sessions.setdefault(key, {"context": {}, "snapshots": [], "version": ()})
+            if kind == "session.start" and not current["version"]:
+                current["version"] = release(data.get("copilotVersion"))
             context = data.get("context")
             if isinstance(context, dict):
                 current["context"] = context
@@ -300,6 +315,14 @@ def read_log(lines, path, sessions):
             current["snapshots"] += [(date, model, metric) for model, metric in metrics.items()
                                      if isinstance(metric, dict)]
     return malformed
+
+
+def release(value):
+    """A copilotVersion as comparable numbers, or () when it is not one. A
+    prerelease (1.0.84-4) counts as the release it leads to."""
+    text = tokens.text(value) or ""
+    parts = re.findall(r"\d+", text.split("-")[0])
+    return tuple(int(p) for p in parts[:3]) if parts else ()
 
 
 def archive_session(days, snapshots):
@@ -430,11 +453,25 @@ def scan(repo, homes):
     homes belongs to it and none was unreadable.
 
     A session can be read two ways: from its shutdown snapshots, and from the
-    store's per-call rows. It is counted from one of them, never both, and
-    from the one that holds more tokens -- the rows on a tie, because they
-    date each call. The snapshots hold more when the session began before
-    the table existed and the rows cover only its later calls; the rows hold
-    more when the session ended without a shutdown. A session whose log is
+    store's per-call rows. It is counted from one of them, never both.
+
+    A session started on a release that writes the rows (ROWS_FROM on) is
+    read from its rows alone whenever a store is there, even where its
+    snapshots hold more. The archive keeps the larger record per day, so a
+    session read from its calls' days on one run and from its shutdown days
+    on the next would be counted on both; reading such a session only ever
+    from its rows keeps its days where they were. Where its rows cannot be
+    had -- pruned, or the store unreadable for one run, say locked while
+    Copilot writes it -- the session is held back, not read from its
+    snapshots, and the archive keeps what earlier runs gave it. With no
+    store at all, as in a log tree copied without it, nothing says the rows
+    ever existed, and the snapshots are read.
+
+    A session from an earlier release, or one whose start names none, is
+    read from the source that holds more tokens -- the rows on a tie,
+    because they date each call. The snapshots hold more when it began
+    before the table existed and the rows cover only its later calls; the
+    rows hold more when it ended without a shutdown. A session whose log is
     gone is placed by the directory the store records for it. A malformed
     snapshot or row is counted whichever source the session is read from:
     it is damage in the logs either way.
@@ -444,19 +481,11 @@ def scan(repo, homes):
     calls by the directory alone. So the rows are weighed against every
     part of the log at once -- against the first alone they would win, and
     the later parts be counted again beside them.
-
-    The archive keeps the larger record per day, so a session's tokens must
-    not move between days from one run to the next. Here they move when the
-    store cannot give the rows its logs cover -- rows pruned, or the whole
-    store unreadable for one run, say locked while Copilot writes it: the
-    session falls back to its snapshots and lands on its shutdown days,
-    beside the per-call days already archived. The unreadable store is
-    counted as skipped. Whether Copilot prunes the store is not known.
     """
     repo_real = os.path.realpath(repo)
     remote = paths.remote_key(repo) if os.path.isdir(repo) else None
     known_commit = commit_lookup(repo)
-    days, sessions, malformed, skipped, belonged = {}, {}, 0, 0, False
+    days, sessions, malformed, skipped, held, belonged = {}, {}, 0, 0, 0, False
     for path in logs(homes):
         try:
             with open(path, encoding="utf-8", errors="replace") as f:
@@ -464,7 +493,8 @@ def scan(repo, homes):
         except READ_ERRORS:
             skipped += 1
     stored, directories = {}, {}
-    for path in stores(homes):
+    found = stores(homes)
+    for path in found:
         calls, where, unreadable = read_store(path)
         skipped += unreadable
         for session, rows in calls.items():
@@ -475,7 +505,9 @@ def scan(repo, homes):
         parts.setdefault(key.split("#", 1)[0], []).append(key)
     for key in sorted(set(parts) | set(stored)):
         logged = [sessions[part] for part in sorted(parts.get(key, ()))]
-        if key not in stored:
+        version = next((session["version"] for session in logged if session["version"]), ())
+        rows_only = bool(found) and version >= ROWS_FROM
+        if key not in stored and not rows_only:
             # No rows: each part of the log stands alone, as it always has.
             for session in logged:
                 if belongs(session["context"], repo_real, remote, known_commit):
@@ -491,9 +523,17 @@ def scan(repo, homes):
         from_logs, from_rows = {}, {}
         for session in logged:
             malformed += archive_session(from_logs, session["snapshots"])
-        malformed += archive_calls(from_rows, stored[key].values())
+        malformed += archive_calls(from_rows, stored.get(key, {}).values())
+        if rows_only:
+            if key in stored:
+                add_days(days, from_rows)
+            elif from_logs:
+                # Its snapshots carry tokens its rows should have. A session
+                # that called no model has neither, and nothing to hold.
+                held += 1
+            continue
         rows_win = everything(from_rows) >= everything(from_logs)
         add_days(days, from_rows if rows_win else from_logs)
     if not belonged and not skipped:
         return None
-    return tokens.ScanResult(days, malformed, skipped)
+    return tokens.ScanResult(days, malformed, skipped, held)
