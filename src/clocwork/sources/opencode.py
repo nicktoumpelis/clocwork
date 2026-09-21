@@ -675,8 +675,10 @@ def read_home(home, store=OPENCODE):
     directory with any of the four stores in it, or a database file.
 
     The stores are read oldest first, so that where two hold the same record,
-    the newest copy is the one kept. A fork with no file-store generations
-    skips them, and reads the database names its own releases wrote.
+    the newest copy is the one kept -- a record the migrations copied into
+    the database keeps its id, so `scan` counts it once. A fork reads the
+    database names its own releases wrote, in the order its descriptor
+    lists them.
     """
     sessions, records, unreadable, damaged = {}, [], 0, 0
 
@@ -741,11 +743,12 @@ def scan(repo, homes, store=OPENCODE):
         if record.session not in mine:
             continue
         date = tokens.day_ms(record.time_ms)
-        # A fork's own version numbering means nothing to these eras, so its
-        # records are read at the oldest era it could have written - which
-        # for Kilo is the newest rule there is. A record's own `total` is
-        # still consulted first, because that is evidence and this is only a
-        # default.
+        # A fork's own version numbering means nothing to these eras, so a
+        # floor stands in for it. The floor does not claim to name the rule
+        # that applied; it only keeps a record out of era A, the one era
+        # whose rule subtracts a cache read from the prompt. A record's own
+        # `total` is still consulted first, because that is evidence and
+        # this is only a default.
         version = max(record.version or sessions[record.session]["version"], store.floor)
         c = counters(record.tokens, record.provider, record.model, version)
         if date and any(c.values()):

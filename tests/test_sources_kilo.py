@@ -102,6 +102,33 @@ class TestTheStoreDescriptor(unittest.TestCase):
             self.assertEqual(models["openai/gpt-5.3-codex"],
                              {"input": 1_000, "output": 100, "cache_read": 0, "cache_write": 0})
 
+    def test_a_record_the_upgrade_copied_into_the_database_is_counted_once(self):
+        # Reading both stores is only safe because a record the migrations
+        # copied keeps its id: a user who ran v1.0.25 and then v7.x has the
+        # same call in the JSON tree and in kilo.db, and counting it twice
+        # would double every token they spent before the upgrade.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(os.path.join(tmp, "repo"))
+            home = os.path.join(tmp, "home")
+            sid = make_id("ses", AT, 1, "kilocase01")
+            mid = make_id("msg", AT, 1, "kilocase01")
+            root = os.path.join(home, "storage")
+            for table, doc in (("session", {"id": sid, "projectID": PROJECT_ID,
+                                            "directory": repo, "version": "1.1.60"}),
+                               ("message", {"id": mid, "sessionID": sid,
+                                            "role": "assistant", "providerID": "openai",
+                                            "modelID": "gpt-5.3-codex", "time": {"created": AT},
+                                            "tokens": USAGE})):
+                d = os.path.join(root, table, sid)
+                os.makedirs(d, exist_ok=True)
+                with open(os.path.join(d, f"{doc['id']}.json"), "w", encoding="utf-8") as f:
+                    json.dump(doc, f)
+            # kilo_db() mints the same two ids from the same (AT, tail).
+            self.assertEqual(kilo_db(os.path.join(home, "kilo.db"), repo), sid)
+            models = next(iter(kilo.scan(repo, [home]).days.values()))["models"]
+            self.assertEqual(models["openai/gpt-5.3-codex"],
+                             {"input": 1_000, "output": 100, "cache_read": 0, "cache_write": 0})
+
     def test_two_database_patterns_that_overlap_read_a_file_once(self):
         # `databases` is a list of globs, and a later one could be widened to
         # cover an earlier one (`kilo-*.db` beside `kilo*.db`). Usage read
