@@ -130,9 +130,10 @@ def read_session(path, hashes):
     return (messages if matched else None), malformed
 
 
-def scan(repo, homes):
+def scan(repo, homes, kind="gemini"):
     """The repository's Gemini CLI usage, or None when no session belongs to it
-    and nothing was unreadable."""
+    and nothing was unreadable. `kind` is the type a model's message carries:
+    Qwen Code's first releases wrote this same format with "qwen" there."""
     hashes = project_hashes(repo)
     files, skipped = session_files(homes)
     latest, found, malformed = {}, False, 0
@@ -149,7 +150,7 @@ def scan(repo, homes):
         for m in messages:
             # Later writes of a message carry the same tokens or ones that
             # arrived late; a write without tokens never replaces one with.
-            if m.get("type") == "gemini" and tokens.text(m.get("id")) and isinstance(m.get("tokens"), dict):
+            if m.get("type") == kind and tokens.text(m.get("id")) and isinstance(m.get("tokens"), dict):
                 latest[m["id"]] = m
     if not found and not skipped:
         return None

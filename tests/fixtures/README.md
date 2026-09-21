@@ -1,7 +1,7 @@
 # Agent log fixtures
 
-Real Codex CLI, Copilot CLI, Gemini CLI, Kilo Code and OpenCode session
-logs, reduced to what clocwork's token readers use: session identity, working directory,
+Real Codex CLI, Copilot CLI, Gemini CLI, Kilo Code, OpenCode and Qwen Code
+session logs, reduced to what clocwork's token readers use: session identity, working directory,
 remote, model, token usage and timestamps. Prompts, replies, reasoning, tool
 calls, instructions, branch names and time zones were removed, as were
 commit hashes everywhere but the Copilot sessions, which keep theirs for the
@@ -37,6 +37,11 @@ pointed at a temporary repository.
   CLI 1.0.87, in a throwaway git repository with `COPILOT_HOME` pointed at a
   temporary directory. Nobody else's data, so there is no licence to carry.
   See below.
+- `qwen/`: recorded for this repository on 2026-09-21 (UTC) by running Qwen Code
+  0.3.0, 0.4.0 and 0.24.2 from npm against a local mock of each provider's
+  API, which answered "ok" with distinctive token counts. Real logs, written
+  by the real CLI, around counts the mock chose; nobody's data and no
+  licence to carry. See below.
 
 ## Copilot CLI
 
@@ -148,6 +153,43 @@ The scratch paths are replaced by the placeholder, both in the log's
 `cwd` and `gitRoot` and in the store's `sessions.cwd`. The repository had no
 remote, so the store's `repository` is null and the log records none. The
 commit hashes are the throwaway repository's.
+
+## Qwen Code
+
+Qwen Code writes its logs whether or not a real model answers, so these were
+made by pointing it at a local mock of the OpenAI and Anthropic APIs
+(`OPENAI_BASE_URL`, `ANTHROPIC_BASE_URL`) in a throwaway git repository with
+a fresh `HOME`. Every count is the mock's, which is what lets each figure be
+traced to the request that produced it, and what `RECORDED` in
+`tests/test_sources_qwen.py` is computed from by hand.
+
+- **`projects/-work-agent-sample/chats/*.jsonl`** (0.4.0 and 0.24.2): only
+  the `ui_telemetry` records whose `uiEvent` is a `qwen-code.api_response`,
+  reduced to the event's name, time, response id, model, auth type, status
+  and token counts, and each run's one assistant record, reduced to its
+  `usageMetadata`, kept to show it is not counted beside the telemetry. The
+  prompts, replies, system records and the rest of each event were dropped.
+  - `5cc0ed4c…` (0.24.2, `openai`): the main call, 1,001 input with 300
+    cached, 21 output with 7 reasoning inside it (total 1,022), and the
+    memory extractor's side call, 1,002 / 22 / 300, which has no assistant
+    record of its own.
+  - `d93d15d4…` (0.24.2, `anthropic`): the mock sent 500 uncached, 300 cache
+    read, 40 cache write and 25 output; Qwen logged input 840 and cached 300,
+    twice. The mock gave both calls the same response id; the run's own
+    ledger (`usage/`, not kept) names them the main call and the memory
+    extractor's. The cache write is folded into the input and reported
+    nowhere else.
+  - `f8fa5d6d…` (0.4.0, `openai`): 1,007 / 27 / 300, with the
+    `tool_token_count` field that release still wrote.
+- **`tmp/<sha256 of /work/agent-sample>/chats/session-*.json`** (0.3.0): the
+  Gemini CLI format Qwen Code wrote before 0.4.0, reduced to each message's
+  id, time, type, model and `tokens` (1,006 / 26 / 300, with `thoughts: 0`
+  although the mock sent 7).
+
+The working directories are the placeholder, and the project hash is the
+placeholder's, so `tests/agent_logs.py` swaps both for the test repository.
+The mock's model names, `mock-model` and `mock-claude`, are kept: they name
+no real model and have no price, which is right for counts no model made.
 
 ## Kilo Code
 

@@ -63,6 +63,11 @@ COAUTHOR_TRAILER = re.compile(r"^[ \t]*Co-Authored-By:[ \t]*(.+)$", re.IGNORECAS
 # character is a boundary, so "opencode-go" and "gemini-code-assist[bot]"
 # still name their agents.
 WORD_EDGE = "(?<![0-9a-z]){}(?![0-9a-z])"
+# A needle that is a whole name rather than a word of one, where a hyphen
+# beside it makes a longer name: "qwen-coder-plus" is a model Alibaba serves,
+# not the Qwen-Coder that Qwen Code signs its commits as.
+NAME_EDGE = "(?<![0-9a-z-]){}(?![0-9a-z-])"
+WHOLE_NAMES = {"qwen-coder"}
 
 UNKNOWN_CLAUDE = "Claude (unknown version)"
 
@@ -103,6 +108,14 @@ VENDORS = (
     # it ran ("Antigravity CLI (Gemini 3.8 Flash)"), and its address is
     # sometimes gemini@google.com, so this row comes before the Gemini one.
     ("Antigravity", "Antigravity"),
+    # Qwen Code appends `Co-authored-by: Qwen-Coder <qwen-coder@alibabacloud.com>`
+    # to the commits it makes itself. The needles are that name and the
+    # product's, not "Qwen": that word names the model too, and a trailer
+    # from another tool that ran one ("Cline (qwen/qwen3-coder)") is not
+    # Qwen Code's. The first is in WHOLE_NAMES, because Alibaba's own model
+    # ids start with it ("qwen-coder-plus").
+    ("qwen-coder", "Qwen Code"),
+    ("Qwen Code", "Qwen Code"),
     # Gemini CLI adds no trailer of its own; this catches the one a person adds.
     ("Gemini", "Gemini"),
 )
@@ -188,7 +201,8 @@ def names_agent(needle, name, local, domains):
     `antigravity-drones.example` is not Antigravity.
     """
     needle = needle.lower()
-    word = re.compile(WORD_EDGE.format(re.escape(needle)))
+    edge = NAME_EDGE if needle in WHOLE_NAMES else WORD_EDGE
+    word = re.compile(edge.format(re.escape(needle)))
     labels = re.compile(r"(?:^|\.){}(?:\.|$)".format(re.escape(needle)))
     return bool(word.search(name) or word.search(local)
                 or any(labels.search(domain) for domain in domains))

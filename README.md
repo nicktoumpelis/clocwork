@@ -4,8 +4,8 @@ Run `clocwork` inside any git repository and get a dashboard of its whole
 history: lines per language and type (code, comment, blank) at every commit,
 which commits an AI agent co-authored and when each model first appeared, and,
 when the repository was worked on with Claude Code, Codex CLI, Copilot CLI,
-Gemini CLI, Kilo Code or OpenCode, what that work cost in tokens, dollars
-and electricity. Every commit is measured with `cloc --git --diff`, cached per
+Gemini CLI, Kilo Code, OpenCode or Qwen Code, what that work cost in tokens,
+dollars and electricity. Every commit is measured with `cloc --git --diff`, cached per
 file, and reconciled against a `cloc` snapshot of HEAD so drift is visible
 rather than silent.
 
@@ -227,8 +227,8 @@ re-measure.
 Attribution comes from `Co-Authored-By:` trailers only, so a commit that
 merely mentions an agent is not counted. Any Claude model is recognised and
 normalised (`Claude Opus 4.6`, `Claude Opus 5 (1M)`), and Copilot, Cursor,
-Codex, Devin, aider, Antigravity, OpenCode, Gemini and Gemini Code Assist
-are recognised by name. Anything else stays unmatched rather than guessed
+Codex, Devin, aider, Antigravity, OpenCode, Qwen Code, Gemini and Gemini
+Code Assist are recognised by name. Anything else stays unmatched rather than guessed
 at; `[agents].extra` names the rest.
 
 An agent's name has to be a **whole word** in the trailer's display name or
@@ -281,6 +281,7 @@ archives per-day totals, per agent and model, into `token_usage.json`:
 | Gemini CLI | `~/.gemini/tmp/` and `~/.cache/.gemini/tmp/`, sessions started in the repository or a directory it tracks | `GEMINI_CLI_HOME` replaces `~` |
 | Kilo Code | `~/.local/share/kilo`, on macOS and Windows as well: its `kilo*.db` databases, an `opencode-*.db` left there by the fork's rename, and the file stores its 1.0.x releases wrote | `XDG_DATA_HOME` replaces `~/.local/share`; `KILO_DB` adds the database it names |
 | OpenCode | `~/.local/share/opencode`, on macOS and Windows as well: its `opencode*.db` databases and the file stores older releases wrote | `XDG_DATA_HOME` replaces `~/.local/share`; `OPENCODE_DB` adds the database it names |
+| Qwen Code | `~/.qwen/projects/*/chats/`, one JSONL file per session from 0.4.0 (an archived one moves to `chats/archive/`), and the Gemini-format sessions under `~/.qwen/tmp/` that earlier releases wrote | `QWEN_HOME` replaces `~/.qwen`; `QWEN_RUNTIME_DIR` adds the directory it names. A directory set only by Qwen Code's `advanced.runtimeOutputDir` setting is not followed |
 
 A Codex session belongs to the repository when it records the same remote
 as the repository's `origin`, so sessions from any clone or worktree count.
@@ -391,6 +392,28 @@ or a regional endpoint — through OpenCode's own Zen, GitHub Copilot or
 Bedrock, say — and models the price table does not know are reported as
 unpriced.
 
+Qwen Code appends `Co-authored-by: Qwen-Coder <qwen-coder@alibabacloud.com>`
+to the commits it makes itself, unless `general.gitCoAuthor.commit` is
+turned off, so its tokens land on those commits. It does so by rewriting a
+`git commit -m` (or `-am`) it runs through bash; a commit made in an editor,
+from a message built with `$(…)`, or through another shell carries no
+trailer, and is not credited. `Qwen` alone is not
+enough, since it names the model too, and `Qwen-Coder` has to stand whole,
+with no hyphen joining it to another word: `Cline (qwen-coder-plus)` names a
+model Alibaba serves, not Qwen Code. From 0.4.0 a Qwen Code session belongs
+to the repository when the working directory each of its records carries is
+the repository or a directory in it; the earlier releases' sessions belong as
+Gemini CLI's do, by the hash of the root or of a tracked directory. Its usage is read from the telemetry
+record every API call writes, so the side calls it makes — the memory
+extractor's, say — are counted beside the main one, each on its own day.
+Qwen Code normalises every provider's counts before it logs them: the input
+includes the cache read, and for Anthropic the cache write as well, which it
+reports nowhere apart from the input and which is therefore counted, and
+priced, as input. The record's own total says whether its reasoning is
+already inside its output, and where it has none the provider does; the
+OpenAI and Anthropic readings were checked against a mock of each API, and
+Gemini's is Gemini CLI's convention, not yet checked for Qwen Code.
+
 Kilo Code is a fork of OpenCode and keeps the same store, so it belongs by
 the same rule and is read by the same code: the SHA-1 of `origin`'s host and
 path, the id cached in the repository's git directory — under `kilo`, where
@@ -433,7 +456,8 @@ such as the 500-row cap, fail over a short history.
 
 `tests/fixtures/` holds real Codex CLI, Copilot CLI, Gemini CLI, Kilo Code
 and OpenCode sessions from eight public repositories, five MIT-licensed and
-three Apache-2.0, reduced to identity, model, usage and timestamps; its README
+three Apache-2.0, reduced to identity, model, usage and timestamps, and
+Qwen Code sessions recorded against a local mock of each provider's API; its README
 names each source with the commit it was taken at, carries their licence
 notices, and says which rows are as recorded and which are hand-written.
 

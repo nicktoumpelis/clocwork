@@ -56,7 +56,7 @@ MODEL_ID = re.compile(r"^[0-9a-z][0-9a-z.-]*$")
 # as repositoryHost and repository, so the path half stands alone in a
 # reduced record and is a placeholder like the remote it comes from.
 REMOTE_PATH = paths.parse_remote(agent_logs.REMOTE)[1]
-AGENTS = ("codex", "copilot", "copilot-store", "gemini", "kilo", "opencode")
+AGENTS = ("codex", "copilot", "copilot-store", "gemini", "kilo", "opencode", "qwen")
 COPILOT_KEYS = {
     "baseCommit", "branch", "cacheReadTokens", "cacheWriteTokens", "cache_read", "cache_write",
     "context", "copilotVersion", "cost", "count", "cwd", "data", "gitRoot", "headCommit", "hostType",
@@ -86,6 +86,17 @@ COPILOT_STORE_COLUMNS = {
 }
 COPILOT_STORE_KEYS = (COPILOT_KEYS | {"tokenType"}
                       | set().union(*COPILOT_STORE_COLUMNS.values()))
+# Qwen Code's mock-backed runs: the api_response telemetry and the assistant
+# usageMetadata of 0.4.0 and later, and 0.3.0's Gemini-format session.
+QWEN_KEYS = {
+    "auth_type", "cached", "cachedContentTokenCount", "cached_content_token_count",
+    "candidatesTokenCount", "cwd", "event.name", "event.timestamp", "id", "input", "input_token_count",
+    "lastUpdated", "messages", "model", "output", "output_token_count", "projectHash",
+    "promptTokenCount", "response_id", "sessionId", "startTime", "status_code", "subtype",
+    "systemPayload", "thoughts", "thoughtsTokenCount", "thoughts_token_count", "timestamp", "tokens",
+    "tool", "tool_token_count", "total", "totalTokenCount", "total_token_count", "type", "uiEvent",
+    "usageMetadata", "uuid", "version",
+}
 KILO_KEYS = {
     "cache", "cost", "created", "data", "directory", "id", "input", "message_id", "model",
     "modelID", "output", "parent_id", "path", "project_id", "providerID", "read", "reasoning",
@@ -159,11 +170,11 @@ def names_a_model(path):
 
 class TestFixturesAreReduced(unittest.TestCase):
     def test_every_agent_has_its_sessions(self):
-        self.assertEqual(tuple(len(agent_logs.files(a)) for a in AGENTS), (13, 4, 3, 5, 3, 17))
+        self.assertEqual(tuple(len(agent_logs.files(a)) for a in AGENTS), (13, 4, 3, 5, 3, 17, 4))
 
     def test_only_allow_listed_keys(self):
         for agent, allowed in (("codex", CODEX_KEYS), ("copilot", COPILOT_KEYS),
-                               ("copilot-store", COPILOT_STORE_KEYS),
+                               ("copilot-store", COPILOT_STORE_KEYS), ("qwen", QWEN_KEYS),
                                ("gemini", GEMINI_KEYS), ("kilo", KILO_KEYS),
                                ("opencode", OPENCODE_KEYS)):
             for rel in agent_logs.files(agent):
@@ -339,6 +350,8 @@ class TestFixturesAreReduced(unittest.TestCase):
                        "Copyright (c) 2026 xiopt",
                        # The Copilot CLI store, recorded for this repository.
                        "copilot-store/", "Copilot CLI 1.0.87",
+                       # Qwen Code, run against a local mock of each API.
+                       "qwen/", "a local mock",
                        # Kilo Code's recorded session.
                        "autonomous-ai/openharness", "a67e082b6e2985e7f226bf5737ebd3b39ce1d60b",
                        # openharness was Apache-2.0 at the commit its rows

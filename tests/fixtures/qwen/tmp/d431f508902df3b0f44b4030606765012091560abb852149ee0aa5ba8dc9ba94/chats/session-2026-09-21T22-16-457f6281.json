@@ -1,0 +1,27 @@
+{
+  "sessionId": "457f6281-4df0-4def-a9d7-64814216e943",
+  "projectHash": "d431f508902df3b0f44b4030606765012091560abb852149ee0aa5ba8dc9ba94",
+  "startTime": "2026-09-21T22:16:41.851Z",
+  "lastUpdated": "2026-09-21T22:16:41.868Z",
+  "messages": [
+    {
+      "id": "89b7ed62-dd3e-4954-ae2f-622fac69fa9e",
+      "timestamp": "2026-09-21T22:16:41.851Z",
+      "type": "user"
+    },
+    {
+      "id": "3f2585a5-a7fa-4052-86cf-7e0d90eb98ef",
+      "timestamp": "2026-09-21T22:16:41.868Z",
+      "type": "qwen",
+      "tokens": {
+        "input": 1006,
+        "output": 26,
+        "cached": 300,
+        "thoughts": 0,
+        "tool": 0,
+        "total": 1032
+      },
+      "model": "mock-model"
+    }
+  ]
+}
