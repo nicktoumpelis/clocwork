@@ -205,6 +205,7 @@ class TestAgentLabels(unittest.TestCase):
         # The greys are Human, Misc and the unknown Claude on the other charts.
         self.assertFalse([c for c in pairs.values() if c.startswith("grey")], pairs)
 
+
 class TestRenderPage(unittest.TestCase):
     PLACEHOLDERS = ("__TITLE__", "__REPO_NAME__", "__DATA__", "__ANNOTATIONS__")
 

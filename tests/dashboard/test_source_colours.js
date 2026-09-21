@@ -17,11 +17,19 @@ function as(key, label, dropCodex) {
   };
 }
 
+// Each charted source's measured series colour, by key. The page charts the
+// sources in the blob's order, a measured and an estimated series apiece; the
+// label check makes a reordering fail here rather than pin a colour on the
+// wrong source.
 function colours(page) {
   const token = page.charts[page.charts.length - 1];
-  const keys = page.RAW.summary.tokens.sources.filter(s => s.per_day && s.per_day.length).map(s => s.key);
+  const charted = page.RAW.summary.tokens.sources.filter(s => s.per_day && s.per_day.length);
   const out = {};
-  keys.forEach((k, i) => { out[k] = token.data.datasets[2 * i].borderColor; });
+  charted.forEach((s, i) => {
+    const series = token.data.datasets[2 * i];
+    check(series.label === s.label, 'series ' + 2 * i + ' is ' + s.label + ' (' + series.label + ')');
+    out[s.key] = series.borderColor;
+  });
   return out;
 }
 
@@ -39,9 +47,21 @@ function colours(page) {
         'and it is not the colour of a source beside it (' + Object.keys(chart).length + ' charted)'));
 });
 
-section('an agent this version does not know still gets a colour');
-const unknown = colours(load({ variant: 'sources', raw: as('some-future-agent', 'Future') }));
-check(typeof unknown['some-future-agent'] === 'string' && /^#[0-9a-f]{6}$/i.test(unknown['some-future-agent']),
-      'from the palette: ' + unknown['some-future-agent']);
+section('an agent this version does not know');
+// Beside Claude Code alone it is second in the list, which on the palette by
+// position is blue: Claude Code's own.
+const withCodex = load({ variant: 'sources', raw: as('some-future-agent', 'Future') });
+const alone = load({ variant: 'sources', raw: as('some-future-agent', 'Future', true) });
+const known = withCodex.run('return Object.keys(SOURCE_COLOURS).map(function(k) { return themeColour(SOURCE_COLOURS[k]); })');
+const [three, two] = [colours(withCodex), colours(alone)];
+const future = two['some-future-agent'];
+check(typeof future === 'string' && /^#[0-9a-f]{6}$/i.test(future), 'still gets a colour: ' + future);
+check(known.length === 6 && known.indexOf(future) < 0, 'and it is no known source\'s (' + future + ' against ' + known.join(' ') + ')');
+check(three['some-future-agent'] === future, 'and it does not move when Codex joins (' + three['some-future-agent'] + ' / ' + future + ')');
+// Nor a shade of one: the first stranger takes a hue family no known source uses.
+const family = t => t.split('-')[0];
+const taken = withCodex.run('return Object.keys(SOURCE_COLOURS).map(function(k) { return SOURCE_COLOURS[k]; })').map(family);
+const first = withCodex.run('return SOURCE_SPARE[0]');
+check(taken.indexOf(family(first)) < 0, 'and its hue family is its own (' + first + ', beside ' + taken.join(' ') + ')');
 
 done();

@@ -217,6 +217,9 @@ for (const name of ['light', 'dark']) {
   const sourceTones = Object.values(page.run('return SOURCE_COLOURS')).map(t => c[t]);
   check(sourceTones.length >= 6 && sourceTones.every(Boolean) && new Set(sourceTones).size === sourceTones.length,
         name + ': ' + sourceTones.length + ' source colours, all different');
+  const spareTones = page.run('return SOURCE_SPARE').map(t => c[t]);
+  check(spareTones.length > 0 && spareTones.every(Boolean) && spareTones.every(x => sourceTones.indexOf(x) < 0),
+        name + ': ' + spareTones.length + ' colours for unknown sources, none a known source\'s');
   const lines = page.run('return ANNOTATION_PALETTE').map(t => c[t]);
   check(lines.every(Boolean) && new Set(lines).size === lines.length, name + ': first-appearance colours all different');
   check(c.blue === SOL.blue && c.yellow === SOL.yellow && c.violet === SOL.violet, name + ': the accents are Solarized\'s own');
