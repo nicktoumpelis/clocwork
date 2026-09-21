@@ -33,7 +33,7 @@ function colours(page) {
   return out;
 }
 
-['opencode', 'copilot', 'kilo'].forEach(key => {
+['opencode', 'copilot', 'kilo', 'qwen'].forEach(key => {
   section('a source keeps its colour: ' + key);
   const three = colours(load({ variant: 'sources', raw: as(key, key) }));
   const two = colours(load({ variant: 'sources', raw: as(key, key, true) }));
@@ -56,7 +56,7 @@ const known = withCodex.run('return Object.keys(SOURCE_COLOURS).map(function(k) 
 const [three, two] = [colours(withCodex), colours(alone)];
 const future = two['some-future-agent'];
 check(typeof future === 'string' && /^#[0-9a-f]{6}$/i.test(future), 'still gets a colour: ' + future);
-check(known.length === 6 && known.indexOf(future) < 0, 'and it is no known source\'s (' + future + ' against ' + known.join(' ') + ')');
+check(known.length === 7 && known.indexOf(future) < 0, 'and it is no known source\'s (' + future + ' against ' + known.join(' ') + ')');
 check(three['some-future-agent'] === future, 'and it does not move when Codex joins (' + three['some-future-agent'] + ' / ' + future + ')');
 // Nor a shade of one: the first stranger takes a hue family no known source uses.
 const family = t => t.split('-')[0];

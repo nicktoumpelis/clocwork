@@ -103,6 +103,13 @@ VENDORS = (
     # it ran ("Antigravity CLI (Gemini 3.8 Flash)"), and its address is
     # sometimes gemini@google.com, so this row comes before the Gemini one.
     ("Antigravity", "Antigravity"),
+    # Qwen Code appends `Co-authored-by: Qwen-Coder <qwen-coder@alibabacloud.com>`
+    # to the commits it makes itself. The needles are that name and the
+    # product's, not "Qwen": that word names the model too, and a trailer
+    # from another tool that ran one ("Cline (qwen/qwen3-coder)") is not
+    # Qwen Code's.
+    ("qwen-coder", "Qwen Code"),
+    ("Qwen Code", "Qwen Code"),
     # Gemini CLI adds no trailer of its own; this catches the one a person adds.
     ("Gemini", "Gemini"),
 )

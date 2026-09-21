@@ -147,6 +147,8 @@ class TestVendors(unittest.TestCase):
         ("Antigravity (3.1 Pro) <gemini@google.com>", "Antigravity"),
         ("DeepMind Antigravity <antigravity@google.com>", "Antigravity"),
         ("Google Antigravity <242056456+google-antigravity@users.noreply.github.com>", "Antigravity"),
+        # Qwen Code's own trailer, in QwenLM/qwen-code's 642c1a55d4 among others.
+        ("Qwen-Coder <qwen-coder@alibabacloud.com>", "Qwen Code"),
         ("Antigravity <326255689+antigravity-selvakk2k[bot]@users.noreply.github.com>", "Antigravity"),
         ("AGY <noreply@antigravity.dev>", "Antigravity"),
         ("Antigravity CLI (Gemini 3.8 Flash) <antigravity@stevens-imac-3>", "Antigravity"),
