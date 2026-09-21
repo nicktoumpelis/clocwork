@@ -306,9 +306,10 @@ shutdown that reported it. Where the store is there but such a session's
 rows are not — pruned, or the store unreadable for that run — the session
 is held back and the run says so, rather than read from its snapshots: the
 archive keeps the larger record for each day, so a session that moved to
-its shutdown days would be counted on both. A held session keeps what
-earlier runs archived for it, and one whose rows were gone before any run
-saw it is not counted at all. With no store at all, the snapshots are read.
+its shutdown days would be counted on both. What earlier runs archived for
+a held session stays unless that day's record from a later run outgrows it,
+and a session whose rows were gone before any run saw it is not counted at
+all. With no store at all, the snapshots are read.
 A session from an earlier release, or whose log names none at its start, is
 read from whichever of the two holds more tokens: the snapshots for one
 begun before the table existed, the rows for one that never shut down. A

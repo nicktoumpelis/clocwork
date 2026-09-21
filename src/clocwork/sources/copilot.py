@@ -57,7 +57,7 @@ SKIPPED = "damaged, or not readable as text"
 # fallen in another, and a snapshot with no day to archive under.
 MALFORMED_UNIT = "records"
 # Why a session is held back: see scan().
-HELD = "per-call rows missing from the store; the archive keeps what earlier runs gave them"
+HELD = "per-call rows missing from the store, so not read from shutdown snapshots"
 
 # A file that cannot be read at all is counted as unreadable rather than
 # stopping the run; a record of the wrong shape is read as missing instead.
@@ -463,8 +463,11 @@ def scan(repo, homes):
     from its rows keeps its days where they were. Where its rows cannot be
     had -- pruned, or the store unreadable for one run, say locked while
     Copilot writes it -- the session is held back, not read from its
-    snapshots, and the archive keeps what earlier runs gave it; a session
-    whose rows were gone before any run saw it is never counted. With no
+    snapshots. What earlier runs archived for it stays, since the archive
+    keeps the larger record per day -- unless that day's record from a
+    later run outgrows it, for the archive keeps records per day and not
+    per session; a session whose rows were gone before any run saw it is
+    never counted. With no
     store at all, as in a log tree copied without it, nothing says the rows
     ever existed, and the snapshots are read.
 
