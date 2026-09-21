@@ -47,6 +47,7 @@ class TestKiloCode(unittest.TestCase):
         # trailer; kilogram and kilos are words a person might write.
         for text in ("kiloconnect[bot] <k@users.noreply.github.com>",
                      "kilos <a@b.example>", "kilogram <k@b.example>",
+                     "nanokilo <a@b.example>", "kilocodex <a@b.example>",
                      "Bot <x@mykilo.ai>", "Bot <x@kilo-drones.example>"):
             with self.subTest(text=text):
                 self.assertIsNone(ag.detect_agent("Fix\n\nCo-Authored-By: " + text))

@@ -403,8 +403,8 @@ own synthetic variants regardless. Checks that assume the fixture's size,
 such as the 500-row cap, fail over a short history.
 
 `tests/fixtures/` holds real Codex CLI, Copilot CLI, Gemini CLI, Kilo Code
-and OpenCode sessions from eight public repositories, six MIT-licensed and
-two Apache-2.0, reduced to identity, model, usage and timestamps; its README
+and OpenCode sessions from eight public repositories, five MIT-licensed and
+three Apache-2.0, reduced to identity, model, usage and timestamps; its README
 names each source with the commit it was taken at, carries their licence
 notices, and says which rows are as recorded and which are hand-written.
 

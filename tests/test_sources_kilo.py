@@ -57,8 +57,9 @@ class TestTheStoreDescriptor(unittest.TestCase):
     def test_kilo_reads_its_own_databases_and_the_name_it_renamed(self):
         # db.ts getChannelPath(): a release channel writes kilo.db, another
         # channel kilo-<channel>.db, and an opencode-<channel>.db left by the
-        # rename is still read where the new name is absent.
-        self.assertEqual(oc.KILO.databases, ("kilo*.db", "opencode-*.db"))
+        # rename is still read where the new name is absent. The renamed name
+        # is first, because it is the older one.
+        self.assertEqual(oc.KILO.databases, ("opencode-*.db", "kilo*.db"))
 
     def test_opencode_does_not_read_kilo_s_databases(self):
         self.assertEqual(oc.OPENCODE.databases, ("opencode*.db",))
@@ -93,9 +94,11 @@ class TestTheStoreDescriptor(unittest.TestCase):
                 with open(os.path.join(d, f"{doc['id']}.json"), "w", encoding="utf-8") as f:
                     json.dump(doc, f)
             self.assertIsNone(kilo.scan(repo, [home]))
-            # The same tree under OpenCode's descriptor is read, so the
-            # store really is one this reader could have counted.
-            self.assertIsNotNone(oc.scan(repo, [home]))
+            # The same tree under OpenCode's descriptor yields a day, so the
+            # store really is one this reader could have counted -- a scan
+            # that merely returned something would prove nothing, since one
+            # unreadable file is enough for that.
+            self.assertTrue(oc.scan(repo, [home]).days)
 
     def test_two_database_patterns_that_overlap_read_a_file_once(self):
         # `databases` is a list of globs, and a later one could be widened to
@@ -202,6 +205,33 @@ class TestTheDatabases(unittest.TestCase):
         kilo_db(os.path.join(self.home, "opencode-beta.db"), self.repo)
         self.assertEqual(self.turns(), 1)
 
+    def test_the_current_name_wins_over_the_one_it_renamed(self):
+        # The rename leaves the old file in place, frozen, while the new one
+        # goes on being written. Reading them in name order would let the
+        # frozen copy overwrite the current record, which is the reverse of
+        # what read_home promises.
+        sid, mid, pid = (make_id("ses", AT, 1, "order01"), make_id("msg", AT, 1, "order01"),
+                         "prt_order01")
+
+        def build(name, output):
+            agent_logs.build_database(os.path.join(self.home, name), {
+                "session": [{"id": sid, "project_id": PROJECT_ID, "directory": self.repo,
+                             "version": "7.7.6", "parent_id": None, "path": "",
+                             "time_created": AT}],
+                "message": [{"id": mid, "session_id": sid, "time_created": AT,
+                             "data": {"role": "assistant", "modelID": "m", "providerID": "p",
+                                      "time": {"created": AT}}}],
+                "part": [{"id": pid, "message_id": mid, "session_id": sid, "time_created": AT,
+                          "data": {"type": "step-finish",
+                                   "tokens": {"input": 10, "output": output, "reasoning": 0,
+                                              "cache": {"read": 0, "write": 0}}}}],
+            })
+
+        build("opencode-beta.db", 1)        # frozen at the rename
+        build("kilo-beta.db", 999)          # written since
+        days, _ = scanned(self.repo, [self.home])
+        self.assertEqual(next(iter(days.values()))["models"]["p/m"]["output"], 999)
+
     def test_both_names_together_count_each_session_once(self):
         # getChannelPath() prefers the new name and leaves the old one in
         # place, so the same session can sit in both.
@@ -218,6 +248,58 @@ class TestTheDatabases(unittest.TestCase):
 
     def test_no_store_is_none(self):
         self.assertIsNone(kilo.scan(self.repo, [self.home]))
+
+
+class TestThePartModel(unittest.TestCase):
+    """A step-finish part that names its own model names the record -- but
+    only when it names the whole of it."""
+
+    def test_a_part_that_names_both_halves_is_used(self):
+        self.assertEqual(oc.step_model({"type": "step-finish",
+                                        "model": {"providerID": "kilo", "modelID": "x/y"}}),
+                         ("kilo", "x/y"))
+
+    def test_a_part_that_names_half_is_not_used(self):
+        # Pairing the part's provider with the message's model, or the
+        # reverse, names a combination that never served a call -- and the
+        # provider is what anthropic_like() reads, so a crossed pair can
+        # change the arithmetic and not just the label.
+        for half in ({"providerID": "openrouter"}, {"modelID": "gpt-5"},
+                     {"providerID": "openrouter", "modelID": ""},
+                     {"providerID": "", "modelID": "gpt-5"}):
+            with self.subTest(half=half):
+                self.assertEqual(oc.step_model({"type": "step-finish", "model": half}),
+                                 (None, None))
+
+    def test_a_part_with_no_model_or_a_malformed_one_is_not_used(self):
+        for value in (None, [], "", 7, {}):
+            with self.subTest(value=value):
+                self.assertEqual(oc.step_model({"type": "step-finish", "model": value}),
+                                 (None, None))
+        self.assertEqual(oc.step_model({"type": "step-finish"}), (None, None))
+
+    def test_a_half_named_part_keeps_the_message_s_own_pair(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(os.path.join(tmp, "repo"))
+            home = os.path.join(tmp, "home")
+            os.makedirs(home)
+            sid, mid = make_id("ses", AT, 1, "half0001"), make_id("msg", AT, 1, "half0001")
+            agent_logs.build_database(os.path.join(home, "kilo.db"), {
+                "session": [{"id": sid, "project_id": PROJECT_ID, "directory": repo,
+                             "version": "7.7.6", "parent_id": None, "path": "",
+                             "time_created": AT}],
+                "message": [{"id": mid, "session_id": sid, "time_created": AT,
+                             "data": {"role": "assistant", "modelID": "claude-sonnet-4.5",
+                                      "providerID": "anthropic", "time": {"created": AT}}}],
+                "part": [{"id": "prt_half0001", "message_id": mid, "session_id": sid,
+                          "time_created": AT,
+                          "data": {"type": "step-finish", "model": {"providerID": "openrouter"},
+                                   "tokens": {"input": 10, "output": 2, "reasoning": 0,
+                                              "cache": {"read": 0, "write": 0}}}}],
+            })
+            days, _ = scanned(repo, [home])
+            self.assertEqual(list(next(iter(days.values()))["models"]),
+                             ["anthropic/claude-sonnet-4.5"])
 
 
 class TestMatching(unittest.TestCase):

@@ -140,7 +140,7 @@ def render(parser=None, version=__version__, date=None):
                  ".TP\n.B CODEX_HOME\nWhere Codex CLI keeps its sessions, read from its\n.I sessions/\nand\n.I archived_sessions/\ndirectories; the default is\n.IR ~/.codex .\n"
                  ".TP\n.B COPILOT_HOME\nWhere Copilot CLI keeps its sessions, read from the\n.I events.jsonl\nin each directory below\n.IR session-state/ ;\nthe default is\n.IR ~/.copilot .\n"
                  ".TP\n.B GEMINI_CLI_HOME\nThe directory Gemini CLI uses in place of the home directory; its sessions are read from\n.I .gemini/tmp/\nand\n.I .cache/.gemini/tmp/\nbelow it.\n"
-                 ".TP\n.B KILO_DB\nA Kilo Code database to read besides every\n.I kilo*.db\nin its data directory; absolute, or relative to that directory.\n"
+                 ".TP\n.B KILO_DB\nA Kilo Code database to read besides every\n.I kilo*.db\nand\n.I opencode\\-*.db\nin its data directory; absolute, or relative to that directory.\n"
                  ".TP\n.B OPENCODE_DB\nAn OpenCode database to read besides every\n.I opencode*.db\nin its data directory; absolute, or relative to that directory.\n"
                  ".TP\n.B XDG_CACHE_HOME\nWhen set, the cloc cache lives under\n.IR $XDG_CACHE_HOME/clocwork/ ;\notherwise under\n.IR ~/.cache/clocwork/ .\n"
                  ".B \\-\\-cache\\-dir\nwins over both. Only\n.B run\nuses the cache.\n"

@@ -117,7 +117,9 @@ V2_TABLE_FROM = (1, 14, 34)
 # records are read. Kilo Code is one: same tables, same message JSON, same
 # project-id hash, four things moved.
 #
-#   databases    the names its channel databases take, in glob form
+#   databases    the names its channel databases take, in glob form,
+#                **oldest name first**: where two of them hold the same
+#                record, the one read later is the copy that is kept
 #   cache_name   the file it caches a project id in, under the git directory
 #   floor        the oldest counter era one of its records can have been
 #                written under; () for OpenCode, which wrote every era
@@ -129,7 +131,18 @@ OPENCODE = Store(("opencode*.db",), "opencode", (), True)
 # and it needs saying, because Kilo numbers its releases 7.x, which compares
 # above every era by accident, and writes the literal "local" for a build
 # from source, which compares below every one of them.
-KILO = Store(("kilo*.db", "opencode-*.db"), "kilo", ERA_E, False)
+#
+# `opencode-<channel>.db` comes first because it is the name Kilo wrote
+# before its rename, and its copy of a record must give way to the current
+# one. A plain `opencode.db` here is not Kilo's: the fork renamed the data
+# directory as well, so a store from before the rename sits in OpenCode's
+# own directory, where its own reader owns it.
+#
+# No Kilo release ever wrote a file store. Its storage module descends from
+# the commit that made the store SQLite, which OpenCode shipped in v1.2.0,
+# and Kilo's own releases begin at 7.2.x - so a `storage/` tree in its data
+# directory belongs to something else.
+KILO = Store(("opencode-*.db", "kilo*.db"), "kilo", ERA_E, False)
 
 # One model call. `key` is the part or message id the record was read under,
 # which the migrations preserve, so the same call read from two generations
@@ -304,11 +317,18 @@ def step_model(data):
     reading `kilo-auto/free` covers a call billed as another vendor's model.
     OpenCode's own recordings carry no model on a part at all, so this only
     ever refines a name and never replaces a known one with nothing.
+
+    Both halves or neither. Taking one from the part and the other from the
+    message would name a pairing that never served anything, and a provider
+    decides more than a name: it is what anthropic_like() reads, so a
+    crossed pair can change the arithmetic of a record old enough for the
+    provider to still be deciding it.
     """
     model = data.get("model") if isinstance(data, dict) else None
     if not isinstance(model, dict):
         return None, None
-    return tokens.text(model.get("providerID")), tokens.text(model.get("modelID"))
+    provider, name = tokens.text(model.get("providerID")), tokens.text(model.get("modelID"))
+    return (provider, name) if provider and name else (None, None)
 
 
 def message_roots(data):
@@ -668,11 +688,16 @@ def read_home(home, store=OPENCODE):
     if store.file_stores:
         take(*read_j0(home))
         take(*read_j1(home))
-    # Each name once: a fork reading both its own and the name it renamed
-    # would otherwise read a file that matches both globs twice.
-    for path in sorted({p for pattern in store.databases
-                        for p in glob.glob(os.path.join(home, pattern))}):
-        take(*read_database(path))
+    # Pattern by pattern, so that `databases` decides which name is read
+    # last and therefore which copy of a shared record is kept; sorted
+    # within a pattern, so that a channel order is at least stable. Each
+    # path once, because two patterns can overlap.
+    read = set()
+    for pattern in store.databases:
+        for path in sorted(glob.glob(os.path.join(home, pattern))):
+            if path not in read:
+                read.add(path)
+                take(*read_database(path))
     return sessions, records, unreadable, damaged
 
 

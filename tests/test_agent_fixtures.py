@@ -259,7 +259,9 @@ class TestFixturesAreReduced(unittest.TestCase):
                 self.assertTrue(rows, "a fixture table with no rows tests nothing")
                 self.assertLessEqual(set().union(*(set(r) for r in rows)), KILO_COLUMNS[table])
             seen.setdefault(table, set()).update(*(set(r) for r in rows))
-        self.assertEqual(sorted(seen), ["message", "part", "session"])
+        # Every column named must be used by some row, or the guard above is
+        # laxer than it reads -- the same property OpenCode's pins.
+        self.assertEqual(seen, KILO_COLUMNS)
 
     def test_the_kilo_session_row_carries_the_roll_up_it_must_ignore(self):
         # The reader is only shown ignoring these columns if they are here.
@@ -308,7 +310,11 @@ class TestFixturesAreReduced(unittest.TestCase):
                        "Copyright (c) 2026 xiopt",
                        # Kilo Code's recorded session.
                        "autonomous-ai/openharness", "a67e082b6e2985e7f226bf5737ebd3b39ce1d60b",
-                       "Copyright (c) 2026 Autonomous, Inc.",
+                       # openharness was Apache-2.0 at the commit its rows
+                       # come from, so its NOTICE attribution is carried,
+                       # not an MIT copyright line.
+                       "Copyright 2026 Autonomous, Inc.",
+                       "This product includes software developed at Autonomous, Inc.",
                        "Apache License, Version 2.0"):
             self.assertIn(needle, text)
 

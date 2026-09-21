@@ -1,15 +1,18 @@
 """Kilo Code: an OpenCode fork, reading an OpenCode store from its own
 directory.
 
-Kilo's own migration (20260510033149_session_usage) back-fills session
-totals by summing `$.tokens.input`, `$.tokens.output`, `$.tokens.reasoning`,
+The store is OpenCode's, and the clearest evidence is a migration Kilo
+inherited **unchanged**: OpenCode's 20260510033149_session_usage, whose blob
+is byte for byte the one in sst/opencode, back-fills session totals by
+summing `$.tokens.input`, `$.tokens.output`, `$.tokens.reasoning`,
 `$.tokens.cache.read` and `$.tokens.cache.write` out of each assistant
-`message.data` -- the same JSON `sources.opencode` reads, in the same tables,
-with the same `step-finish` parts and the same `session_message` projection.
-So everything here is opencode's, through the `opencode.KILO` descriptor,
-and only four things move: the data directory, the names its databases take,
-the file a project id is cached in, and the counter era its records are read
-at.
+`message.data`. That is the JSON `sources.opencode` reads, in the same
+tables, with the same `step-finish` parts and the same `session_message`
+projection -- and a fork that ships the migration untouched is a fork whose
+store has not moved. So everything here is opencode's, through the
+`opencode.KILO` descriptor, and only four things do move: the data
+directory, the names its databases take, the file a project id is cached in,
+and the counter era its records are read at.
 
 Those session totals are a roll-up over the session's own messages. Counting
 them as well would double every token, and counting them instead would lose
