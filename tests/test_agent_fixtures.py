@@ -56,7 +56,7 @@ MODEL_ID = re.compile(r"^[0-9a-z][0-9a-z.-]*$")
 # as repositoryHost and repository, so the path half stands alone in a
 # reduced record and is a placeholder like the remote it comes from.
 REMOTE_PATH = paths.parse_remote(agent_logs.REMOTE)[1]
-AGENTS = ("codex", "copilot", "gemini", "kilo", "opencode")
+AGENTS = ("codex", "copilot", "copilot-store", "gemini", "kilo", "opencode")
 COPILOT_KEYS = {
     "baseCommit", "branch", "cacheReadTokens", "cacheWriteTokens", "cache_read", "cache_write",
     "context", "copilotVersion", "cost", "count", "cwd", "data", "gitRoot", "headCommit", "hostType",
@@ -75,6 +75,17 @@ COPILOT_KEYS = {
 # session_usage migration added - which the reader must not count, and which
 # is pinned here so a fixture refresh cannot quietly drop the columns that
 # prove it does not.
+# The 1.0.87 store fixture: the same log records, plus the columns its two
+# tables keep and the two keys of each token_details_json bucket.
+COPILOT_STORE_COLUMNS = {
+    "sessions": {"id", "cwd", "repository", "branch", "created_at"},
+    "assistant_usage_events": {"id", "session_id", "turn_index", "model", "input_tokens",
+                               "output_tokens", "cache_read_tokens", "cache_write_tokens",
+                               "reasoning_tokens", "initiator", "finish_reason",
+                               "token_details_json", "created_at"},
+}
+COPILOT_STORE_KEYS = (COPILOT_KEYS | {"tokenType"}
+                      | set().union(*COPILOT_STORE_COLUMNS.values()))
 KILO_KEYS = {
     "cache", "cost", "created", "data", "directory", "id", "input", "message_id", "model",
     "modelID", "output", "parent_id", "path", "project_id", "providerID", "read", "reasoning",
@@ -148,10 +159,11 @@ def names_a_model(path):
 
 class TestFixturesAreReduced(unittest.TestCase):
     def test_every_agent_has_its_sessions(self):
-        self.assertEqual(tuple(len(agent_logs.files(a)) for a in AGENTS), (13, 4, 5, 3, 17))
+        self.assertEqual(tuple(len(agent_logs.files(a)) for a in AGENTS), (13, 4, 3, 5, 3, 17))
 
     def test_only_allow_listed_keys(self):
         for agent, allowed in (("codex", CODEX_KEYS), ("copilot", COPILOT_KEYS),
+                               ("copilot-store", COPILOT_STORE_KEYS),
                                ("gemini", GEMINI_KEYS), ("kilo", KILO_KEYS),
                                ("opencode", OPENCODE_KEYS)):
             for rel in agent_logs.files(agent):
@@ -263,6 +275,23 @@ class TestFixturesAreReduced(unittest.TestCase):
         # laxer than it reads -- the same property OpenCode's pins.
         self.assertEqual(seen, KILO_COLUMNS)
 
+    def test_the_copilot_store_rows_name_only_their_tables_columns(self):
+        # The same guard, for the tables install() builds session-store.db
+        # from: the reader selects these columns by name.
+        seen = {}
+        for rel in agent_logs.files("copilot-store"):
+            if not rel.startswith("s1" + os.sep):
+                continue
+            table = os.path.splitext(os.path.basename(rel))[0]
+            rows = agent_logs.records("copilot-store", rel)
+            with self.subTest(file=rel):
+                self.assertIn(table, COPILOT_STORE_COLUMNS)
+                self.assertTrue(rows, "a fixture table with no rows tests nothing")
+                self.assertLessEqual(set().union(*(set(r) for r in rows)),
+                                     COPILOT_STORE_COLUMNS[table])
+            seen.setdefault(table, set()).update(*(set(r) for r in rows))
+        self.assertEqual(seen, COPILOT_STORE_COLUMNS)
+
     def test_the_kilo_session_row_carries_the_roll_up_it_must_ignore(self):
         # The reader is only shown ignoring these columns if they are here.
         rows = agent_logs.records("kilo", os.path.join("s1-derived", "session.jsonl"))
@@ -308,6 +337,8 @@ class TestFixturesAreReduced(unittest.TestCase):
                        "karta0807913/opencode.el", "31fccf10566c2e84e11d60f7f5fddb4fdc1c9689",
                        "Copyright (c) 2025 Kimaki", "Copyright (c) 2026 Richard Xiong",
                        "Copyright (c) 2026 xiopt",
+                       # The Copilot CLI store, recorded for this repository.
+                       "copilot-store/", "Copilot CLI 1.0.87",
                        # Kilo Code's recorded session.
                        "autonomous-ai/openharness", "a67e082b6e2985e7f226bf5737ebd3b39ce1d60b",
                        # openharness was Apache-2.0 at the commit its rows
