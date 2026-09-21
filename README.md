@@ -380,7 +380,12 @@ means anything to OpenCode's counter eras — and its releases span every one
 of them, so the version cannot say which era wrote a record. A record's own
 `total` is therefore the evidence, as it is for OpenCode; where a record has
 none, it is read at the second era rather than the first, because the first
-is the one that subtracts a cache read from the prompt. Kilo also stores a
+is the only rule a record naming no version could reach that takes a cache
+read back out of the prompt. That choice has a cost in the other direction:
+a record genuinely written under the first era keeps its cache read in the
+input count while the cache-read count reports it too, so the two together
+count it twice. Erring that way keeps the tokens visible in a labelled
+count rather than dropping prompt tokens silently. Kilo also stores a
 per-session roll-up of its own messages' tokens, which clocwork does not
 count: the per-message rows are the ones that carry a day and a model.
 

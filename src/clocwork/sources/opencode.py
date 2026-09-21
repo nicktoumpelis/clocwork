@@ -134,13 +134,28 @@ OPENCODE = Store(("opencode*.db",), "opencode", (), True)
 # "local", which a build from source records, as below all of them.
 #
 # A record's own `total` is therefore the only evidence, and counters()
-# asks it first. Where a record has none, the floor keeps it out of era A:
-# that is the one era whose rule *subtracts* a cache read from the prompt,
-# so reading a later record under it would understate the input, while
-# reading an era-A record under era B only leaves a cache read where the
-# provider put it. Which OpenCode release each Kilo version carried would
-# settle this properly, and Kilo's sync commits name them ("kilo compat for
-# v1.14.29"), but that is a mapping nobody has built yet.
+# asks it first. Where a record has none, the floor lands the record on
+# ERA_B, which input_cache() reads without subtracting: era A's rule needs
+# a version below ERA_B or none at all, and era C's needs one in
+# [ERA_C, ERA_D). Era A is the rule a version-less record would otherwise
+# reach, and the only one it can reach.
+#
+# Both directions are wrong, by exactly the cache read, and the floor picks
+# which. Read a post-era-A record under era A and the cache read is taken
+# out of an input that never held it, so the prompt is understated. Read a
+# genuine era-A record under era B and the cache read stays in `input`
+# while `cache_read` reports it too -- those are separate archive counters,
+# so a sum over them counts it twice (1,500 rather than 1,100, for a
+# 1,000-token prompt with 400 served from cache). The floor prefers the
+# over-count, because it leaves the tokens visible in a labelled counter
+# instead of silently deleting prompt tokens, and because era A's window is
+# the fork's first weeks: Kilo v1.0.9 shipped 2025-11-01 and upstream
+# ERA_B landed 2025-11-13. How far past that a Kilo release still vendored
+# era-A semantics is exactly what is not known.
+#
+# Which OpenCode release each Kilo version carried would settle it, and
+# Kilo's sync commits name them ("kilo compat for v1.14.29"), but that is a
+# mapping nobody has built yet.
 #
 # `opencode-<channel>.db` comes first because it is the name Kilo wrote
 # before its rename, and its copy of a record must give way to the current
@@ -745,10 +760,11 @@ def scan(repo, homes, store=OPENCODE):
         date = tokens.day_ms(record.time_ms)
         # A fork's own version numbering means nothing to these eras, so a
         # floor stands in for it. The floor does not claim to name the rule
-        # that applied; it only keeps a record out of era A, the one era
-        # whose rule subtracts a cache read from the prompt. A record's own
-        # `total` is still consulted first, because that is evidence and
-        # this is only a default.
+        # that applied; it keeps a record off era A, the only subtracting
+        # rule a version-less record can reach, at the cost of leaving a
+        # genuine era-A record's cache read in `input` as well as in
+        # `cache_read`. A record's own `total` is still consulted first,
+        # because that is evidence and this is only a default.
         version = max(record.version or sessions[record.session]["version"], store.floor)
         c = counters(record.tokens, record.provider, record.model, version)
         if date and any(c.values()):
