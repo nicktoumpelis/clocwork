@@ -46,19 +46,25 @@ to have.
 
 Only `session.start`, `session.resume`, `session.shutdown`,
 `session.usage_checkpoint` and `assistant.message` are kept, reduced to the
-fields the reader reads and the few these notes rest on -- the version, the
-branch, `reasoningTokens` and the rest of `tokenDetails` are kept as
-evidence for what is said here, not because anything reads them. The
+fields the reader reads, plus the ones these notes rest on and a few that
+sit beside them: the version, the branch, `reasoningTokens` and the rest of
+`tokenDetails` are kept as evidence for what is said here, and
+`startTime`, `hostType`, `shutdownType`, `resumeTime` and `requests.cost`
+are kept because they cost nothing and show the shape a record really has.
+Nothing reads any of them. The
 checkpoint and the message are kept although the reader ignores them: the
 checkpoint is where a reader might expect to find usage and does not, and
 the message carries an output count that must not be added to the snapshot
 that already covers it.
 
 Between them the four sessions carry every rule a recording can show. The
-rest -- a row whose own uncached input disagrees, counters that contradict
-being cumulative, a snapshot with no day, a non-JSON line, a log with no
-`session.start`, an unreadable log -- have no recording, and are tested
-against hand-written records in `TestRules` instead:
+rest have no recording and are tested against hand-written records in
+`TestRules` instead -- among them a row whose own uncached input disagrees,
+a snapshot grown in one counter and fallen in another, a snapshot with no
+day, a non-JSON line, a log with no `session.start`, an unreadable log, and
+every request count but one: each recorded row reports exactly one call, so
+what a count does when it holds, falls, is omitted or is carried forward is
+hand-written throughout.
 
 - **`5920fe71…` and `5c068289…`** (v1.0.77, 2026-08-03): one `gpt-5-mini`
   snapshot each, the first mostly uncached input, the second almost all

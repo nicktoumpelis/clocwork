@@ -136,9 +136,9 @@ class TestOwnUncachedInput(unittest.TestCase):
 class TestIncrease(unittest.TestCase):
     """A shutdown's counters are cumulative for the session so far, so what
     a snapshot adds is its increase over the largest one seen before it.
-    A snapshot that adds nothing is one already read; only a snapshot that
-    has grown in one counter and fallen in another contradicts the counts
-    being cumulative."""
+    A snapshot no counter of which has grown is already covered by a larger
+    one and adds nothing; only one grown in a counter and fallen in another
+    is counted against the log."""
 
     def test_the_first_snapshot_is_its_own_increase(self):
         self.assertEqual(copilot.increase(None, (counts(10, 5), 1)), (counts(10, 5), 1))
@@ -504,6 +504,29 @@ class TestRules(unittest.TestCase):
                     shutdown({"m": metric(200, 40, requests=1)}, "2026-08-05T13:00:00.000Z")])
         day = self.day()
         self.assertEqual((day["models"]["m"], day["turns"]), (counts(200, 40), 1))
+
+    def test_a_count_reported_again_after_a_row_that_omits_it_adds_only_its_own_calls(self):
+        # The count a row omits is carried forward, so the next row that
+        # does report one reads as an increase over it. Losing it would make
+        # that row a leap from zero and count the session's calls again.
+        middle = metric(2_000, 200)
+        del middle["requests"]
+        self.write([start(self.repo),
+                    shutdown({"m": metric(1_000, 100, requests=3)}, "2026-08-05T12:00:00.000Z"),
+                    shutdown({"m": middle}, "2026-08-05T13:00:00.000Z"),
+                    shutdown({"m": metric(3_000, 300, requests=5)}, "2026-08-05T14:00:00.000Z")])
+        day = self.day()
+        # 3 reported, 1 for the row that reports none, then 5 - 3 = 2.
+        self.assertEqual((day["models"]["m"], day["turns"]), (counts(3_000, 300), 6))
+
+    def test_a_request_count_that_falls_keeps_the_tokens_and_adds_no_turn(self):
+        self.write([start(self.repo),
+                    shutdown({"m": metric(1_000, 100, requests=4)}, "2026-08-05T12:00:00.000Z"),
+                    shutdown({"m": metric(3_000, 300, requests=1)}, "2026-08-05T13:00:00.000Z")])
+        result = self.scan()
+        day = result.days["2026-08-05"]
+        self.assertEqual((day["models"]["m"], day["turns"], result.malformed),
+                         (counts(3_000, 300), 4, 0))
 
     def test_a_row_with_no_request_count_still_counts_one_turn(self):
         m = metric(100, 20)

@@ -40,8 +40,8 @@ LABEL = "Copilot CLI"
 AGENT = re.compile(r"^Copilot\b")
 SKIPPED = "damaged, or not readable as text"
 # Counted: a line that is not JSON, a snapshot whose own uncached input
-# contradicts the one derived from it, a snapshot whose counters contradict
-# being cumulative, and a snapshot with no day to archive under.
+# contradicts the one derived from it, a snapshot grown in one counter and
+# fallen in another, and a snapshot with no day to archive under.
 MALFORMED_UNIT = "records"
 
 # A file that cannot be read at all is counted as unreadable rather than
@@ -137,9 +137,14 @@ def increase(seen, now):
     (counters, calls), where calls is None when the row reports no request
     count.
 
-    STALE when no counter has grown. That is a snapshot already read -- a
-    log repeating a block, or one file holding a session another file holds
-    too -- and it adds nothing, which is ordinary rather than a fault.
+    STALE when no counter has grown, which is a snapshot already covered by
+    a larger one: a log repeating a block, or one file holding a session
+    another file holds too. It adds nothing, and saying so is not the same
+    as saying the log is damaged. A snapshot that has fallen somewhere and
+    grown nowhere is read the same way, because nothing tells it apart from
+    a replay -- so counters that had genuinely restarted mid-session, which
+    no recording shows and a resume is known not to do, would be
+    under-counted rather than counted.
 
     BROKEN when some counters have grown and others fallen, which
     contradicts the counts being cumulative. That is what this whole reading
@@ -234,7 +239,10 @@ def read_log(lines, path, sessions):
     its session.start still lands on the session it belongs to, rather than
     becoming a second session whose whole cumulative total is archived on
     top of the first. An ordinal keeps a second unnamed session in one log
-    apart from the first.
+    apart from the first -- though a named start and an unnamed one in the
+    same log do fall together, since the directory is all the unnamed one
+    has to go on. That under-counts rather than over-counts, in a log no
+    recording has.
 
     A log that begins part-way through a session, with a resume, cannot tell
     that session resuming again from a second one, and reads them as one,
