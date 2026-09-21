@@ -1,8 +1,10 @@
 """Qwen Code: a fork of Gemini CLI, with two generations of session logs.
 
 From 0.4.0 each session is a JSONL file under
-<runtime>/projects/<path>/chats/<session id>.jsonl, where the runtime
-directory is QWEN_RUNTIME_DIR, else QWEN_HOME, else ~/.qwen. Every record
+<runtime>/projects/<path>/chats/<session id>.jsonl, moved to chats/archive/
+when it is archived, where the runtime directory is QWEN_RUNTIME_DIR, else
+QWEN_HOME, else ~/.qwen. A runtime directory set only by the
+advanced.runtimeOutputDir setting is not followed. Every record
 carries the working directory it was written in, and every API call -- the
 main one and the side calls, such as the memory extractor's -- writes a
 `ui_telemetry` system record whose uiEvent is a `qwen-code.api_response` with
@@ -57,12 +59,13 @@ def default_homes(env):
     global_dir = os.path.expanduser(env.get("QWEN_HOME") or os.path.join("~", ".qwen"))
     runtime = env.get("QWEN_RUNTIME_DIR")
     runtime = os.path.expanduser(runtime) if runtime else None
-    return [runtime, global_dir] if runtime and runtime != global_dir else [global_dir]
+    moved = runtime and os.path.realpath(runtime) != os.path.realpath(global_dir)
+    return [runtime, global_dir] if moved else [global_dir]
 
 
 def chat_logs(homes):
-    """Every 0.4.0-and-later session file under the homes, each once, and how
-    many directories could not be listed."""
+    """Every 0.4.0-and-later session file under the homes, archived ones
+    included, each once, and how many directories could not be listed."""
     found, unreadable = set(), 0
     for home in homes:
         projects = os.path.join(home, "projects")
@@ -74,13 +77,18 @@ def chat_logs(homes):
             unreadable += 1
             continue
         for project in names:
+            # An archived session is moved to chats/archive/, and its calls
+            # were made all the same.
             chats = os.path.join(projects, project, "chats")
-            if not os.path.isdir(chats):
-                continue
-            try:
-                found |= {os.path.join(chats, name) for name in os.listdir(chats) if name.endswith(".jsonl")}
-            except OSError:
-                unreadable += 1
+            for folder in (chats, os.path.join(chats, "archive")):
+                try:
+                    found |= {os.path.join(folder, name) for name in os.listdir(folder) if name.endswith(".jsonl")}
+                except (FileNotFoundError, NotADirectoryError):
+                    continue
+                except OSError:
+                    # The folder, or a directory above it.
+                    unreadable += 1
+                    break
     return sorted(found), unreadable
 
 

@@ -37,7 +37,7 @@ pointed at a temporary repository.
   CLI 1.0.87, in a throwaway git repository with `COPILOT_HOME` pointed at a
   temporary directory. Nobody else's data, so there is no licence to carry.
   See below.
-- `qwen/`: recorded for this repository on 2026-09-21 by running Qwen Code
+- `qwen/`: recorded for this repository on 2026-09-21 (UTC) by running Qwen Code
   0.3.0, 0.4.0 and 0.24.2 from npm against a local mock of each provider's
   API, which answered "ok" with distinctive token counts. Real logs, written
   by the real CLI, around counts the mock chose; nobody's data and no

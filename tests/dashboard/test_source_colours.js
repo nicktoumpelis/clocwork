@@ -57,6 +57,7 @@ const [three, two] = [colours(withCodex), colours(alone)];
 const future = two['some-future-agent'];
 check(typeof future === 'string' && /^#[0-9a-f]{6}$/i.test(future), 'still gets a colour: ' + future);
 check(known.length === 7 && known.indexOf(future) < 0, 'and it is no known source\'s (' + future + ' against ' + known.join(' ') + ')');
+check(known.every(function(c, i) { return known.indexOf(c) === i; }), 'and no two known sources share a colour (' + known.join(' ') + ')');
 check(three['some-future-agent'] === future, 'and it does not move when Codex joins (' + three['some-future-agent'] + ' / ' + future + ')');
 // Nor a shade of one: the first stranger takes a hue family no known source uses.
 const family = t => t.split('-')[0];

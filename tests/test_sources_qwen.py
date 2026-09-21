@@ -54,6 +54,12 @@ class TestHomes(unittest.TestCase):
         # stay in the global directory.
         self.assertEqual(qwen.default_homes({"QWEN_RUNTIME_DIR": "/r", "QWEN_HOME": "/q"}), ["/r", "/q"])
 
+    def test_a_runtime_directory_that_is_the_global_one_is_read_once(self):
+        home = os.path.expanduser(os.path.join("~", ".qwen"))
+        for runtime in (home + os.sep, os.path.join(home, ".")):
+            with self.subTest(runtime=runtime):
+                self.assertEqual(qwen.default_homes({"QWEN_RUNTIME_DIR": runtime}), [home])
+
 
 class TestAttribution(unittest.TestCase):
     def test_the_trailer_qwen_code_appends_names_it(self):
@@ -66,6 +72,15 @@ class TestAttribution(unittest.TestCase):
 
     def test_the_product_s_own_name_names_it_too(self):
         self.assertEqual(agents.detect_agent("Fix\n\nCo-Authored-By: Qwen Code <x@y>"), "Qwen Code")
+
+    def test_alibaba_s_own_coder_models_are_not_qwen_code(self):
+        # qwen-coder-plus and qwen-coder-turbo are models Alibaba serves, and a
+        # hyphen after the name makes it a longer one.
+        for text in ("Cline (qwen-coder-plus) <noreply@cline.bot>", "Roo Code (qwen-coder-turbo)",
+                     "OpenHands <openhands@all-hands.dev> (qwen-coder-plus-latest)",
+                     "Continue <qwen-coder-plus@x.com>"):
+            with self.subTest(text=text):
+                self.assertIsNone(agents.detect_agent(f"Fix\n\nCo-authored-by: {text}"))
 
     def test_a_qwen_model_run_through_another_tool_is_not_qwen_code(self):
         # "Qwen" names the model as well as the product, so a trailer from
@@ -153,6 +168,15 @@ class TestRules(unittest.TestCase):
         self.write([api_response(self.repo, input=1_001, output=21, cached=300, thoughts=7, total=1_022)])
         self.assertEqual(self.day()["models"]["m"]["output"], 21)
 
+    def test_a_record_s_total_decides_over_its_auth_type(self):
+        # A total that disagrees with what the auth type would suggest is
+        # still the evidence: it is what the provider sent.
+        for auth, total, output in (("openai", 1_031, 30), ("gemini", 1_022, 21)):
+            with self.subTest(auth=auth):
+                self.write([api_response(self.repo, auth=auth, input=1_001, output=21, cached=300,
+                                         thoughts=9 if auth == "openai" else 7, total=total)])
+                self.assertEqual(self.day()["models"]["m"]["output"], output)
+
     def test_an_openai_record_with_no_total_does_not_count_its_reasoning_twice(self):
         # Some OpenAI-compatible servers send no total. The total is what
         # usually says the reasoning is inside the output; without it, the
@@ -202,6 +226,14 @@ class TestRules(unittest.TestCase):
         self.write([error])
         self.assertIsNone(self.scan())
 
+    def test_another_event_that_mentions_a_response_is_not_counted(self):
+        # The line filter only looks for the name; the event's own name decides.
+        other = api_response(self.repo, input=100, output=1)
+        other["systemPayload"]["uiEvent"]["event.name"] = "qwen-code.api_error"
+        other["systemPayload"]["uiEvent"]["retried"] = "qwen-code.api_response"
+        self.write([other])
+        self.assertIsNone(self.scan())
+
     def test_a_line_that_is_not_json_is_counted(self):
         self.write(['{"subtype": "ui_telemetry", "qwen-code.api_response"', api_response(self.repo, input=100)])
         result = self.scan()
@@ -215,15 +247,28 @@ class TestRules(unittest.TestCase):
         result = self.scan()
         self.assertEqual((result.days, result.malformed), ({}, 1))
 
+    def test_a_call_with_no_time_of_its_own_takes_its_record_s(self):
+        record = api_response(self.repo, input=100)
+        record["systemPayload"]["uiEvent"]["event.timestamp"] = None
+        record["timestamp"] = "2026-08-06T10:00:00.000Z"
+        self.write([record])
+        self.assertEqual(list(self.scan().days), ["2026-08-06"])
+
     def test_a_record_of_the_wrong_shape_is_read_as_missing(self):
-        for payload in ("gone", {"uiEvent": "gone"}, {"uiEvent": {"event.name": "qwen-code.api_response",
-                                                                   "input_token_count": "many"}}):
+        for payload in ("gone", {"uiEvent": "gone"}):
             with self.subTest(payload=payload):
                 record = api_response(self.repo, input=100)
                 record["systemPayload"] = payload
                 self.write([record])
-                result = self.scan()
-                self.assertEqual(getattr(result, "days", {}), {})
+                self.assertIsNone(self.scan())
+
+    def test_a_call_whose_counts_are_not_numbers_belongs_but_adds_nothing(self):
+        record = api_response(self.repo, input=100)
+        record["systemPayload"]["uiEvent"] = {"event.name": "qwen-code.api_response", "input_token_count": "many",
+                                              "event.timestamp": "2026-08-05T10:00:00.000Z"}
+        self.write([record])
+        result = self.scan()
+        self.assertEqual((result.days, result.malformed, result.skipped), ({}, 0, 0))
 
     def test_a_file_that_cannot_be_read_is_skipped(self):
         path = self.write([api_response(self.repo, input=100)])
@@ -238,6 +283,18 @@ class TestRules(unittest.TestCase):
         chats = os.path.join(self.home, "projects", "-repo", "chats")
         os.chmod(chats, 0)
         self.addCleanup(os.chmod, chats, 0o755)
+        result = self.scan()
+        self.assertEqual((result.days, result.skipped), ({}, 1))
+
+    def test_an_archived_session_is_read(self):
+        self.write([api_response(self.repo, input=100)], name=os.path.join("archive", "s1.jsonl"))
+        self.assertEqual(self.day()["models"]["m"], counts(100))
+
+    def test_a_project_directory_that_cannot_be_entered_is_skipped(self):
+        self.write([api_response(self.repo, input=100)])
+        project = os.path.join(self.home, "projects", "-repo")
+        os.chmod(project, 0)
+        self.addCleanup(os.chmod, project, 0o755)
         result = self.scan()
         self.assertEqual((result.days, result.skipped), ({}, 1))
 
