@@ -59,7 +59,7 @@ class TestTheStoreDescriptor(unittest.TestCase):
         # channel kilo-<channel>.db, and an opencode-<channel>.db left by the
         # rename is still read where the new name is absent. The renamed name
         # is first, because it is the older one.
-        self.assertEqual(oc.KILO.databases, ("opencode-*.db", "kilo*.db"))
+        self.assertEqual(kilo.STORE.databases, ("opencode-*.db", "kilo*.db"))
 
     def test_opencode_does_not_read_kilo_s_databases(self):
         self.assertEqual(oc.OPENCODE.databases, ("opencode*.db",))
@@ -67,14 +67,14 @@ class TestTheStoreDescriptor(unittest.TestCase):
     def test_kilo_caches_its_project_id_under_its_own_name(self):
         # project.ts reads path.join(commonDirectory, "kilo"), marked
         # kilocode_change where OpenCode reads "opencode".
-        self.assertEqual((oc.KILO.cache_name, oc.OPENCODE.cache_name), ("kilo", "opencode"))
+        self.assertEqual((kilo.STORE.cache_name, oc.OPENCODE.cache_name), ("kilo", "opencode"))
 
     def test_both_stores_read_the_file_generations(self):
         # Kilo's database arrived in v7.0.26; up to v1.0.25 it shipped
         # OpenCode's JSON store, writing to its own directory already
         # (`const app = "kilo"` is there at v1.0.25), and that release
         # carries the J0-to-J1 migration -- so both layouts can sit in it.
-        self.assertTrue(oc.KILO.file_stores)
+        self.assertTrue(kilo.STORE.file_stores)
         self.assertTrue(oc.OPENCODE.file_stores)
 
     def test_a_file_store_in_kilo_s_directory_is_read(self):
@@ -141,20 +141,78 @@ class TestTheStoreDescriptor(unittest.TestCase):
             os.makedirs(home)
             with open(os.path.join(home, "kilo-beta.db"), "w", encoding="utf-8") as f:
                 f.write("not a database")
-            overlapping = oc.KILO._replace(databases=("kilo*.db", "kilo-*.db"))
+            overlapping = kilo.STORE._replace(databases=("kilo*.db", "kilo-*.db"))
             self.assertEqual(oc.scan(repo, [home], overlapping).skipped, 1)
 
     def test_only_kilo_floors_the_era(self):
-        self.assertEqual(oc.KILO.floor, oc.ERA_B)
+        self.assertEqual(kilo.STORE.floor, oc.ERA_B)
         self.assertEqual(oc.OPENCODE.floor, ())
 
 
-class TestTheEraFloor(unittest.TestCase):
-    """Kilo's releases span every era, so its version says nothing about
-    which one wrote a record. The floor is not a claim about the rules that
-    applied; it keeps a version-less record off era A, which is the only
-    subtracting rule such a record can reach -- era C also subtracts, but
-    needs a version in [ERA_C, ERA_D) and an Anthropic-shaped provider."""
+class TestTheReleaseTable(unittest.TestCase):
+    """Which OpenCode release each Kilo release carried. The rows come from
+    git ancestry in the fork (see RELEASES), so these tests pin the facts the
+    counter rules depend on rather than restating every row."""
+
+    def carried(self, text):
+        return kilo.carried(oc.version_of(text))
+
+    def test_both_columns_only_ever_rise(self):
+        # bisect needs the Kilo column sorted, and "newer than the table
+        # carried at least the last row" needs the OpenCode column to rise
+        # with it; a mistyped row breaks one or the other.
+        firsts = [k for k, _ in kilo.RELEASES]
+        carried = [u for _, u in kilo.RELEASES]
+        self.assertEqual(firsts, sorted(set(firsts)))
+        self.assertEqual(carried, sorted(set(carried)))
+
+    def test_no_kilo_release_carried_era_a_or_era_c(self):
+        # The two rules that take a cache read back out of the prompt. Kilo's
+        # first release, 1.0.0, already carried v1.1.36, and it
+        # went from v1.2.25 to v1.3.13 in one step, past era C's two releases.
+        for first, upstream in kilo.RELEASES:
+            with self.subTest(kilo=first):
+                self.assertGreaterEqual(upstream, oc.ERA_B)
+                self.assertFalse(oc.ERA_C <= upstream < oc.ERA_D)
+
+    def test_the_releases_either_side_of_two_era_boundaries(self):
+        self.assertTrue(oc.ERA_B <= self.carried("7.2.4") < oc.ERA_C)
+        self.assertTrue(oc.ERA_D <= self.carried("7.2.5") < oc.ERA_E)
+        self.assertGreaterEqual(self.carried("7.2.6"), oc.ERA_E)
+
+    def test_a_release_between_two_rows_carried_the_earlier_row(self):
+        # v7.2.7 to v7.2.16 all carried v1.4.3.
+        self.assertEqual(self.carried("7.2.10"), (1, 4, 3))
+
+    def test_a_release_newer_than_the_table_carried_at_least_its_last_row(self):
+        self.assertEqual(self.carried("9.0.0"), kilo.RELEASES[-1][1])
+
+    def test_the_untagged_npm_releases_carried_the_first_row(self):
+        # Kilo's 1.0.0 to 1.0.12 were published to npm with no tag of their
+        # own -- the fork's v1.0.x tags up to there are OpenCode's commits --
+        # from a main line that descended from v1.1.36 throughout.
+        for text in ("1.0.0", "1.0.9", "1.0.12"):
+            with self.subTest(version=text):
+                self.assertEqual(self.carried(text), (1, 1, 36))
+
+    def test_a_version_no_kilo_release_had_is_not_mapped(self):
+        # "local" is a build from source, and 0.x is the CLI Kilo shipped
+        # before the fork, which never wrote this store: neither says what a
+        # record's counters mean, so the floor decides.
+        for text in ("local", "", "0.26.0"):
+            with self.subTest(version=text):
+                self.assertEqual(self.carried(text), ())
+
+    def test_opencode_s_own_versions_are_its_releases(self):
+        self.assertEqual(oc.OPENCODE.carried((1, 3, 4)), (1, 3, 4))
+
+
+class TestTheEra(unittest.TestCase):
+    """A Kilo version is read at the era of the OpenCode release it carried.
+    Where it names none this reader knows, the floor stands in: not a claim
+    about the rule that applied, only a bar against era A, the one subtracting
+    rule a version-less record can reach -- era C also subtracts, but needs a
+    version in [ERA_C, ERA_D) and an Anthropic-shaped provider."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -167,6 +225,48 @@ class TestTheEraFloor(unittest.TestCase):
         kilo_db(os.path.join(self.home, "kilo.db"), self.repo, version=version, usage=usage)
         days, _ = scanned(self.repo, [self.home])
         return next(iter(days.values()))["models"]
+
+    def test_a_7x_release_before_v7_2_6_is_read_before_era_e(self):
+        # 7.x compares above v1.3.16 as a number, but v7.0.26 to v7.2.5
+        # carried v1.2.2 to v1.3.13. With no total, the provider decides
+        # there, and OpenAI's reasoning was inside the output.
+        usage = {"input": 1_000, "output": 100, "reasoning": 40, "cache": {"read": 0, "write": 0}}
+        for version in ("7.0.26", "7.2.5"):
+            with self.subTest(version=version):
+                self.assertEqual(self.day(version, usage)["openai/gpt-5.3-codex"]["output"], 100)
+        self.assertEqual(self.day("7.2.6", usage)["openai/gpt-5.3-codex"]["output"], 140)
+
+    def test_a_release_newer_than_the_table_is_read_at_its_last_row(self):
+        usage = {"input": 1_000, "output": 100, "reasoning": 40, "cache": {"read": 0, "write": 0}}
+        self.assertEqual(self.day("9.0.0", usage)["openai/gpt-5.3-codex"]["output"], 140)
+
+    def test_an_unmapped_version_is_floored_not_read_as_era_a(self):
+        # 0.26.0 is below ERA_B as a number, and no release of this store
+        # had it.
+        usage = {"input": 1_000, "output": 100, "reasoning": 0, "cache": {"read": 400, "write": 0}}
+        self.assertEqual(self.day("0.26.0", usage)["openai/gpt-5.3-codex"]["input"], 1_000)
+
+    def test_a_local_build_s_v2_row_is_still_read_as_the_table_s_release(self):
+        # session_message arrived in OpenCode v1.14.34, so a row in it is at
+        # era E whatever its session names. That floor is an OpenCode
+        # version, and must not be mistaken for a Kilo one and mapped down:
+        # Kilo "1.14.34" would fall in the table's 1.0.24 row, before era E.
+        usage = {"input": 1_000, "output": 100, "reasoning": 40, "cache": {"read": 0, "write": 0}}
+        sid, mid = make_id("ses", AT, 1, "kilov2case"), make_id("msg", AT, 1, "kilov2case")
+        agent_logs.build_database(os.path.join(self.home, "kilo.db"), {
+            "session": [{"id": sid, "project_id": PROJECT_ID, "directory": self.repo,
+                         "version": "local", "parent_id": None, "path": "", "time_created": AT}],
+            "message": [{"id": make_id("msg", AT, 8, "kilov2case"), "session_id": sid,
+                         "time_created": AT, "data": {"role": "user", "time": {"created": AT}}}],
+            "session_message": [{"id": mid, "session_id": sid, "type": "assistant", "seq": 1,
+                                 "time_created": AT,
+                                 "data": {"role": "assistant", "modelID": "gpt-5.3-codex",
+                                          "providerID": "openai", "time": {"created": AT},
+                                          "tokens": usage,
+                                          "path": {"cwd": self.repo, "root": self.repo}}}],
+        })
+        days, _ = scanned(self.repo, [self.home])
+        self.assertEqual(next(iter(days.values()))["models"]["openai/gpt-5.3-codex"]["output"], 140)
 
     def test_a_source_build_records_the_word_local(self):
         # installation/version.ts: InstallationVersion is "local" when
@@ -187,8 +287,8 @@ class TestTheEraFloor(unittest.TestCase):
         # The floor is ERA_B, not the newest era, so a record with neither a
         # total nor a usable version keeps the pre-era-E reading: the
         # provider decides, and this one's reasoning was inside the output.
-        # A record that does name a version at or past era E still gets era
-        # E's rule, which counts the reasoning outside.
+        # A record whose release carried era E still gets era E's rule,
+        # which counts the reasoning outside.
         usage = {"input": 1_000, "output": 100, "reasoning": 40, "cache": {"read": 0, "write": 0}}
         self.assertEqual(self.day("local", usage)["openai/gpt-5.3-codex"]["output"], 100)
         self.assertEqual(self.day("7.7.6", usage)["openai/gpt-5.3-codex"]["output"], 140)
@@ -202,7 +302,8 @@ class TestTheEraFloor(unittest.TestCase):
         self.assertEqual(models["openai/gpt-5.3-codex"]["output"], 140)
 
     def test_opencode_still_reads_its_own_oldest_era(self):
-        # The floor must not leak into the other source: an OpenCode record
+        # Neither the floor nor the table may leak into the other source: an
+        # OpenCode record
         # from era A keeps its own reading, the cache read out of the prompt.
         usage = {"input": 1_000, "output": 100, "reasoning": 0, "cache": {"read": 400, "write": 0}}
         one_session_db(os.path.join(self.home, "opencode.db"), PROJECT_ID, self.repo,
