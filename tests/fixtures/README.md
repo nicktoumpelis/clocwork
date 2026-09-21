@@ -91,9 +91,10 @@ against. `reasoningTokens` is reported beside `outputTokens` in all four
 reasoning bucket in `tokenDetails`, and no record carries a total that could
 settle whether it sits inside the output the way OpenCode's does.
 
-The same identity held on a real Copilot CLI 1.0.87 install, run once for
-#67 and not committed: `inputTokens` 47,986, cache read 35,818, cache write
-12,156 and `tokenDetails.input.tokenCount` 12. That run also confirmed the
+The same identity held on a real Copilot CLI 1.0.87 install, run for #67
+and committed as `copilot-store/` (below): its first shutdown has
+`inputTokens` 47,986, cache read 35,818, cache write 12,156 and
+`tokenDetails.input.tokenCount` 12. That run also confirmed the
 layout these files are committed in (`$COPILOT_HOME/session-state/<session
 id>/events.jsonl`, the directory named for `session.start`'s `sessionId`) and
 that `COPILOT_HOME` moves the whole tree.
