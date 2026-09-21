@@ -23,8 +23,9 @@ from datetime import datetime, timezone
 COUNTERS = ("input", "output", "cache_read", "cache_write")
 
 # days: {date: {"turns", "models"}}; malformed: lines that did not parse;
-# skipped: files that could not be read at all.
-ScanResult = namedtuple("ScanResult", "days malformed skipped", defaults=(0,))
+# skipped: files that could not be read at all; held: sessions a source
+# chose not to archive this run, so that the archive keeps what it has.
+ScanResult = namedtuple("ScanResult", "days malformed skipped held", defaults=(0, 0))
 
 DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 
@@ -200,6 +201,10 @@ def archive(repo_path, archive_path, sources, homes=None, log=print):
         if result.skipped:
             reason = getattr(source, "SKIPPED", "")
             log(f"  NOTE: could not read {result.skipped} {source.LABEL} files" + (f": {reason}" if reason else ""))
+        if result.held:
+            reason = getattr(source, "HELD", "")
+            log(f"  NOTE: held back {result.held} {source.LABEL} "
+                f"{'session' if result.held == 1 else 'sessions'}" + (f": {reason}" if reason else ""))
     if missing:
         log(f"  No logs for this repository from {'; '.join(missing)}")
     if not scanned:

@@ -266,9 +266,9 @@ def context(repo, **over):
     return base
 
 
-def start(repo, sid="s1", ts="2026-08-05T10:00:00.000Z", **over):
+def start(repo, sid="s1", ts="2026-08-05T10:00:00.000Z", version="1.0.78", **over):
     return {"type": "session.start", "timestamp": ts,
-            "data": {"sessionId": sid, "copilotVersion": "1.0.78", "startTime": ts,
+            "data": {"sessionId": sid, "copilotVersion": version, "startTime": ts,
                      "context": context(repo, **over)}}
 
 
@@ -659,6 +659,10 @@ class TestRules(LogHome):
 STORE_RECORDED = {"2026-09-21": {"turns": 5, "models": {
     "gpt-5.6-luna": {"input": 15, "output": 248, "cache_read": 47_632, "cache_write": 12_503}}}}
 STORE_SESSION = "20fdee16-9f7d-40df-8c24-65473aa11a9b"
+# The last release before assistant_usage_events, and the first with it:
+# each run once against a fresh COPILOT_HOME on 2026-09-21, with 1.0.68
+# writing schema_version 5 and no table, 1.0.69 schema_version 6 and a row.
+PRE_TABLE, FIRST_WITH_TABLE = "1.0.68", "1.0.69"
 
 
 class TestStoreRecording(unittest.TestCase):
@@ -750,7 +754,7 @@ class TestStoreRules(LogHome):
     def test_a_snapshot_that_holds_more_than_the_rows_wins(self):
         # A session begun before the table existed and resumed after it: the
         # rows hold only the later calls, the snapshot the whole session.
-        self.write([start(self.repo), shutdown({"m": metric(900, 90, requests=3)})])
+        self.write([start(self.repo, version=PRE_TABLE), shutdown({"m": metric(900, 90, requests=3)})])
         self.store([call(1, input=300, output=30)])
         day = self.day()
         self.assertEqual((day["turns"], day["models"]["m"]), (3, counts(900, 90)))
@@ -788,13 +792,15 @@ class TestStoreRules(LogHome):
 
     def test_a_store_without_the_usage_table_is_read_as_before(self):
         # Releases before the table: the store exists and holds none of it.
-        self.write([start(self.repo), shutdown({"m": metric(100, 10)})])
+        self.write([start(self.repo, version=PRE_TABLE), shutdown({"m": metric(100, 10)})])
         self.store(None)
         result = self.scan()
         self.assertEqual((result.days["2026-08-05"]["models"]["m"], result.skipped), (counts(100, 10), 0))
 
     def test_a_damaged_store_is_counted_and_the_logs_still_read(self):
-        self.write([start(self.repo), shutdown({"m": metric(100, 10)})])
+        # A session from before the table; one from after it is held back
+        # instead (TestStableDays).
+        self.write([start(self.repo, version=PRE_TABLE), shutdown({"m": metric(100, 10)})])
         os.makedirs(self.home, exist_ok=True)
         with open(os.path.join(self.home, copilot.STORE), "w", encoding="utf-8") as f:
             f.write("not a database")
@@ -840,7 +846,9 @@ class TestStoreRules(LogHome):
         # same calls by the directory alone, so the rows must be weighed
         # against both parts of the log -- weighed against the first alone,
         # they win, and the second part is then counted again on its own.
-        unnamed = start(self.repo)
+        # From before the table, so the larger total decides, which is where
+        # weighing one part alone would go wrong.
+        unnamed = start(self.repo, version=PRE_TABLE)
         del unnamed["data"]["sessionId"]
         self.write([unnamed, shutdown({"m": metric(40, 0)}, "2026-08-05T12:00:00.000Z"),
                     unnamed, shutdown({"m": metric(100, 0)}, "2026-08-05T13:00:00.000Z")])
@@ -860,6 +868,99 @@ class TestStoreRules(LogHome):
         result = copilot.scan(self.repo, homes)
         self.assertEqual((result.days["2026-08-05"]["models"]["m"], result.malformed),
                          (counts(100, 10), 0))
+
+
+class TestStableDays(LogHome):
+    """A session from a release that writes per-call rows is dated by them,
+    and never falls back to its shutdown days once a store is there: the
+    archive keeps the larger record per day, so a session that moved from
+    its calls' days to its shutdown's would be counted on both. Where its
+    rows cannot be had, it is held back and the archive keeps what it has."""
+
+    def store(self, calls):
+        tables = {"sessions": [{"id": "s1", "cwd": self.repo, "branch": "main"}]}
+        if calls:
+            tables["assistant_usage_events"] = calls
+        agent_logs.build_database(os.path.join(self.home, copilot.STORE), tables)
+
+    def test_its_rows_are_read_even_where_the_snapshots_hold_more(self):
+        # Rows pruned from the front of a session: the snapshot still holds
+        # them all, and reading it would put them on the shutdown's day.
+        self.write([start(self.repo, version=FIRST_WITH_TABLE),
+                    shutdown({"m": metric(900, 90, requests=3)}, "2026-08-06T09:00:00.000Z")])
+        self.store([call(3, input=300, output=30)])
+        days = self.scan().days
+        self.assertEqual({d: (v["turns"], v["models"]["m"]) for d, v in days.items()},
+                         {"2026-08-05": (1, counts(300, 30))})
+
+    def test_a_session_whose_rows_are_gone_is_held_back(self):
+        self.write([start(self.repo, version="1.0.87"), shutdown({"m": metric(100, 10)})])
+        self.store([call(1, session="another", input=5)])
+        result = self.scan()
+        self.assertEqual((result.days, result.held, result.malformed), ({}, 1, 0))
+
+    def test_a_session_that_called_no_model_is_not_held_back(self):
+        # It has no rows because it made no calls, not because they are gone,
+        # and holding it would repeat the note on every run for nothing.
+        self.write([start(self.repo, version="1.0.87"),
+                    {"type": "session.shutdown", "timestamp": "2026-08-05T12:00:00.000Z",
+                     "data": {"shutdownType": "routine", "modelMetrics": {}}}])
+        self.store([call(1, session="another", input=5)])
+        result = self.scan()
+        self.assertEqual((result.days, result.held), ({}, 0))
+
+    def test_an_unreadable_store_holds_back_every_such_session(self):
+        self.write([start(self.repo, version="1.0.87"), shutdown({"m": metric(100, 10)})])
+        os.makedirs(self.home, exist_ok=True)
+        with open(os.path.join(self.home, copilot.STORE), "w", encoding="utf-8") as f:
+            f.write("not a database")
+        result = self.scan()
+        self.assertEqual((result.days, result.held, result.skipped), ({}, 1, 1))
+
+    def test_with_no_store_at_all_the_snapshots_are_read(self):
+        # The public recordings are logs alone, and so is a log tree copied
+        # without its store: nothing then says the rows ever existed.
+        self.write([start(self.repo, version="1.0.87"), shutdown({"m": metric(100, 10)})])
+        result = self.scan()
+        self.assertEqual((result.days["2026-08-05"]["models"]["m"], result.held), (counts(100, 10), 0))
+
+    def test_a_session_from_before_the_table_keeps_the_larger_total(self):
+        self.write([start(self.repo, version=PRE_TABLE), shutdown({"m": metric(900, 90, requests=3)})])
+        self.store([call(1, input=300, output=30)])
+        self.assertEqual(self.day()["models"]["m"], counts(900, 90))
+
+    def test_a_session_that_names_no_release_keeps_the_larger_total(self):
+        unversioned = start(self.repo)
+        del unversioned["data"]["copilotVersion"]
+        self.write([unversioned, shutdown({"m": metric(900, 90, requests=3)})])
+        self.store([call(1, input=300, output=30)])
+        self.assertEqual(self.day()["models"]["m"], counts(900, 90))
+
+    def test_a_prerelease_of_the_first_release_with_the_table_counts_as_it(self):
+        self.write([start(self.repo, version=FIRST_WITH_TABLE + "-2"),
+                    shutdown({"m": metric(900, 90, requests=3)})])
+        self.store([call(1, input=300, output=30)])
+        self.assertEqual(self.day()["models"]["m"], counts(300, 30))
+
+    def test_the_first_part_of_an_unnamed_log_names_the_release(self):
+        # A log begun before the table and carried on after it: the rows
+        # cannot hold the first part's calls, so the larger total decides,
+        # as it does for any session begun before the table.
+        before, after = start(self.repo, version=PRE_TABLE), start(self.repo, version=FIRST_WITH_TABLE)
+        for unnamed in (before, after):
+            del unnamed["data"]["sessionId"]
+        self.write([before, shutdown({"m": metric(40, 0)}, "2026-08-05T12:00:00.000Z"),
+                    after, shutdown({"m": metric(100, 0)}, "2026-08-05T13:00:00.000Z")])
+        self.store([call(1, input=100)])
+        self.assertEqual(self.day()["models"]["m"], counts(140, 0))
+
+    def test_an_unnamed_log_from_a_release_with_the_table_is_read_from_its_rows(self):
+        unnamed = start(self.repo, version=FIRST_WITH_TABLE)
+        del unnamed["data"]["sessionId"]
+        self.write([unnamed, shutdown({"m": metric(40, 0)}, "2026-08-05T12:00:00.000Z"),
+                    unnamed, shutdown({"m": metric(100, 0)}, "2026-08-05T13:00:00.000Z")])
+        self.store([call(1, input=100)])
+        self.assertEqual(self.day()["models"]["m"], counts(100, 0))
 
 
 if __name__ == "__main__":
