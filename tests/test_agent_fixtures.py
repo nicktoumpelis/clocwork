@@ -1,14 +1,16 @@
 """The committed agent logs carry only what the token readers need.
 
-tests/fixtures holds real Codex CLI, Gemini CLI and OpenCode sessions from
-public repositories, reduced to identity, model, usage and timestamps. These
-checks fail if a later refresh lets anything else in: a prompt, a reply, a
-real path.
+tests/fixtures holds real Codex CLI, Copilot CLI, Gemini CLI and OpenCode
+sessions from public repositories, reduced to identity, model, usage and
+timestamps. These checks fail if a later refresh lets anything else in: a
+prompt, a reply, a real path.
 """
 
 import os
+import re
 import unittest
 
+from clocwork import paths
 from tests import agent_logs
 
 CODEX_KEYS = {
@@ -39,13 +41,31 @@ OPENCODE_KEYS = {
 # the whole field path that decides, not the name the value sits directly
 # under.
 MODEL_KEYS = {"model", "modelID"}
-AGENTS = ("codex", "gemini", "opencode")
+# Copilot records its usage in a table keyed by model id, so the names under
+# these fields are data rather than field names: they are checked for the
+# shape of a model id instead of being named in an allow-list, which a
+# refresh recording another model would otherwise have to grow.
+MODEL_KEYED = {"modelMetrics"}
+MODEL_ID = re.compile(r"^[0-9a-z][0-9a-z.-]*(?:/[0-9a-z][0-9a-z.-]*)?$")
+# The remote's owner/name. Copilot records the two halves of a remote apart,
+# as repositoryHost and repository, so the path half stands alone in a
+# reduced record and is a placeholder like the remote it comes from.
+REMOTE_PATH = paths.parse_remote(agent_logs.REMOTE)[1]
+AGENTS = ("codex", "copilot", "gemini", "opencode")
 # The columns each table of the OpenCode fixtures uses. These are the
 # spellings the recordings hold, not every one the reader accepts: `pick()`
 # takes `sessionID` for `session_id` too, because the schema has used both.
 # Pinning the set means a key nobody meant - one valid for another table, or
 # a spelling these fixtures do not use - fails here instead of quietly
 # becoming a column of its own and leaving the real one empty.
+COPILOT_KEYS = {
+    "baseCommit", "branch", "cacheReadTokens", "cacheWriteTokens", "cache_read", "cache_write",
+    "context", "copilotVersion", "cost", "count", "cwd", "data", "gitRoot", "headCommit", "hostType",
+    "input", "inputTokens", "model", "modelMetrics", "output", "outputTokens", "reasoningTokens",
+    "repository", "repositoryHost", "requests", "resumeTime", "sessionId", "shutdownType",
+    "startTime", "timestamp", "tokenCount", "tokenDetails", "totalNanoAiu", "totalPremiumRequests",
+    "type", "usage",
+}
 OPENCODE_COLUMNS = {
     "session": {"id", "project_id", "parent_id", "directory", "version", "path",
                 "time_created", "time_updated"},
@@ -55,12 +75,35 @@ OPENCODE_COLUMNS = {
 }
 
 
-def keys_of(value):
+def keys_of(value, under=None):
+    """Every field name in a record. The keys of a dict under a model-keyed
+    field are model ids, not field names, so they are left out and checked
+    by model_ids() instead."""
     if isinstance(value, dict):
-        return set(value).union(*(keys_of(v) for v in value.values()))
+        names = set() if under in MODEL_KEYED else set(value)
+        return names.union(*(keys_of(v, k) for k, v in value.items()))
     if isinstance(value, list):
-        return set().union(*(keys_of(v) for v in value))
+        return set().union(*(keys_of(v, under) for v in value))
     return set()
+
+
+def model_ids(value, under=None):
+    """Every name a record uses as a model id: the keys of a dict under a
+    model-keyed field."""
+    if isinstance(value, dict):
+        found = set(value) if under in MODEL_KEYED else set()
+        return found.union(*(model_ids(v, k) for k, v in value.items()))
+    if isinstance(value, list):
+        return set().union(*(model_ids(v, under) for v in value))
+    return set()
+
+
+def placeholder(s):
+    """Whether a string that holds a slash is one of the placeholders a
+    reduced record may name: the repository's path, a directory below it,
+    the remote, or the owner/name that remote spells."""
+    return (s in (agent_logs.PLACEHOLDER, agent_logs.REMOTE, REMOTE_PATH)
+            or s.startswith(agent_logs.PLACEHOLDER + "/"))
 
 
 def named_strings(value, path=()):
@@ -82,10 +125,11 @@ def names_a_model(path):
 
 class TestFixturesAreReduced(unittest.TestCase):
     def test_every_agent_has_its_sessions(self):
-        self.assertEqual(tuple(len(agent_logs.files(a)) for a in AGENTS), (13, 5, 17))
+        self.assertEqual(tuple(len(agent_logs.files(a)) for a in AGENTS), (13, 4, 5, 17))
 
     def test_only_allow_listed_keys(self):
-        for agent, allowed in (("codex", CODEX_KEYS), ("gemini", GEMINI_KEYS), ("opencode", OPENCODE_KEYS)):
+        for agent, allowed in (("codex", CODEX_KEYS), ("copilot", COPILOT_KEYS),
+                               ("gemini", GEMINI_KEYS), ("opencode", OPENCODE_KEYS)):
             for rel in agent_logs.files(agent):
                 with self.subTest(file=rel):
                     found = set().union(*(keys_of(r) for r in agent_logs.records(agent, rel)))
@@ -97,8 +141,7 @@ class TestFixturesAreReduced(unittest.TestCase):
                 with self.subTest(file=rel):
                     pairs = {p for r in agent_logs.records(agent, rel) for p in named_strings(r)}
                     left = {(".".join(path), s) for path, s in pairs
-                            if "/" in s and not names_a_model(path)
-                            and s not in (agent_logs.PLACEHOLDER, agent_logs.REMOTE)}
+                            if "/" in s and not names_a_model(path) and not placeholder(s)}
                     self.assertEqual(left, set())
 
     def test_the_placeholder_check_reads_the_field_not_the_text(self):
@@ -119,6 +162,32 @@ class TestFixturesAreReduced(unittest.TestCase):
         self.assertEqual(found, {("data.path.cwd", "/Users/someone/code/thing"),
                                  ("data.note", "qwen/qwen3-4b"),
                                  ("data.sessionID", "a/b")})
+
+    def test_a_model_keyed_field_holds_model_ids_and_nothing_else(self):
+        found = set().union(*(model_ids(r) for rel in agent_logs.files("copilot")
+                              for r in agent_logs.records("copilot", rel)))
+        self.assertTrue(found, "no model-keyed field found, so this guard read nothing")
+        for name in sorted(found):
+            with self.subTest(model=name):
+                self.assertRegex(name, MODEL_ID)
+
+    def test_the_model_id_shape_rejects_a_path(self):
+        # The guard above stands in for an allow-list, so it has to reject
+        # what an allow-list would have caught.
+        for leak in ("/Users/someone/code/thing", "Users/someone/code", "../elsewhere",
+                     "C:\\Users\\someone", "a prompt about gpt-5-mini", ""):
+            with self.subTest(leak=leak):
+                self.assertNotRegex(leak, MODEL_ID)
+
+    def test_the_placeholder_rule_allows_no_other_path(self):
+        for leak in ("/Users/someone/code/thing", "/work/agent-sample-other/x",
+                     "https://github.com/someone/private.git", "someone/private"):
+            with self.subTest(leak=leak):
+                self.assertFalse(placeholder(leak))
+        for allowed in (agent_logs.PLACEHOLDER, agent_logs.PLACEHOLDER + "/src/app",
+                        agent_logs.REMOTE, REMOTE_PATH):
+            with self.subTest(allowed=allowed):
+                self.assertTrue(placeholder(allowed))
 
     def test_every_gemini_session_names_the_placeholder_project(self):
         want = agent_logs.project_hash(agent_logs.PLACEHOLDER)
@@ -162,6 +231,8 @@ class TestFixturesAreReduced(unittest.TestCase):
             text = f.read()
         for needle in ("furkankly/zoetrope", "b1f31dd26bd4e9e513885e39edb78d0850a5d1fe",
                        "ingo-eichhorst/Irrlicht", "a3f1f8d4683e1194049a92b6b40e44d0aa11aef0",
+                       # The Copilot CLI recordings, from a later commit.
+                       "bf9c07a50c715afde1b8f674061ef49fff9d9b27",
                        "Copyright (c) 2026 Furkan Kalaycioglu", "Copyright (c) 2025 Ingo Eichhorst",
                        "Permission is hereby granted, free of charge",
                        # OpenCode's six sources, each at the commit read.

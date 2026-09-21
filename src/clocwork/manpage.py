@@ -122,7 +122,7 @@ def render(parser=None, version=__version__, date=None):
                  "(its charts load Chart.js and its plugins from a CDN) plus a\n.I commit_bodies.js\nsidecar, "
                  "written to a workspace next to the repository, never inside it: lines per language and type at every commit, "
                  "which commits an AI agent co\\-authored and when each model first appeared, and, when a coding agent's logs "
-                 "for the repository are on the machine (Claude Code, Codex CLI, Gemini CLI, OpenCode), what the work cost in tokens.\n.PP\n"
+                 "for the repository are on the machine (Claude Code, Codex CLI, Copilot CLI, Gemini CLI, OpenCode), what the work cost in tokens.\n.PP\n"
                  "A first argument that is not a command is taken as\n.IR REPO ,\nso\n.B clocwork ~/code/foo\nworks; "
                  "the default is the current directory, and any directory inside the repository will do.")
     lines.append(".SH OPTIONS\nOptions more than one command takes. Each command's own options follow it below.\n"
@@ -138,6 +138,7 @@ def render(parser=None, version=__version__, date=None):
                  "The region locale the page formats numbers, dates and units with. Wins over the machine's setting;\n"
                  ".B \\-\\-locale\nwins over both.\n"
                  ".TP\n.B CODEX_HOME\nWhere Codex CLI keeps its sessions, read from its\n.I sessions/\nand\n.I archived_sessions/\ndirectories; the default is\n.IR ~/.codex .\n"
+                 ".TP\n.B COPILOT_HOME\nWhere Copilot CLI keeps its sessions, read from the\n.I events.jsonl\nin each directory below\n.IR session-state/ ;\nthe default is\n.IR ~/.copilot .\n"
                  ".TP\n.B GEMINI_CLI_HOME\nThe directory Gemini CLI uses in place of the home directory; its sessions are read from\n.I .gemini/tmp/\nand\n.I .cache/.gemini/tmp/\nbelow it.\n"
                  ".TP\n.B OPENCODE_DB\nAn OpenCode database to read besides every\n.I opencode*.db\nin its data directory; absolute, or relative to that directory.\n"
                  ".TP\n.B XDG_CACHE_HOME\nWhen set, the cloc cache lives under\n.IR $XDG_CACHE_HOME/clocwork/ ;\notherwise under\n.IR ~/.cache/clocwork/ .\n"

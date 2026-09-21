@@ -157,19 +157,26 @@ def belongs(context, repo_real, remote, known_commit):
     return ran_inside(context, repo_real)
 
 
-def read_log(lines, path):
-    """(sessions, malformed records) for one events.jsonl.
+def read_log(lines, path, sessions):
+    """Add the sessions one events.jsonl holds to `sessions`; the malformed
+    records read.
 
     A session is {"context", "snapshots"}, where a snapshot is
-    (date, model, metric) and they are kept in the order the file holds them.
+    (date, model, metric) and they are kept in the order they were read.
     Only session.start names the session; session.resume carries the context
     again without an id, and session.shutdown carries neither, so the open
-    session has to be followed down the file. Two blocks with one id are one
-    session recorded twice and share their snapshots, which is what makes
-    reading a repeated block idempotent; a block whose id is missing is kept
-    apart, since nothing says it is the same session.
+    session has to be followed down the file.
+
+    Sessions are keyed by their id, across logs as well as within one, so
+    blocks that share an id are read as a single sequence of snapshots.
+    That is what makes a repeated block idempotent, and a session that sits
+    in two places -- a copied or backed-up session-state tree -- counted
+    once. A start with no id names a session of its own, keyed by where it
+    is; a log that begins part-way through a session, with a resume, cannot
+    tell that session resuming again from a second one, and reads them as
+    one, which is the reading that cannot inflate a total.
     """
-    sessions, current, malformed = {}, None, 0
+    current, unnamed, malformed = None, 0, 0
     for line in lines:
         if not any(marker in line for marker in WANTED):
             continue
@@ -186,8 +193,9 @@ def read_log(lines, path):
         if kind in ("session.start", "session.resume"):
             if kind == "session.start" or current is None:
                 key = tokens.text(data.get("sessionId")) if kind == "session.start" else None
-                current = sessions.setdefault(key or f"{path}#{len(sessions)}",
-                                              {"context": {}, "snapshots": []})
+                if key is None:
+                    key, unnamed = f"{path}#{unnamed}", unnamed + 1
+                current = sessions.setdefault(key, {"context": {}, "snapshots": []})
             context = data.get("context")
             if isinstance(context, dict):
                 current["context"] = context
@@ -198,7 +206,7 @@ def read_log(lines, path):
             date = tokens.day(rec.get("timestamp"))
             current["snapshots"] += [(date, model, metric) for model, metric in metrics.items()
                                      if isinstance(metric, dict)]
-    return list(sessions.values()), malformed
+    return malformed
 
 
 def archive_session(days, snapshots):
@@ -231,20 +239,18 @@ def scan(repo, homes):
     repo_real = os.path.realpath(repo)
     remote = paths.remote_key(repo) if os.path.isdir(repo) else None
     known_commit = commit_lookup(repo)
-    days, malformed, skipped, belonged = {}, 0, 0, False
+    days, sessions, malformed, skipped, belonged = {}, {}, 0, 0, False
     for path in logs(homes):
         try:
             with open(path, encoding="utf-8", errors="replace") as f:
-                sessions, bad = read_log(iter(f), path)
+                malformed += read_log(iter(f), path, sessions)
         except READ_ERRORS:
             skipped += 1
+    for session in sessions.values():
+        if not belongs(session["context"], repo_real, remote, known_commit):
             continue
-        malformed += bad
-        for session in sessions:
-            if not belongs(session["context"], repo_real, remote, known_commit):
-                continue
-            belonged = True
-            malformed += archive_session(days, session["snapshots"])
+        belonged = True
+        malformed += archive_session(days, session["snapshots"])
     if not belonged and not skipped:
         return None
     return tokens.ScanResult(days, malformed, skipped)

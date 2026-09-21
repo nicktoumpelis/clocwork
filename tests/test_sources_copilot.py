@@ -1,8 +1,29 @@
+import json
 import os
+import shutil
+import tempfile
 import unittest
 
 from clocwork import tokens as tu
 from clocwork.sources import copilot
+from tests import agent_logs
+from tests import repo_fixture as fx
+
+# The two Irrlicht recordings, computed before reduction and without the
+# reader: each shutdown's own uncached input, cache buckets and output, with a
+# resumed session's repeated rows counted once.
+RECORDED = {
+    "2026-08-03": {"turns": 2, "models": {
+        "gpt-5-mini": {"input": 9_318, "output": 165, "cache_read": 11_776, "cache_write": 0}}},
+    "2026-08-05": {"turns": 2, "models": {
+        "claude-haiku-4.5": {"input": 10, "output": 35, "cache_read": 0, "cache_write": 12_602},
+        "gpt-5-mini": {"input": 9_277, "output": 88, "cache_read": 1_536, "cache_write": 0}}},
+}
+# The sessions those recordings hold: two that called a model on 2026-08-03,
+# one that called none, and one resumed and recorded twice on 2026-08-05.
+CALLED = "5920fe71-13c6-431f-8545-13bb327e3fa1"
+NO_MODEL = "144d0848-1ca0-49df-a61f-59fe01d4f5eb"
+RESUMED = "aa737378-7ebd-4c0b-9c77-77c050d2df98"
 
 
 def usage(input=0, output=0, cache_read=0, cache_write=0, reasoning=0):
@@ -186,6 +207,290 @@ class TestSourceContract(unittest.TestCase):
 
     def test_the_counters_it_reports_are_the_archive_s_own(self):
         self.assertEqual(sorted(copilot.counters(metric(1, 1))), sorted(tu.COUNTERS))
+
+
+def context(repo, **over):
+    base = {"cwd": repo, "gitRoot": repo, "repository": "example/agent-sample",
+            "repositoryHost": "github.com", "headCommit": "a" * 40, "baseCommit": "b" * 40}
+    base.update(over)
+    return base
+
+
+def start(repo, sid="s1", ts="2026-08-05T10:00:00.000Z", **over):
+    return {"type": "session.start", "timestamp": ts,
+            "data": {"sessionId": sid, "copilotVersion": "1.0.78", "startTime": ts,
+                     "context": context(repo, **over)}}
+
+
+def resume(repo, ts="2026-08-05T11:00:00.000Z", **over):
+    return {"type": "session.resume", "timestamp": ts,
+            "data": {"resumeTime": ts, "context": context(repo, **over)}}
+
+
+def shutdown(metrics, ts="2026-08-05T12:00:00.000Z"):
+    return {"type": "session.shutdown", "timestamp": ts,
+            "data": {"shutdownType": "routine", "modelMetrics": metrics}}
+
+
+class TestRecordings(unittest.TestCase):
+    """The reduced Copilot CLI recordings in tests/fixtures/copilot, read
+    where Copilot writes them."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = os.path.realpath(tmp.name)
+        self.repo = os.path.join(self.root, "agent-sample")
+        os.makedirs(self.repo)
+        self.home = os.path.join(self.root, "home", ".copilot")
+
+    def install(self, repo=None, remote=agent_logs.REMOTE):
+        return agent_logs.install("copilot", self.home, repo or self.repo, remote=remote)
+
+    def scan(self, repo=None):
+        return copilot.scan(repo or self.repo, copilot.default_homes({"COPILOT_HOME": self.home}))
+
+    def keep(self, *sessions):
+        """Leave only these sessions' logs installed."""
+        for name in os.listdir(os.path.join(self.home, "session-state")):
+            if name not in sessions:
+                shutil.rmtree(os.path.join(self.home, "session-state", name))
+
+    def test_every_recorded_day_and_model(self):
+        self.install()
+        result = self.scan()
+        self.assertEqual(result.days, RECORDED)
+        self.assertEqual((result.malformed, result.skipped), (0, 0))
+
+    def test_the_session_recorded_twice_is_counted_once(self):
+        # The recording holds the resumed session's whole block twice. The
+        # same log with the repetition cut out must read the same, which is
+        # what "read the increase" buys.
+        self.install()
+        self.keep(RESUMED)
+        twice = self.scan().days
+        log = os.path.join(self.home, "session-state", RESUMED, "events.jsonl")
+        with open(log, encoding="utf-8") as f:
+            records = [json.loads(line) for line in f]
+        half = len(records) // 2
+        self.assertEqual(records[:half], records[half:])       # it really is written twice
+        with open(log, "w", encoding="utf-8") as f:
+            f.write("".join(json.dumps(r) + "\n" for r in records[:half]))
+        self.assertEqual(twice, self.scan().days)
+        self.assertEqual(twice, {"2026-08-05": RECORDED["2026-08-05"]})
+
+    def test_the_two_snapshots_of_a_resumed_session_are_not_summed(self):
+        # Both snapshots report the haiku row at 12,612 input tokens; summing
+        # the four recorded snapshots would report 50,448.
+        self.install()
+        self.keep(RESUMED)
+        self.assertEqual(self.scan().days["2026-08-05"]["models"]["claude-haiku-4.5"],
+                         {"input": 10, "output": 35, "cache_read": 0, "cache_write": 12_602})
+
+    def test_a_session_that_called_no_model_records_nothing(self):
+        self.install()
+        self.keep(NO_MODEL)
+        result = self.scan()
+        self.assertEqual((result.days, result.malformed, result.skipped), ({}, 0, 0))
+
+    def test_a_repository_elsewhere_is_not_matched(self):
+        self.install()
+        self.assertIsNone(self.scan(os.path.join(self.root, "elsewhere", "agent-sample")))
+
+    def test_no_sessions_is_none(self):
+        self.assertIsNone(self.scan())
+
+    def test_the_recorded_remote_matches_another_clone_of_it(self):
+        # A session that ran on another machine's clone: its paths are
+        # nowhere near this one, and only the remote ties it to the
+        # repository.
+        fx._git(self.repo, "init", "-q", "-b", "main")
+        fx._git(self.repo, "remote", "add", "origin", agent_logs.REMOTE)
+        self.install(repo=os.path.join(self.root, "another", "clone"))
+        self.assertEqual(self.scan().days, RECORDED)
+
+    def test_a_repository_with_another_remote_needs_one_of_its_commits(self):
+        fx._git(self.repo, "init", "-q", "-b", "main")
+        fx._git(self.repo, "remote", "add", "origin", "https://github.com/example/other.git")
+        self.install()
+        self.assertIsNone(self.scan())          # ran here, but recorded a remote of its own
+        fx._write(self.repo, "a.py", "print()\n")
+        fx._git(self.repo, "add", ".")
+        fx._git(self.repo, "commit", "-q", "-m", "Initial")
+        head = fx._git(self.repo, "rev-parse", "HEAD").strip()
+        shutil.rmtree(os.path.join(self.home, "session-state"))
+        self.install(repo=self.repo, remote=agent_logs.REMOTE)
+        for name in os.listdir(os.path.join(self.home, "session-state")):
+            log = os.path.join(self.home, "session-state", name, "events.jsonl")
+            with open(log, encoding="utf-8") as f:
+                text = f.read()
+            with open(log, "w", encoding="utf-8") as f:
+                f.write(text.replace("4b58365c0a6b9cec3b67cc1a1483dca08efa0c44", head)
+                            .replace("57d59deff3d691fc79c7e7285b92ff9244708108", head))
+        self.assertEqual(self.scan().days, RECORDED)
+
+
+class TestRules(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = os.path.realpath(tmp.name)
+        self.repo = os.path.join(self.root, "repo")
+        os.makedirs(self.repo)
+        self.home = os.path.join(self.root, "home", ".copilot")
+
+    def write(self, records, session="s1"):
+        path = os.path.join(self.home, "session-state", session, "events.jsonl")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("".join((r if isinstance(r, str) else json.dumps(r)) + "\n" for r in records))
+        return path
+
+    def scan(self):
+        return copilot.scan(self.repo, copilot.default_homes({"COPILOT_HOME": self.home}))
+
+    def day(self, date="2026-08-05"):
+        return self.scan().days[date]
+
+    def test_one_snapshot_is_recorded_as_it_stands(self):
+        self.write([start(self.repo), shutdown({"m": metric(100, 20, cache_read=5)})])
+        self.assertEqual(self.day()["models"]["m"], counts(100, 20, cache_read=5))
+
+    def test_a_second_snapshot_adds_only_its_increase(self):
+        self.write([start(self.repo),
+                    shutdown({"m": metric(100, 20, cache_read=5)}, "2026-08-05T12:00:00.000Z"),
+                    shutdown({"m": metric(250, 33, cache_read=5, cache_write=7)}, "2026-08-05T13:00:00.000Z")])
+        self.assertEqual(self.day()["models"]["m"], counts(250, 33, cache_read=5, cache_write=7))
+
+    def test_a_session_resumed_after_midnight_splits_at_the_snapshot(self):
+        self.write([start(self.repo, ts="2026-08-05T23:00:00.000Z"),
+                    shutdown({"m": metric(100, 20)}, "2026-08-05T23:59:00.000Z"),
+                    resume(self.repo, "2026-08-06T00:00:30.000Z"),
+                    shutdown({"m": metric(250, 33)}, "2026-08-06T00:01:00.000Z")])
+        days = self.scan().days
+        self.assertEqual(days["2026-08-05"]["models"]["m"], counts(100, 20))
+        self.assertEqual(days["2026-08-06"]["models"]["m"], counts(150, 13))
+
+    def test_counters_that_go_backwards_are_counted_not_archived(self):
+        self.write([start(self.repo),
+                    shutdown({"m": metric(100, 20)}, "2026-08-05T12:00:00.000Z"),
+                    shutdown({"m": metric(40, 8)}, "2026-08-05T13:00:00.000Z")])
+        result = self.scan()
+        self.assertEqual(result.days["2026-08-05"]["models"]["m"], counts(100, 20))
+        self.assertEqual(result.malformed, 1)
+
+    def test_a_row_whose_own_uncached_input_disagrees_is_counted_not_archived(self):
+        m = metric(100, 20, cache_read=5)
+        m["tokenDetails"]["input"]["tokenCount"] = 99      # inputTokens says 105 - 5 = 100
+        self.write([start(self.repo), shutdown({"m": m})])
+        result = self.scan()
+        self.assertEqual((result.days, result.malformed), ({}, 1))
+
+    def test_turns_come_from_the_request_count(self):
+        self.write([start(self.repo), shutdown({"m": metric(100, 20, requests=4)})])
+        self.assertEqual(self.day()["turns"], 4)
+
+    def test_only_the_calls_a_later_snapshot_adds_are_new_turns(self):
+        self.write([start(self.repo),
+                    shutdown({"m": metric(100, 20, requests=4)}, "2026-08-05T12:00:00.000Z"),
+                    shutdown({"m": metric(180, 30, requests=6)}, "2026-08-05T13:00:00.000Z")])
+        self.assertEqual(self.day()["turns"], 6)
+
+    def test_a_row_with_no_request_count_still_counts_one_turn(self):
+        m = metric(100, 20)
+        del m["requests"]
+        self.write([start(self.repo), shutdown({"m": m})])
+        self.assertEqual(self.day()["turns"], 1)
+
+    def test_a_shutdown_with_no_model_metrics_records_nothing(self):
+        self.write([start(self.repo), {"type": "session.shutdown", "timestamp": "2026-08-05T12:00:00.000Z",
+                                       "data": {"shutdownType": "routine"}}])
+        result = self.scan()
+        self.assertEqual((result.days, result.malformed), ({}, 0))
+
+    def test_a_shutdown_with_no_session_before_it_is_ignored(self):
+        self.write([shutdown({"m": metric(100, 20)})])
+        self.assertIsNone(self.scan())
+
+    def test_a_log_that_opens_with_a_resume_is_read(self):
+        self.write([resume(self.repo, "2026-08-05T11:00:00.000Z"), shutdown({"m": metric(100, 20)})])
+        self.assertEqual(self.day()["models"]["m"], counts(100, 20))
+
+    def test_two_sessions_in_one_log_are_counted_apart(self):
+        self.write([start(self.repo, sid="a"), shutdown({"m": metric(100, 20)}, "2026-08-05T12:00:00.000Z"),
+                    start(self.repo, sid="b"), shutdown({"m": metric(100, 20)}, "2026-08-05T13:00:00.000Z")])
+        day = self.day()
+        self.assertEqual((day["models"]["m"], day["turns"]), (counts(200, 40), 2))
+
+    def test_the_same_session_in_two_logs_is_counted_once(self):
+        records = [start(self.repo, sid="a"), shutdown({"m": metric(100, 20)})]
+        self.write(records, session="a")
+        self.write(records, session="backup-of-a")
+        self.assertEqual(self.day()["models"]["m"], counts(100, 20))
+
+    def test_a_log_with_no_session_start_reads_its_resumes_as_one_session(self):
+        # Nothing but session.start names a session, so a log that begins
+        # part-way through one cannot tell a second session from the same one
+        # resuming. Reading them as one session is the choice that cannot
+        # inflate a total: the second block's snapshot repeats the first's,
+        # and a repeat adds nothing.
+        records = [resume(self.repo, "2026-08-05T11:00:00.000Z"), shutdown({"m": metric(100, 20)})]
+        self.write(records + records)
+        self.assertEqual(self.day()["models"]["m"], counts(100, 20))
+
+    def test_two_sessions_that_both_start_unnamed_are_counted_apart(self):
+        # A session.start does name a new session, even with no id on it.
+        unnamed = start(self.repo)
+        del unnamed["data"]["sessionId"]
+        self.write([unnamed, shutdown({"m": metric(100, 20)}, "2026-08-05T12:00:00.000Z"),
+                    unnamed, shutdown({"m": metric(100, 20)}, "2026-08-05T13:00:00.000Z")])
+        self.assertEqual(self.day()["models"]["m"], counts(200, 40))
+
+    def test_a_snapshot_with_no_timestamp_lands_on_no_day(self):
+        self.write([start(self.repo), shutdown({"m": metric(100, 20)}, "no date")])
+        self.assertEqual(self.scan().days, {})
+
+    def test_a_line_that_is_not_json_is_counted(self):
+        self.write([start(self.repo), '{"type": "session.shutdown", "data": {',
+                    shutdown({"m": metric(100, 20)})])
+        result = self.scan()
+        self.assertEqual((result.days["2026-08-05"]["models"]["m"], result.malformed), (counts(100, 20), 1))
+
+    def test_a_record_of_the_wrong_shape_is_read_as_missing(self):
+        for record in ([1, 2, 3],
+                       {"type": "session.shutdown", "timestamp": "2026-08-05T12:00:00.000Z", "data": "gone"},
+                       {"type": "session.shutdown", "timestamp": "2026-08-05T12:00:00.000Z",
+                        "data": {"modelMetrics": ["m"]}},
+                       {"type": "session.shutdown", "timestamp": "2026-08-05T12:00:00.000Z",
+                        "data": {"modelMetrics": {"m": "gone"}}}):
+            with self.subTest(record=record):
+                self.write([start(self.repo), record])
+                result = self.scan()
+                self.assertEqual((result.days, result.malformed, result.skipped), ({}, 0, 0))
+
+    def test_a_context_of_the_wrong_shape_leaves_the_last_one_standing(self):
+        self.write([start(self.repo),
+                    {"type": "session.resume", "timestamp": "2026-08-05T11:00:00.000Z",
+                     "data": {"context": ["gone"]}},
+                    shutdown({"m": metric(100, 20)})])
+        self.assertEqual(self.day()["models"]["m"], counts(100, 20))
+
+    def test_a_session_from_another_repository_is_not_read(self):
+        self.write([start(os.path.join(self.root, "other")), shutdown({"m": metric(100, 20)})])
+        self.assertIsNone(self.scan())
+
+    def test_a_log_that_cannot_be_read_is_skipped(self):
+        path = self.write([start(self.repo), shutdown({"m": metric(100, 20)})])
+        os.remove(path)
+        os.symlink(os.path.join(self.root, "gone", "events.jsonl"), path)
+        result = self.scan()
+        self.assertEqual((result.days, result.malformed, result.skipped), ({}, 0, 1))
+        self.assertIn("damaged", copilot.SKIPPED)
+
+    def test_a_log_under_another_name_is_not_read(self):
+        path = self.write([start(self.repo), shutdown({"m": metric(100, 20)})])
+        os.rename(path, os.path.join(os.path.dirname(path), "events.jsonl.bak"))
+        self.assertIsNone(self.scan())
 
 
 if __name__ == "__main__":

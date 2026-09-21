@@ -3,8 +3,9 @@
 Run `clocwork` inside any git repository and get a dashboard of its whole
 history: lines per language and type (code, comment, blank) at every commit,
 which commits an AI agent co-authored and when each model first appeared, and,
-when the repository was worked on with Claude Code, Codex CLI, Gemini CLI or
-OpenCode, what that work cost in tokens, dollars and electricity. Every
+when the repository was worked on with Claude Code, Codex CLI, Copilot CLI,
+Gemini CLI or OpenCode, what that work cost in tokens, dollars and
+electricity. Every
 commit is measured with `cloc --git --diff`, cached per file, and reconciled
 against a `cloc` snapshot of HEAD so drift is visible rather than silent.
 
@@ -276,6 +277,7 @@ archives per-day totals, per agent and model, into `token_usage.json`:
 |---|---|---|
 | Claude Code | `~/.claude/projects/`, the directory named after the repository's path | none |
 | Codex CLI | `~/.codex/sessions/` and `~/.codex/archived_sessions/` | `CODEX_HOME` replaces `~/.codex` |
+| Copilot CLI | `~/.copilot/session-state/`, one `events.jsonl` per session | `COPILOT_HOME` replaces `~/.copilot` |
 | Gemini CLI | `~/.gemini/tmp/` and `~/.cache/.gemini/tmp/`, sessions started in the repository or a directory it tracks | `GEMINI_CLI_HOME` replaces `~` |
 | OpenCode | `~/.local/share/opencode`, on macOS and Windows as well: its `opencode*.db` databases and the file stores older releases wrote | `XDG_DATA_HOME` replaces `~/.local/share`; `OPENCODE_DB` adds the database it names |
 
@@ -288,6 +290,20 @@ different repository later cloned to the same path gets them only if it
 holds the commit they started from. When the session records no remote, or
 `origin` is missing or not a URL clocwork recognises, the session belongs
 when it ran in the repository or a directory inside it.
+A Copilot CLI session records its repository as `owner/name` beside its
+host, which is the identity clocwork builds from `origin`, so it belongs by
+the same rule as a Codex session: the same remote from any clone, otherwise
+the repository's directory plus one of its commits, otherwise the directory
+alone. It is the one agent whose log records tokens only once per session,
+at shutdown, as a running total per model rather than per response; a
+session resumed and shut down again writes a further total, and clocwork
+archives the increase, so a session recorded twice is counted once. The
+day a session's tokens land on is therefore the day of the shutdown that
+reported them. A shutdown also reports its uncached input directly, and
+clocwork checks every row against the figure it derives: a row that
+disagrees is counted in the log as unparseable rather than archived, because
+a format that has changed should be visible instead of quietly halving a
+total.
 Gemini CLI identifies a session's project only by a hash of the directory it
 started in, so its sessions count when that is the repository's current path
 or a directory tracked at `HEAD` below it.
@@ -332,7 +348,8 @@ commit credits Gemini by hand, in a trailer such as
 `Co-Authored-By: Gemini CLI <address>`; otherwise the page says its tokens
 land on no commit. Codex rollouts that Codex has compressed are read on
 Python 3.14 and later; earlier versions count them as unreadable and say so
-in the log.
+in the log. Copilot CLI's tokens land on the commits whose trailers credit
+Copilot, whether the agent wrote the trailer or its author added it.
 
 OpenCode adds no trailer either (it did until v0.4.19), so the same holds:
 its measured tokens land on no commit unless the author credits it, in a
@@ -365,7 +382,7 @@ exercise the token-less page and the page with several agents render their
 own synthetic variants regardless. Checks that assume the fixture's size,
 such as the 500-row cap, fail over a short history.
 
-`tests/fixtures/` holds real Codex CLI, Gemini CLI and OpenCode sessions
+`tests/fixtures/` holds real Codex CLI, Copilot CLI, Gemini CLI and OpenCode sessions
 from seven public repositories, five MIT-licensed and two Apache-2.0, reduced
 to identity, model, usage and timestamps; its README names each source with
 the commit it was taken at, carries their licence notices, and says which

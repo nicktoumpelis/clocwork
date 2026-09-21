@@ -29,7 +29,8 @@ def project_hash(path):
 
 
 def files(agent):
-    """Every fixture file of one agent ("codex" or "gemini"), relative to its tree."""
+    """Every fixture file of one agent ("codex", "copilot", "gemini" or
+    "opencode"), relative to its tree."""
     root = os.path.join(FIXTURES, agent)
     return sorted(os.path.relpath(os.path.join(d, name), root)
                   for d, _dirs, names in os.walk(root) for name in names)
