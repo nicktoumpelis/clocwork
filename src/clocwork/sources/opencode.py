@@ -141,12 +141,14 @@ OPENCODE = Store(("opencode*.db",), "opencode", (), True)
 # reach, and the only one it can reach.
 #
 # Both directions are wrong, by exactly the cache read, and the floor picks
-# which. Read a post-era-A record under era A and the cache read is taken
+# which -- for a non-Anthropic record, which is the only kind era A's rule
+# touches. Read a post-era-A record under era A and the cache read is taken
 # out of an input that never held it, so the prompt is understated. Read a
 # genuine era-A record under era B and the cache read stays in `input`
 # while `cache_read` reports it too -- those are separate archive counters,
 # so a sum over them counts it twice (1,500 rather than 1,100, for a
-# 1,000-token prompt with 400 served from cache). The floor prefers the
+# 1,000-token prompt with 400 served from cache). An Anthropic-shaped
+# record reads the same at either era, at no cost. The floor prefers the
 # over-count, because it leaves the tokens visible in a labelled counter
 # instead of silently deleting prompt tokens, and because era A's window is
 # the fork's first weeks: Kilo v1.0.9 shipped 2025-11-01 and upstream
@@ -763,7 +765,8 @@ def scan(repo, homes, store=OPENCODE):
         # that applied; it keeps a record off era A, the only subtracting
         # rule a version-less record can reach, at the cost of leaving a
         # genuine era-A record's cache read in `input` as well as in
-        # `cache_read`. A record's own `total` is still consulted first,
+        # `cache_read` -- for the non-Anthropic providers that rule covers.
+        # A record's own `total` is still consulted first,
         # because that is evidence and this is only a default.
         version = max(record.version or sessions[record.session]["version"], store.floor)
         c = counters(record.tokens, record.provider, record.model, version)

@@ -152,8 +152,9 @@ class TestTheStoreDescriptor(unittest.TestCase):
 class TestTheEraFloor(unittest.TestCase):
     """Kilo's releases span every era, so its version says nothing about
     which one wrote a record. The floor is not a claim about the rules that
-    applied; it only keeps a version-less record out of era A, the one era
-    whose rule subtracts a cache read from the prompt."""
+    applied; it keeps a version-less record off era A, which is the only
+    subtracting rule such a record can reach -- era C also subtracts, but
+    needs a version in [ERA_C, ERA_D) and an Anthropic-shaped provider."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
