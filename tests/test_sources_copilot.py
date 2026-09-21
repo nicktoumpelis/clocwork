@@ -108,31 +108,81 @@ class TestOwnUncachedInput(unittest.TestCase):
         self.assertIsNone(copilot.uncached({"tokenDetails": ["input"]}))
         self.assertIsNone(copilot.uncached({"tokenDetails": {"input": 8_883}}))
 
+    def test_a_row_that_agrees_with_itself_agrees(self):
+        self.assertTrue(copilot.agrees(metric(8_883, 76, cache_read=1_664)))
+        self.assertTrue(copilot.agrees(metric(10, 35, cache_write=12_602)))
+
+    def test_a_row_that_reports_no_figure_of_its_own_is_taken_as_it_stands(self):
+        self.assertTrue(copilot.agrees(metric(10, 5, details=False)))
+        self.assertTrue(copilot.agrees({}))
+
+    def test_a_row_whose_own_figure_differs_does_not_agree(self):
+        m = metric(100, 20, cache_read=5)
+        m["tokenDetails"]["input"]["tokenCount"] = 99
+        self.assertFalse(copilot.agrees(m))
+
+    def test_an_input_that_has_fallen_below_its_cache_buckets_does_not_agree(self):
+        # The derived figure is compared before it is clamped at zero. Read
+        # through counters() this row looks consistent -- 100 - 200 clamps to
+        # 0, which is what it reports -- and the check would miss the very
+        # change it is there to catch.
+        m = {"usage": {"inputTokens": 100, "outputTokens": 5, "cacheReadTokens": 200, "cacheWriteTokens": 0},
+             "tokenDetails": {"input": {"tokenCount": 0}}}
+        self.assertEqual(copilot.counters(m)["input"], 0)
+        self.assertEqual(copilot.uncached(m), 0)
+        self.assertFalse(copilot.agrees(m))
+
 
 class TestIncrease(unittest.TestCase):
     """A shutdown's counters are cumulative for the session so far, so what
-    a snapshot adds is its increase over the largest one seen before it."""
+    a snapshot adds is its increase over the largest one seen before it.
+    A snapshot that adds nothing is one already read; only a snapshot that
+    has grown in one counter and fallen in another contradicts the counts
+    being cumulative."""
 
     def test_the_first_snapshot_is_its_own_increase(self):
         self.assertEqual(copilot.increase(None, (counts(10, 5), 1)), (counts(10, 5), 1))
-
-    def test_a_repeated_snapshot_adds_nothing(self):
-        seen = (counts(10, 5), 1)
-        self.assertEqual(copilot.increase(seen, seen), (counts(), 0))
 
     def test_only_what_a_later_snapshot_adds_is_counted(self):
         seen = (counts(10, 5, cache_read=2), 1)
         now = (counts(30, 9, cache_read=2, cache_write=4), 3)
         self.assertEqual(copilot.increase(seen, now), (counts(20, 4, cache_write=4), 2))
 
-    def test_a_counter_that_goes_backwards_is_no_increase(self):
+    def test_a_snapshot_no_counter_of_which_has_grown_is_stale(self):
+        # A log that repeats a block, or two files holding one session,
+        # replay snapshots already read. They add nothing, and saying so is
+        # not the same as saying the log is damaged.
         seen = (counts(10, 5), 1)
-        for now in (counts(9, 5), counts(10, 4), counts(10, 5, cache_read=-1)):
+        for now in (counts(10, 5), counts(9, 5), counts(10, 4), counts(), counts(10, 5, cache_read=-1)):
             with self.subTest(now=now):
-                self.assertIsNone(copilot.increase(seen, (now, 1)))
+                self.assertIs(copilot.increase(seen, (now, 1)), copilot.STALE)
 
-    def test_a_request_count_that_goes_backwards_is_no_increase(self):
-        self.assertIsNone(copilot.increase((counts(10, 5), 2), (counts(10, 5), 1)))
+    def test_a_snapshot_grown_in_one_counter_and_fallen_in_another_is_broken(self):
+        seen = (counts(10, 5, cache_read=4), 1)
+        for now in (counts(20, 4, cache_read=4), counts(10, 9, cache_read=1), counts(20, 5)):
+            with self.subTest(now=now):
+                self.assertIs(copilot.increase(seen, (now, 1)), copilot.BROKEN)
+
+    def test_a_request_count_that_goes_backwards_does_not_discard_the_tokens(self):
+        # The request count measures turns, not tokens. Tokens cannot be
+        # recovered once a log expires; an understated turn count loses
+        # nothing, so the count never decides whether a row is read.
+        self.assertEqual(copilot.increase((counts(10, 5), 2), (counts(30, 9), 1)),
+                         (counts(20, 4), 0))
+
+    def test_a_request_count_that_has_not_moved_adds_no_calls(self):
+        self.assertEqual(copilot.increase((counts(10, 5), 4), (counts(30, 9), 4))[1], 0)
+
+    def test_a_row_reporting_no_request_count_leaves_the_calls_unknown(self):
+        self.assertIsNone(copilot.increase((counts(10, 5), 4), (counts(30, 9), None))[1])
+
+    def test_the_largest_seen_keeps_a_request_count_a_later_row_omits(self):
+        # Otherwise the next row that does report one would look like a leap
+        # from zero and count every call of the session again.
+        self.assertEqual(copilot.largest((counts(10, 5), 4), (counts(30, 9), None)),
+                         (counts(30, 9), 4))
+        self.assertEqual(copilot.largest((counts(10, 5), 4), (counts(30, 9), 6)),
+                         (counts(30, 9), 6))
 
 
 class TestRepository(unittest.TestCase):
@@ -371,13 +421,60 @@ class TestRules(unittest.TestCase):
         self.assertEqual(days["2026-08-05"]["models"]["m"], counts(100, 20))
         self.assertEqual(days["2026-08-06"]["models"]["m"], counts(150, 13))
 
-    def test_counters_that_go_backwards_are_counted_not_archived(self):
+    def test_counters_that_contradict_being_cumulative_are_counted_not_archived(self):
+        # Input up, output down: whatever this row is, it is not the running
+        # total the whole reading rests on.
         self.write([start(self.repo),
                     shutdown({"m": metric(100, 20)}, "2026-08-05T12:00:00.000Z"),
-                    shutdown({"m": metric(40, 8)}, "2026-08-05T13:00:00.000Z")])
+                    shutdown({"m": metric(200, 8)}, "2026-08-05T13:00:00.000Z")])
         result = self.scan()
         self.assertEqual(result.days["2026-08-05"]["models"]["m"], counts(100, 20))
         self.assertEqual(result.malformed, 1)
+
+    def test_a_block_repeated_after_its_counts_grew_is_not_counted_as_damage(self):
+        # The recorded resume repeats a block whose figures happen to be
+        # identical. A block whose counts grew inside it replays snapshots
+        # that are behind the running total, which adds nothing and says
+        # nothing about the log being damaged.
+        block = [start(self.repo),
+                 shutdown({"m": metric(100, 20)}, "2026-08-05T12:00:00.000Z"),
+                 shutdown({"m": metric(200, 40, requests=2)}, "2026-08-05T13:00:00.000Z")]
+        self.write(block + block)
+        result = self.scan()
+        self.assertEqual(result.days["2026-08-05"]["models"]["m"], counts(200, 40))
+        self.assertEqual((result.days["2026-08-05"]["turns"], result.malformed), (2, 0))
+
+    def test_a_snapshot_with_no_day_is_counted_and_its_tokens_are_not_lost(self):
+        # The undated snapshot must not advance the running total: if it
+        # did, the tokens between it and the row before it would be archived
+        # by nothing and reported by nothing.
+        self.write([start(self.repo),
+                    shutdown({"m": metric(1_000, 100)}, "2026-08-05T12:00:00.000Z"),
+                    shutdown({"m": metric(5_000, 500)}, "05/08/2026 13:00"),
+                    shutdown({"m": metric(6_000, 600)}, "2026-08-05T14:00:00.000Z")])
+        result = self.scan()
+        self.assertEqual(result.days["2026-08-05"]["models"]["m"], counts(6_000, 600))
+        self.assertEqual(result.malformed, 1)
+
+    def test_a_row_whose_input_has_fallen_below_its_cache_buckets_is_counted(self):
+        self.write([start(self.repo), shutdown({"m": {
+            "requests": {"count": 1, "cost": 0},
+            "usage": {"inputTokens": 100, "outputTokens": 5, "cacheReadTokens": 200, "cacheWriteTokens": 0},
+            "tokenDetails": {"input": {"tokenCount": 0}}}})])
+        result = self.scan()
+        self.assertEqual((result.days, result.malformed), ({}, 1))
+
+    def test_a_trailing_row_that_reports_no_request_count_keeps_its_tokens(self):
+        # A session's last shutdown is its largest, so rejecting a row over
+        # its request count would lose the most tokens of any row in it.
+        last = metric(2_000, 200)
+        del last["requests"]
+        self.write([start(self.repo),
+                    shutdown({"m": metric(1_000, 100, requests=3)}, "2026-08-05T12:00:00.000Z"),
+                    shutdown({"m": last}, "2026-08-05T13:00:00.000Z")])
+        result = self.scan()
+        day = result.days["2026-08-05"]
+        self.assertEqual((day["models"]["m"], day["turns"], result.malformed), (counts(2_000, 200), 4, 0))
 
     def test_a_row_whose_own_uncached_input_disagrees_is_counted_not_archived(self):
         m = metric(100, 20, cache_read=5)
@@ -395,6 +492,18 @@ class TestRules(unittest.TestCase):
                     shutdown({"m": metric(100, 20, requests=4)}, "2026-08-05T12:00:00.000Z"),
                     shutdown({"m": metric(180, 30, requests=6)}, "2026-08-05T13:00:00.000Z")])
         self.assertEqual(self.day()["turns"], 6)
+
+    def test_a_request_count_that_has_not_moved_adds_no_turn(self):
+        # Copilot is taken at its word. It says the session has made one
+        # call, so a second snapshot of that one call is not a second turn,
+        # even where its tokens have grown -- the floor of one belongs to a
+        # row that reports no count at all, not to a row that reports none
+        # added.
+        self.write([start(self.repo),
+                    shutdown({"m": metric(100, 20, requests=1)}, "2026-08-05T12:00:00.000Z"),
+                    shutdown({"m": metric(200, 40, requests=1)}, "2026-08-05T13:00:00.000Z")])
+        day = self.day()
+        self.assertEqual((day["models"]["m"], day["turns"]), (counts(200, 40), 1))
 
     def test_a_row_with_no_request_count_still_counts_one_turn(self):
         m = metric(100, 20)
@@ -428,6 +537,18 @@ class TestRules(unittest.TestCase):
         self.write(records, session="backup-of-a")
         self.assertEqual(self.day()["models"]["m"], counts(100, 20))
 
+    def test_a_copy_of_a_session_that_lost_its_start_is_still_that_session(self):
+        # Copilot names a session's directory after its id, so a copy that
+        # begins part-way through -- in a backed-up tree, under the same
+        # directory name -- belongs to the session that name points at.
+        # Keyed by anything else, its whole cumulative total is archived a
+        # second time on top of the first.
+        self.write([start(self.repo, sid="a"), shutdown({"m": metric(100, 20)})], session="a")
+        self.write([resume(self.repo, "2026-08-05T11:00:00.000Z"), shutdown({"m": metric(100, 20)})],
+                   session=os.path.join("backup", "a"))
+        day = self.day()
+        self.assertEqual((day["models"]["m"], day["turns"]), (counts(100, 20), 1))
+
     def test_a_log_with_no_session_start_reads_its_resumes_as_one_session(self):
         # Nothing but session.start names a session, so a log that begins
         # part-way through one cannot tell a second session from the same one
@@ -448,7 +569,8 @@ class TestRules(unittest.TestCase):
 
     def test_a_snapshot_with_no_timestamp_lands_on_no_day(self):
         self.write([start(self.repo), shutdown({"m": metric(100, 20)}, "no date")])
-        self.assertEqual(self.scan().days, {})
+        result = self.scan()
+        self.assertEqual((result.days, result.malformed), ({}, 1))
 
     def test_a_line_that_is_not_json_is_counted(self):
         self.write([start(self.repo), '{"type": "session.shutdown", "data": {',
@@ -486,6 +608,16 @@ class TestRules(unittest.TestCase):
         result = self.scan()
         self.assertEqual((result.days, result.malformed, result.skipped), ({}, 0, 1))
         self.assertIn("damaged", copilot.SKIPPED)
+
+    def test_a_log_found_under_two_overlapping_homes_is_read_once(self):
+        # Reading one log twice would replay its snapshots and report the
+        # second reading as contradicting the first.
+        self.write([start(self.repo), shutdown({"m": metric(100, 20)})])
+        state = os.path.join(self.home, "session-state")
+        self.assertEqual(len(copilot.logs([state, self.home, state])), 1)
+        result = copilot.scan(self.repo, [state, self.home])
+        self.assertEqual((result.days["2026-08-05"]["models"]["m"], result.malformed),
+                         (counts(100, 20), 0))
 
     def test_a_log_under_another_name_is_not_read(self):
         path = self.write([start(self.repo), shutdown({"m": metric(100, 20)})])

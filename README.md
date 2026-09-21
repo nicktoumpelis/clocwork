@@ -5,9 +5,9 @@ history: lines per language and type (code, comment, blank) at every commit,
 which commits an AI agent co-authored and when each model first appeared, and,
 when the repository was worked on with Claude Code, Codex CLI, Copilot CLI,
 Gemini CLI or OpenCode, what that work cost in tokens, dollars and
-electricity. Every
-commit is measured with `cloc --git --diff`, cached per file, and reconciled
-against a `cloc` snapshot of HEAD so drift is visible rather than silent.
+electricity. Every commit is measured with `cloc --git --diff`, cached per
+file, and reconciled against a `cloc` snapshot of HEAD so drift is visible
+rather than silent.
 
 <!-- To regenerate: run clocwork on this repository with `--locale en-GB`,
 open index.html in headless Chrome at 1200x1300 CSS px and a device scale
@@ -300,10 +300,10 @@ session resumed and shut down again writes a further total, and clocwork
 archives the increase, so a session recorded twice is counted once. The
 day a session's tokens land on is therefore the day of the shutdown that
 reported them. A shutdown also reports its uncached input directly, and
-clocwork checks every row against the figure it derives: a row that
-disagrees is counted in the log as unparseable rather than archived, because
-a format that has changed should be visible instead of quietly halving a
-total.
+clocwork checks every row that reports it against the figure it
+derives: a row that disagrees is counted in the log as unparseable rather
+than archived, because a format that has changed should be visible instead
+of quietly halving a total.
 Gemini CLI identifies a session's project only by a hash of the directory it
 started in, so its sessions count when that is the repository's current path
 or a directory tracked at `HEAD` below it.
@@ -382,11 +382,11 @@ exercise the token-less page and the page with several agents render their
 own synthetic variants regardless. Checks that assume the fixture's size,
 such as the 500-row cap, fail over a short history.
 
-`tests/fixtures/` holds real Codex CLI, Copilot CLI, Gemini CLI and OpenCode sessions
-from seven public repositories, five MIT-licensed and two Apache-2.0, reduced
-to identity, model, usage and timestamps; its README names each source with
-the commit it was taken at, carries their licence notices, and says which
-rows are as recorded and which are hand-written.
+`tests/fixtures/` holds real Codex CLI, Copilot CLI, Gemini CLI and
+OpenCode sessions from seven public repositories, five MIT-licensed and two
+Apache-2.0, reduced to identity, model, usage and timestamps; its README
+names each source with the commit it was taken at, carries their licence
+notices, and says which rows are as recorded and which are hand-written.
 
 `man/clocwork.1` is generated from the argparse parsers, and a test checks the
 committed page is current. After changing any help text or the version,

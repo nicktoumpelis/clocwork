@@ -34,12 +34,14 @@ from clocwork.sources.codex import commit_lookup
 
 KEY = "copilot"
 LABEL = "Copilot CLI"
-# Copilot asks for "Co-authored-by: Copilot <...>" on the commits it writes.
+# The name agents.VENDORS gives a trailer that credits Copilot. Whether the
+# CLI writes one of its own, and with what text, is not something clocwork
+# can see: no recording of it commits anything.
 AGENT = re.compile(r"^Copilot\b")
 SKIPPED = "damaged, or not readable as text"
 # Counted: a line that is not JSON, a snapshot whose own uncached input
-# contradicts the one derived from it, and a snapshot whose cumulative
-# counters went backwards.
+# contradicts the one derived from it, a snapshot whose counters contradict
+# being cumulative, and a snapshot with no day to archive under.
 MALFORMED_UNIT = "records"
 
 # A file that cannot be read at all is counted as unreadable rather than
@@ -55,13 +57,27 @@ def default_homes(env):
     return [os.path.join(home, "session-state")]
 
 
+# What a snapshot turns out to be, when it is not an increase.
+STALE = "stale"             # already covered by a larger snapshot
+BROKEN = "broken"           # counters that contradict being cumulative
+
+
 def logs(homes):
-    """Every session log under the homes, in path order."""
-    found = []
+    """Every session log under the homes, in path order and each once: homes
+    can overlap, and reading one log twice would report the second reading's
+    snapshots as contradicting the first's."""
+    found = set()
     for home in homes:
         for directory, _dirs, files in os.walk(home):
-            found += [os.path.join(directory, name) for name in files if name == "events.jsonl"]
+            found |= {os.path.join(directory, name) for name in files if name == "events.jsonl"}
     return sorted(found)
+
+
+def usage_of(metric):
+    """A row's usage, or an empty one when it holds nothing of the shape
+    Copilot writes."""
+    usage = metric.get("usage")
+    return usage if isinstance(usage, dict) else {}
 
 
 def counters(metric):
@@ -73,19 +89,19 @@ def counters(metric):
     reasoning bucket of its own. No record carries a total that could settle
     it the way OpenCode's does.
     """
-    usage = metric.get("usage")
-    if not isinstance(usage, dict):
-        usage = {}
+    usage = usage_of(metric)
     return tokens.inclusive(usage.get("inputTokens"), usage.get("outputTokens"),
                             usage.get("cacheReadTokens"), usage.get("cacheWriteTokens"))
 
 
 def requests(metric):
-    """How many model calls a row's counts cover, cumulative like the counts.
-    It is the source's only measure of turns: one snapshot stands for every
-    response the session made."""
+    """How many model calls a row's counts cover, cumulative like the counts,
+    or None when the row reports none -- which is not the same as reporting
+    none made. It is the source's only measure of turns: one snapshot stands
+    for every response the session made."""
     count = metric.get("requests")
-    return max(0, tokens.count(count.get("count") if isinstance(count, dict) else None))
+    value = count.get("count") if isinstance(count, dict) else None
+    return max(0, value) if isinstance(value, int) and not isinstance(value, bool) else None
 
 
 def uncached(metric):
@@ -97,17 +113,59 @@ def uncached(metric):
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
+def agrees(metric):
+    """Whether a row's own uncached input matches the one its counters are
+    read from: inputTokens less both cache buckets.
+
+    The difference is taken here rather than read back out of counters(),
+    which clamps it at zero -- so a row whose inputTokens has stopped
+    containing the cache buckets is caught whichever way it has gone, and
+    not only when the clamped reading happens to differ. A row that reports
+    no figure of its own cannot be checked and is taken as it stands.
+    """
+    own = uncached(metric)
+    if own is None:
+        return True
+    usage = usage_of(metric)
+    return own == (tokens.count(usage.get("inputTokens")) - tokens.count(usage.get("cacheReadTokens"))
+                   - tokens.count(usage.get("cacheWriteTokens")))
+
+
 def increase(seen, now):
     """What a cumulative snapshot adds to the largest one seen before it for
     the same session and model: the field-wise difference, as
-    (counters, requests). None when any field went backwards, which
-    contradicts the counts being cumulative.
+    (counters, calls), where calls is None when the row reports no request
+    count.
+
+    STALE when no counter has grown. That is a snapshot already read -- a
+    log repeating a block, or one file holding a session another file holds
+    too -- and it adds nothing, which is ordinary rather than a fault.
+
+    BROKEN when some counters have grown and others fallen, which
+    contradicts the counts being cumulative. That is what this whole reading
+    rests on, so it is the shape worth counting.
+
+    The request count never decides either way. It measures turns, not
+    tokens, and a row whose counters and own uncached input agree carries
+    usage that cannot be recovered once the log expires, while a turn count
+    can be understated without losing anything.
     """
-    before, before_requests = seen or (tokens.empty_counts(), 0)
-    counts, count = now
-    if count < before_requests or any(counts[k] < before[k] for k in tokens.COUNTERS):
-        return None
-    return {k: counts[k] - before[k] for k in tokens.COUNTERS}, count - before_requests
+    before, before_calls = seen if seen else (tokens.empty_counts(), None)
+    counts, calls = now
+    if all(counts[k] <= before[k] for k in tokens.COUNTERS):
+        return STALE
+    if any(counts[k] < before[k] for k in tokens.COUNTERS):
+        return BROKEN
+    added = None if calls is None else max(0, calls - (before_calls or 0))
+    return {k: counts[k] - before[k] for k in tokens.COUNTERS}, added
+
+
+def largest(seen, now):
+    """The largest snapshot seen, once `now` has been counted as an
+    increase: its counters, and its request count when it reported one, so a
+    row reporting none does not lose the count a row before it gave."""
+    counts, calls = now
+    return counts, calls if calls is not None else (seen[1] if seen else None)
 
 
 def ran_inside(context, repo_real):
@@ -171,10 +229,16 @@ def read_log(lines, path, sessions):
     blocks that share an id are read as a single sequence of snapshots.
     That is what makes a repeated block idempotent, and a session that sits
     in two places -- a copied or backed-up session-state tree -- counted
-    once. A start with no id names a session of its own, keyed by where it
-    is; a log that begins part-way through a session, with a resume, cannot
-    tell that session resuming again from a second one, and reads them as
-    one, which is the reading that cannot inflate a total.
+    once. Where no id is recorded the directory stands in for it, because
+    Copilot names a session's directory after its id: a log truncated above
+    its session.start still lands on the session it belongs to, rather than
+    becoming a second session whose whole cumulative total is archived on
+    top of the first. An ordinal keeps a second unnamed session in one log
+    apart from the first.
+
+    A log that begins part-way through a session, with a resume, cannot tell
+    that session resuming again from a second one, and reads them as one,
+    which is the reading that cannot inflate a total.
     """
     current, unnamed, malformed = None, 0, 0
     for line in lines:
@@ -194,7 +258,8 @@ def read_log(lines, path, sessions):
             if kind == "session.start" or current is None:
                 key = tokens.text(data.get("sessionId")) if kind == "session.start" else None
                 if key is None:
-                    key, unnamed = f"{path}#{unnamed}", unnamed + 1
+                    key = os.path.basename(os.path.dirname(path))
+                    key, unnamed = (f"{key}#{unnamed}" if unnamed else key), unnamed + 1
                 current = sessions.setdefault(key, {"context": {}, "snapshots": []})
             context = data.get("context")
             if isinstance(context, dict):
@@ -202,7 +267,10 @@ def read_log(lines, path, sessions):
         elif kind == "session.shutdown" and current is not None:
             metrics = data.get("modelMetrics")
             if not isinstance(metrics, dict):
-                continue            # a session that shut down having called no model
+                continue            # not the table Copilot writes
+            # A session that called no model shuts down with this table
+            # present and empty, as one of the recordings does, and so adds
+            # no snapshot.
             date = tokens.day(rec.get("timestamp"))
             current["snapshots"] += [(date, model, metric) for model, metric in metrics.items()
                                      if isinstance(metric, dict)]
@@ -210,26 +278,33 @@ def read_log(lines, path, sessions):
 
 
 def archive_session(days, snapshots):
-    """Record what each of one session's snapshots adds; the ones that
-    contradict being cumulative."""
+    """Record what each of one session's snapshots adds to the ones before
+    it; the snapshots that could not be read."""
     seen, malformed = {}, 0
     for date, model, metric in snapshots:
-        counts = counters(metric)
-        own = uncached(metric)
-        if own is not None and own != counts["input"]:
+        if not agrees(metric):
             malformed += 1
             continue            # inputTokens no longer contains the cache buckets
-        now = (counts, requests(metric))
-        added = increase(seen.get(model), now)
-        if added is None:
+        if not date:
+            # No day to archive under. Left out of `seen` too, so the next
+            # snapshot's increase still covers whatever this one held --
+            # advancing it here would drop those tokens for good.
             malformed += 1
             continue
-        seen[model] = now       # accepted, so this snapshot is the largest seen
-        counts, turns = added
-        if date and any(counts.values()):
-            # A row that reports no request count still stands for at least
-            # the one response its tokens came from.
-            tokens.record(days, date, model, counts, max(1, turns))
+        now = (counters(metric), requests(metric))
+        added = increase(seen.get(model), now)
+        if added is BROKEN:
+            malformed += 1
+            continue
+        if added is STALE:
+            continue
+        counts, calls = added
+        seen[model] = largest(seen.get(model), now)
+        # A row reporting no request count still stands for at least the one
+        # response its tokens came from; one that reports a count is taken
+        # at its word, even where that count has not moved. An increase is
+        # never all zeros, since STALE covers exactly that case.
+        tokens.record(days, date, model, counts, 1 if calls is None else calls)
     return malformed
 
 

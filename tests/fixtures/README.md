@@ -3,8 +3,9 @@
 Real Codex CLI, Copilot CLI, Gemini CLI and OpenCode session logs, reduced
 to what clocwork's token readers use: session identity, working directory,
 remote, model, token usage and timestamps. Prompts, replies, reasoning, tool
-calls, instructions, branch names, commit hashes and time zones were
-removed, and only Codex's `session_meta`, `turn_context`,
+calls, instructions, branch names and time zones were removed, as were
+commit hashes everywhere but the Copilot sessions, which keep theirs for the
+reason given below; and only Codex's `session_meta`, `turn_context`,
 `token_usage_record`, `token_count` and `compacted` lines were kept.
 
 Every session is rewritten to a placeholder repository: its working
@@ -45,18 +46,27 @@ to have.
 
 Only `session.start`, `session.resume`, `session.shutdown`,
 `session.usage_checkpoint` and `assistant.message` are kept, reduced to the
-fields the reader reads. The checkpoint and the message are kept although
-the reader ignores them: the checkpoint is where a reader might expect to
-find usage and does not, and the message carries an output count that must
-not be added to the snapshot that already covers it.
+fields the reader reads and the few these notes rest on -- the version, the
+branch, `reasoningTokens` and the rest of `tokenDetails` are kept as
+evidence for what is said here, not because anything reads them. The
+checkpoint and the message are kept although the reader ignores them: the
+checkpoint is where a reader might expect to find usage and does not, and
+the message carries an output count that must not be added to the snapshot
+that already covers it.
 
-Between them the four sessions carry every rule the reader has:
+Between them the four sessions carry every rule a recording can show. The
+rest -- a row whose own uncached input disagrees, counters that contradict
+being cumulative, a snapshot with no day, a non-JSON line, a log with no
+`session.start`, an unreadable log -- have no recording, and are tested
+against hand-written records in `TestRules` instead:
 
 - **`5920fe71…` and `5c068289…`** (v1.0.77, 2026-08-03): one `gpt-5-mini`
   snapshot each, the first mostly uncached input, the second almost all
   cache read. Their `tokenDetails` has no `cache_write` key at all.
 - **`144d0848…`** (v1.0.77): a session that called no model, so its
-  shutdown carries no `modelMetrics`.
+  shutdown carries an **empty** `modelMetrics` -- present, and a table with
+  nothing in it. A shutdown with the field missing altogether, or holding
+  something that is not a table, is not a shape any recording has.
 - **`aa737378…`** (v1.0.78, 2026-08-05): resumed once, so two cumulative
   snapshots — the second repeating the first model's row unchanged and
   adding a second model — and a real cache write. Its whole block appears

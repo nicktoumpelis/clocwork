@@ -46,18 +46,17 @@ MODEL_KEYS = {"model", "modelID"}
 # shape of a model id instead of being named in an allow-list, which a
 # refresh recording another model would otherwise have to grow.
 MODEL_KEYED = {"modelMetrics"}
-MODEL_ID = re.compile(r"^[0-9a-z][0-9a-z.-]*(?:/[0-9a-z][0-9a-z.-]*)?$")
+# No slash: every model id these recordings hold is a bare name, and a
+# slash is what an owner/name or a path that escaped the reduction would
+# bring. A refresh that records a provider-qualified id fails here, which is
+# the point at which someone should look at it rather than widen this by
+# reflex.
+MODEL_ID = re.compile(r"^[0-9a-z][0-9a-z.-]*$")
 # The remote's owner/name. Copilot records the two halves of a remote apart,
 # as repositoryHost and repository, so the path half stands alone in a
 # reduced record and is a placeholder like the remote it comes from.
 REMOTE_PATH = paths.parse_remote(agent_logs.REMOTE)[1]
 AGENTS = ("codex", "copilot", "gemini", "opencode")
-# The columns each table of the OpenCode fixtures uses. These are the
-# spellings the recordings hold, not every one the reader accepts: `pick()`
-# takes `sessionID` for `session_id` too, because the schema has used both.
-# Pinning the set means a key nobody meant - one valid for another table, or
-# a spelling these fixtures do not use - fails here instead of quietly
-# becoming a column of its own and leaving the real one empty.
 COPILOT_KEYS = {
     "baseCommit", "branch", "cacheReadTokens", "cacheWriteTokens", "cache_read", "cache_write",
     "context", "copilotVersion", "cost", "count", "cwd", "data", "gitRoot", "headCommit", "hostType",
@@ -66,6 +65,12 @@ COPILOT_KEYS = {
     "startTime", "timestamp", "tokenCount", "tokenDetails", "totalNanoAiu", "totalPremiumRequests",
     "type", "usage",
 }
+# The columns each table of the OpenCode fixtures uses. These are the
+# spellings the recordings hold, not every one the reader accepts: `pick()`
+# takes `sessionID` for `session_id` too, because the schema has used both.
+# Pinning the set means a key nobody meant - one valid for another table, or
+# a spelling these fixtures do not use - fails here instead of quietly
+# becoming a column of its own and leaving the real one empty.
 OPENCODE_COLUMNS = {
     "session": {"id", "project_id", "parent_id", "directory", "version", "path",
                 "time_created", "time_updated"},
@@ -132,14 +137,18 @@ class TestFixturesAreReduced(unittest.TestCase):
                                ("gemini", GEMINI_KEYS), ("opencode", OPENCODE_KEYS)):
             for rel in agent_logs.files(agent):
                 with self.subTest(file=rel):
-                    found = set().union(*(keys_of(r) for r in agent_logs.records(agent, rel)))
+                    records = agent_logs.records(agent, rel)
+                    self.assertTrue(records, "a fixture file with no records is checked against nothing")
+                    found = set().union(*(keys_of(r) for r in records))
                     self.assertLessEqual(found, allowed)
 
     def test_no_path_or_remote_but_the_placeholders(self):
         for agent in AGENTS:
             for rel in agent_logs.files(agent):
                 with self.subTest(file=rel):
-                    pairs = {p for r in agent_logs.records(agent, rel) for p in named_strings(r)}
+                    records = agent_logs.records(agent, rel)
+                    self.assertTrue(records, "a fixture file with no records is checked against nothing")
+                    pairs = {p for r in records for p in named_strings(r)}
                     left = {(".".join(path), s) for path, s in pairs
                             if "/" in s and not names_a_model(path) and not placeholder(s)}
                     self.assertEqual(left, set())
@@ -173,8 +182,11 @@ class TestFixturesAreReduced(unittest.TestCase):
 
     def test_the_model_id_shape_rejects_a_path(self):
         # The guard above stands in for an allow-list, so it has to reject
-        # what an allow-list would have caught.
+        # what an allow-list would have caught -- including the shapes that
+        # hold exactly one slash, which is what an owner/name leak looks
+        # like and which an earlier version of this pattern allowed.
         for leak in ("/Users/someone/code/thing", "Users/someone/code", "../elsewhere",
+                     "someone/private", "example/agent-sample", "openai/gpt-5",
                      "C:\\Users\\someone", "a prompt about gpt-5-mini", ""):
             with self.subTest(leak=leak):
                 self.assertNotRegex(leak, MODEL_ID)
