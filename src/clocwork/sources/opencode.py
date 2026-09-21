@@ -127,10 +127,20 @@ V2_TABLE_FROM = (1, 14, 34)
 #                sit in its data directory
 Store = namedtuple("Store", "databases cache_name floor file_stores")
 OPENCODE = Store(("opencode*.db",), "opencode", (), True)
-# Kilo forked after ERA_E, so no record of its own can predate that rule -
-# and it needs saying, because Kilo numbers its releases 7.x, which compares
-# above every era by accident, and writes the literal "local" for a build
-# from source, which compares below every one of them.
+# Kilo's own version numbers say nothing about which era wrote a record.
+# Its releases run v1.0.9 (2025-11-01) to v1.0.25, then jump to v7.0.26,
+# so they span every era here and the earliest of them predate even ERA_B -
+# while `version_of` reads a 7.x as above all of them and the literal
+# "local", which a build from source records, as below all of them.
+#
+# A record's own `total` is therefore the only evidence, and counters()
+# asks it first. Where a record has none, the floor keeps it out of era A:
+# that is the one era whose rule *subtracts* a cache read from the prompt,
+# so reading a later record under it would understate the input, while
+# reading an era-A record under era B only leaves a cache read where the
+# provider put it. Which OpenCode release each Kilo version carried would
+# settle this properly, and Kilo's sync commits name them ("kilo compat for
+# v1.14.29"), but that is a mapping nobody has built yet.
 #
 # `opencode-<channel>.db` comes first because it is the name Kilo wrote
 # before its rename, and its copy of a record must give way to the current
@@ -138,11 +148,11 @@ OPENCODE = Store(("opencode*.db",), "opencode", (), True)
 # directory as well, so a store from before the rename sits in OpenCode's
 # own directory, where its own reader owns it.
 #
-# No Kilo release ever wrote a file store. Its storage module descends from
-# the commit that made the store SQLite, which OpenCode shipped in v1.2.0,
-# and Kilo's own releases begin at 7.2.x - so a `storage/` tree in its data
-# directory belongs to something else.
-KILO = Store(("opencode-*.db", "kilo*.db"), "kilo", ERA_E, False)
+# Kilo does read the file generations. Its database arrived in v7.0.26; up
+# to v1.0.25 it shipped OpenCode's JSON store, already writing to its own
+# directory (`const app = "kilo"` is there at v1.0.25), and that release
+# carries the J0-to-J1 migration, so both layouts can sit in it.
+KILO = Store(("opencode-*.db", "kilo*.db"), "kilo", ERA_B, True)
 
 # One model call. `key` is the part or message id the record was read under,
 # which the migrations preserve, so the same call read from two generations

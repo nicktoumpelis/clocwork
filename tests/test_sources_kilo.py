@@ -69,16 +69,18 @@ class TestTheStoreDescriptor(unittest.TestCase):
         # kilocode_change where OpenCode reads "opencode".
         self.assertEqual((oc.KILO.cache_name, oc.OPENCODE.cache_name), ("kilo", "opencode"))
 
-    def test_kilo_has_no_file_store_generations(self):
-        # Its migrations begin long after OpenCode's v1.2.0 database, and its
-        # data directory is its own, so no J0 or J1 store can sit in it.
-        self.assertFalse(oc.KILO.file_stores)
+    def test_both_stores_read_the_file_generations(self):
+        # Kilo's database arrived in v7.0.26; up to v1.0.25 it shipped
+        # OpenCode's JSON store, writing to its own directory already
+        # (`const app = "kilo"` is there at v1.0.25), and that release
+        # carries the J0-to-J1 migration -- so both layouts can sit in it.
+        self.assertTrue(oc.KILO.file_stores)
         self.assertTrue(oc.OPENCODE.file_stores)
 
-    def test_a_file_store_in_kilo_s_directory_is_not_read(self):
-        # The behaviour the flag above buys: a storage/ tree in the kilo
-        # directory belongs to something else, and reading it would file
-        # another tool's usage under Kilo Code.
+    def test_a_file_store_in_kilo_s_directory_is_read(self):
+        # The behaviour the flag above buys: a v1.0.x release wrote this
+        # tree, so skipping it would lose every token Kilo spent before its
+        # database existed.
         with tempfile.TemporaryDirectory() as tmp:
             repo = make_repo(os.path.join(tmp, "repo"))
             home = os.path.join(tmp, "home")
@@ -93,12 +95,12 @@ class TestTheStoreDescriptor(unittest.TestCase):
                 os.makedirs(d, exist_ok=True)
                 with open(os.path.join(d, f"{doc['id']}.json"), "w", encoding="utf-8") as f:
                     json.dump(doc, f)
-            self.assertIsNone(kilo.scan(repo, [home]))
-            # The same tree under OpenCode's descriptor yields a day, so the
-            # store really is one this reader could have counted -- a scan
-            # that merely returned something would prove nothing, since one
-            # unreadable file is enough for that.
-            self.assertTrue(oc.scan(repo, [home]).days)
+            models = next(iter(kilo.scan(repo, [home]).days.values()))["models"]
+            # The usage itself, not merely a day: a scan that returned
+            # something would prove nothing, since one unreadable file is
+            # enough for that.
+            self.assertEqual(models["openai/gpt-5.3-codex"],
+                             {"input": 1_000, "output": 100, "cache_read": 0, "cache_write": 0})
 
     def test_two_database_patterns_that_overlap_read_a_file_once(self):
         # `databases` is a list of globs, and a later one could be widened to
@@ -116,13 +118,15 @@ class TestTheStoreDescriptor(unittest.TestCase):
             self.assertEqual(oc.scan(repo, [home], overlapping).skipped, 1)
 
     def test_only_kilo_floors_the_era(self):
-        self.assertEqual(oc.KILO.floor, oc.ERA_E)
+        self.assertEqual(oc.KILO.floor, oc.ERA_B)
         self.assertEqual(oc.OPENCODE.floor, ())
 
 
 class TestTheEraFloor(unittest.TestCase):
-    """Kilo forked after the last era boundary, so its records are read at
-    the newest rules whatever version string they carry."""
+    """Kilo's releases span every era, so its version says nothing about
+    which one wrote a record. The floor is not a claim about the rules that
+    applied; it only keeps a version-less record out of era A, the one era
+    whose rule subtracts a cache read from the prompt."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -151,13 +155,15 @@ class TestTheEraFloor(unittest.TestCase):
         self.assertEqual(models["openai/gpt-5.3-codex"],
                          {"input": 1_000, "output": 100, "cache_read": 400, "cache_write": 0})
 
-    def test_reasoning_sits_outside_the_output_without_a_total(self):
-        # Before era E the provider decided, and this record's provider is
-        # one whose reasoning was inside. At the floor it is outside, so the
-        # output is 100 + 40.
+    def test_the_floor_stops_at_era_b_and_leaves_the_later_rules_alone(self):
+        # The floor is ERA_B, not the newest era, so a record with neither a
+        # total nor a usable version keeps the pre-era-E reading: the
+        # provider decides, and this one's reasoning was inside the output.
+        # A record that does name a version at or past era E still gets era
+        # E's rule, which counts the reasoning outside.
         usage = {"input": 1_000, "output": 100, "reasoning": 40, "cache": {"read": 0, "write": 0}}
-        models = self.day("local", usage)
-        self.assertEqual(models["openai/gpt-5.3-codex"]["output"], 140)
+        self.assertEqual(self.day("local", usage)["openai/gpt-5.3-codex"]["output"], 100)
+        self.assertEqual(self.day("7.7.6", usage)["openai/gpt-5.3-codex"]["output"], 140)
 
     def test_a_record_that_carries_a_total_is_still_believed_over_the_floor(self):
         # The floor is a default, not a rule: a total is evidence, and here

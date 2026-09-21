@@ -279,7 +279,7 @@ archives per-day totals, per agent and model, into `token_usage.json`:
 | Codex CLI | `~/.codex/sessions/` and `~/.codex/archived_sessions/` | `CODEX_HOME` replaces `~/.codex` |
 | Copilot CLI | `~/.copilot/session-state/`, one `events.jsonl` per session | `COPILOT_HOME` replaces `~/.copilot` |
 | Gemini CLI | `~/.gemini/tmp/` and `~/.cache/.gemini/tmp/`, sessions started in the repository or a directory it tracks | `GEMINI_CLI_HOME` replaces `~` |
-| Kilo Code | `~/.local/share/kilo`, on macOS and Windows as well: its `kilo*.db` databases, and an `opencode-*.db` left there by the fork's rename | `XDG_DATA_HOME` replaces `~/.local/share`; `KILO_DB` adds the database it names |
+| Kilo Code | `~/.local/share/kilo`, on macOS and Windows as well: its `kilo*.db` databases, an `opencode-*.db` left there by the fork's rename, and the file stores its 1.0.x releases wrote | `XDG_DATA_HOME` replaces `~/.local/share`; `KILO_DB` adds the database it names |
 | OpenCode | `~/.local/share/opencode`, on macOS and Windows as well: its `opencode*.db` databases and the file stores older releases wrote | `XDG_DATA_HOME` replaces `~/.local/share`; `OPENCODE_DB` adds the database it names |
 
 A Codex session belongs to the repository when it records the same remote
@@ -374,14 +374,15 @@ Kilo Code is a fork of OpenCode and keeps the same store, so it belongs by
 the same rule and is read by the same code: the SHA-1 of `origin`'s host and
 path, the id cached in the repository's git directory — under `kilo`, where
 OpenCode writes `opencode`, so the two never claim each other's projects —
-or the repository's first commit. Its own releases are numbered 7.x, and a
-build from source records the version as `local`, neither of which means
-anything to OpenCode's counter eras; so every Kilo record is read at the
-newest rule, which is the only one it could have been written under, while a
-record that carries a `total` is still believed over that default. Kilo also
-stores a per-session roll-up of its own messages' tokens, which clocwork
-does not count: the per-message rows are the ones that carry a day and a
-model.
+or the repository's first commit. Its releases are numbered 1.0.x and then
+7.x, and a build from source records the version as `local`, none of which
+means anything to OpenCode's counter eras — and its releases span every one
+of them, so the version cannot say which era wrote a record. A record's own
+`total` is therefore the evidence, as it is for OpenCode; where a record has
+none, it is read at the second era rather than the first, because the first
+is the one that subtracts a cache read from the prompt. Kilo also stores a
+per-session roll-up of its own messages' tokens, which clocwork does not
+count: the per-message rows are the ones that carry a day and a model.
 
 An archive written by an earlier version is read as Claude Code's and
 rewritten in the per-agent shape the next time a scan finds logs; an archive

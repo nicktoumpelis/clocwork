@@ -104,9 +104,10 @@ into a database by `tests/agent_logs.py` — under `kilo/`, and installed as
 
 - **`s1/`: rows as recorded.** `message.jsonl` and `part.jsonl` hold the
   message and part ids, the models, the timestamps and the token counts as
-  the export gives them. Their `session_id` is the one exception: the export
-  names no session anywhere, so that column was minted here to match the
-  derived row below.
+  the export gives them. Two columns are filled in: the `session_id`, minted
+  here to match the derived row below because the export names no session
+  anywhere, and each part's `time_created`, taken from the message it hangs
+  off, because the export carries a timestamp per message and not per part.
 - **`s1-derived/`: the session row.** The export carries none, so this one
   is assembled here: a minted id, the placeholder project and directory, and
   the release its own provenance note states. Its roll-up columns are the
