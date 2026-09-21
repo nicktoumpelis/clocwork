@@ -113,6 +113,24 @@ ERA_E = (1, 3, 16)    # reasoning no longer inside output
 # counter rule a row in it can have been written under.
 V2_TABLE_FROM = (1, 14, 34)
 
+# What a fork of OpenCode changed about where its store is and how its
+# records are read. Kilo Code is one: same tables, same message JSON, same
+# project-id hash, four things moved.
+#
+#   databases    the names its channel databases take, in glob form
+#   cache_name   the file it caches a project id in, under the git directory
+#   floor        the oldest counter era one of its records can have been
+#                written under; () for OpenCode, which wrote every era
+#   file_stores  whether the JSON generations that predate the database can
+#                sit in its data directory
+Store = namedtuple("Store", "databases cache_name floor file_stores")
+OPENCODE = Store(("opencode*.db",), "opencode", (), True)
+# Kilo forked after ERA_E, so no record of its own can predate that rule -
+# and it needs saying, because Kilo numbers its releases 7.x, which compares
+# above every era by accident, and writes the literal "local" for a build
+# from source, which compares below every one of them.
+KILO = Store(("kilo*.db", "opencode-*.db"), "kilo", ERA_E, False)
+
 # One model call. `key` is the part or message id the record was read under,
 # which the migrations preserve, so the same call read from two generations
 # merges instead of counting twice. `session` is a session id.
@@ -260,8 +278,9 @@ def message_records(session, message_id, data, parts):
     provider, model = tokens.text(data.get("providerID")), tokens.text(data.get("modelID"))
     common = dict(session=session, message_id=message_id, time_ms=created,
                   provider=provider, model=model)
-    found = [Record(key=part_id, tokens=usage, **common)
-             for part_id, usage in parts if isinstance(usage, dict)]
+    found = [Record(key=part_id, tokens=usage,
+                    **dict(common, provider=step_provider or provider, model=step_name or model))
+             for part_id, usage, (step_provider, step_name) in parts if isinstance(usage, dict)]
     if found:
         return found
     usage = data.get("tokens")
@@ -273,6 +292,23 @@ def step_tokens(data):
     if isinstance(data, dict) and data.get("type") == "step-finish" and isinstance(data.get("tokens"), dict):
         return data["tokens"]
     return None
+
+
+def step_model(data):
+    """The (provider, model) a step-finish part names for itself, or
+    (None, None).
+
+    A part that names one is naming the model the call was actually served
+    by, which is finer than the message's: Kilo records its router's choice
+    here while the message holds the alias the user picked, so a message
+    reading `kilo-auto/free` covers a call billed as another vendor's model.
+    OpenCode's own recordings carry no model on a part at all, so this only
+    ever refines a name and never replaces a known one with nothing.
+    """
+    model = data.get("model") if isinstance(data, dict) else None
+    if not isinstance(model, dict):
+        return None, None
+    return tokens.text(model.get("providerID")), tokens.text(model.get("modelID"))
 
 
 def message_roots(data):
@@ -383,7 +419,7 @@ def read_database(path):
                 part_id = tokens.text(pick(fields, data, "id"))
                 message_id = tokens.text(pick(fields, data, "message_id", "messageID"))
                 if usage is not None and part_id and message_id:
-                    parts.setdefault(message_id, []).append((part_id, usage))
+                    parts.setdefault(message_id, []).append((part_id, usage, step_model(data)))
         for fields, data in (table_rows(conn, "message", damaged) if "message" in tables else ()):
             message_id = tokens.text(pick(fields, data, "id"))
             session_id = tokens.text(pick(fields, data, "session_id", "sessionID"))
@@ -478,7 +514,7 @@ def read_file_store(sessions_glob, messages_glob, parts_glob, project_from_path=
         part_id = tokens.text(doc.get("id")) or os.path.splitext(os.path.basename(path))[0]
         message_id = tokens.text(doc.get("messageID")) or os.path.basename(os.path.dirname(path))
         if usage is not None and message_id:
-            parts.setdefault(message_id, []).append((part_id, usage))
+            parts.setdefault(message_id, []).append((part_id, usage, step_model(doc)))
     for path in sorted(glob.glob(messages_glob)):
         try:
             doc = load_json(path)
@@ -530,10 +566,12 @@ def read_j0(home):
     return sessions, records, unreadable
 
 
-def cached_project_id(repo):
-    """The project id OpenCode cached in the repository's git directory, or
+def cached_project_id(repo, store=OPENCODE):
+    """The project id the tool cached in the repository's git directory, or
     None. It is written there when origin gives no id, and it survives a
-    remote being renamed, which the hash does not."""
+    remote being renamed, which the hash does not. Each fork caches under
+    its own name in the same directory, so reading the wrong one would claim
+    the other tool's project."""
     result = subprocess.run(["git", "-C", repo, "rev-parse", "--git-common-dir"],
                             stdin=subprocess.DEVNULL, capture_output=True, text=True, env=paths.git_env())
     if result.returncode != 0:
@@ -543,20 +581,21 @@ def cached_project_id(repo):
         return None
     path = os.path.join(repo, common) if not os.path.isabs(common) else common
     try:
-        with open(os.path.join(path, "opencode"), encoding="utf-8", errors="replace") as f:
+        with open(os.path.join(path, store.cache_name), encoding="utf-8", errors="replace") as f:
             return tokens.text(f.read().strip())
     except OSError:
         return None
 
 
-def known_ids(repo):
-    """Every project id OpenCode could have given this repository: the hash of
-    its remote, and the id cached in its git directory."""
+def known_ids(repo, store=OPENCODE):
+    """Every project id the tool could have given this repository: the hash of
+    its remote, and the id cached in its git directory. Kilo hashes the
+    remote exactly as OpenCode does, so only the cached name differs."""
     ids = set()
     key = paths.remote_key(repo)
     if key:
         ids.add(hashlib.sha1(("git-remote:" + key).encode("utf-8")).hexdigest())
-    cached = cached_project_id(repo)
+    cached = cached_project_id(repo, store)
     if cached:
         ids.add(cached)
     return ids
@@ -601,12 +640,13 @@ def model_key(record):
     return record.model
 
 
-def read_home(home):
+def read_home(home, store=OPENCODE):
     """(sessions, records, unreadable, damaged rows) from one home: a data
     directory with any of the four stores in it, or a database file.
 
     The stores are read oldest first, so that where two hold the same record,
-    the newest copy is the one kept.
+    the newest copy is the one kept. A fork with no file-store generations
+    skips them, and reads the database names its own releases wrote.
     """
     sessions, records, unreadable, damaged = {}, [], 0, 0
 
@@ -625,21 +665,25 @@ def read_home(home):
         return sessions, records, unreadable, damaged
     if not os.path.isdir(home):
         return sessions, records, unreadable, damaged
-    take(*read_j0(home))
-    take(*read_j1(home))
-    for path in sorted(glob.glob(os.path.join(home, "opencode*.db"))):
+    if store.file_stores:
+        take(*read_j0(home))
+        take(*read_j1(home))
+    # Each name once: a fork reading both its own and the name it renamed
+    # would otherwise read a file that matches both globs twice.
+    for path in sorted({p for pattern in store.databases
+                        for p in glob.glob(os.path.join(home, pattern))}):
         take(*read_database(path))
     return sessions, records, unreadable, damaged
 
 
-def scan(repo, homes):
-    """The repository's OpenCode usage, or None when no session belongs to it
-    and nothing was unreadable."""
+def scan(repo, homes, store=OPENCODE):
+    """The repository's usage from one OpenCode-shaped store, or None when no
+    session belongs to it and nothing was unreadable."""
     repo_real = os.path.realpath(repo)
-    ids, known_commit = known_ids(repo), commit_lookup(repo)
+    ids, known_commit = known_ids(repo, store), commit_lookup(repo)
     sessions, records, skipped, malformed = {}, {}, 0, 0
     for home in homes:
-        found, rows, bad, bad_rows = read_home(home)
+        found, rows, bad, bad_rows = read_home(home, store)
         skipped += bad
         malformed += bad_rows
         for session_id, slot in found.items():
@@ -662,7 +706,12 @@ def scan(repo, homes):
         if record.session not in mine:
             continue
         date = tokens.day_ms(record.time_ms)
-        version = record.version or sessions[record.session]["version"]
+        # A fork's own version numbering means nothing to these eras, so its
+        # records are read at the oldest era it could have written - which
+        # for Kilo is the newest rule there is. A record's own `total` is
+        # still consulted first, because that is evidence and this is only a
+        # default.
+        version = max(record.version or sessions[record.session]["version"], store.floor)
         c = counters(record.tokens, record.provider, record.model, version)
         if date and any(c.values()):
             counted.append((record, date, c))

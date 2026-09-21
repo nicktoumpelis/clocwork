@@ -27,6 +27,47 @@ class TestClaude(unittest.TestCase):
         self.assertEqual(ag.detect_agent(body), "Claude Opus 4.6")
 
 
+class TestKiloCode(unittest.TestCase):
+    """Kilo Code writes no trailer of its own, so every form below is one a
+    person would write by hand. They are here because two rows are needed to
+    reach them: a name is matched as a whole word, and neither spelling
+    finds the other.
+    """
+
+    def test_both_spellings_name_kilo_code(self):
+        for text in ("Kilo Code <noreply@kilocode.ai>", "kilo <noreply@kilo.ai>",
+                     "Kilo <x@y.dev>", "kilocode <bot@example.com>",
+                     "Kilo Code (GLM-5.3) <ai@local>", "kilocode-go/mimo <bot@example.com>",
+                     "Someone <s@x.example> (via kilocode.ai)"):
+            with self.subTest(text=text):
+                self.assertEqual(ag.detect_agent("Fix\n\nCo-Authored-By: " + text), "Kilo Code")
+
+    def test_a_longer_word_is_not_kilo(self):
+        # kiloconnect[bot] is the author its GitHub agent commits as, never a
+        # trailer; kilogram and kilos are words a person might write.
+        for text in ("kiloconnect[bot] <k@users.noreply.github.com>",
+                     "kilos <a@b.example>", "kilogram <k@b.example>",
+                     "Bot <x@mykilo.ai>", "Bot <x@kilo-drones.example>"):
+            with self.subTest(text=text):
+                self.assertIsNone(ag.detect_agent("Fix\n\nCo-Authored-By: " + text))
+
+    def test_kilo_wins_a_trailer_that_names_opencode_too(self):
+        # Kilo's own legacy database is still called opencode-<channel>.db,
+        # so a person may well name both. The fork they ran is the answer.
+        self.assertEqual(ag.detect_agent(TRAILER.format("Kilo Code via opencode")), "Kilo Code")
+        self.assertEqual(ag.detect_agent("Fix\n\nCo-Authored-By: kilocode <noreply@opencode.ai>"),
+                         "Kilo Code")
+        # And a trailer that names only OpenCode is untouched by the new rows.
+        self.assertEqual(ag.detect_agent("Fix\n\nCo-Authored-By: opencode <noreply@opencode.ai>"),
+                         "OpenCode")
+
+    def test_a_claude_model_still_wins_over_the_vendor(self):
+        # The matcher parses a Claude model before any vendor row, as it does
+        # for Cursor and Antigravity.
+        self.assertEqual(ag.detect_agent(TRAILER.format("Kilo Code (Claude Sonnet 4.5)")),
+                         "Claude Sonnet 4.5")
+
+
 class TestVendors(unittest.TestCase):
     def test_each_vendor(self):
         for text, name in (("GitHub Copilot", "Copilot"), ("Cursor Agent", "Cursor"), ("Codex", "Codex"),

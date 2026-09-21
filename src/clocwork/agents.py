@@ -73,6 +73,17 @@ VENDORS = (
     # whose tokens this machine can read. It comes before the next two rows,
     # which would otherwise claim it.
     ("opencode-agent", "OpenCode GitHub agent"),
+    # Kilo Code is a fork of OpenCode and adds no trailer of its own either.
+    # Two rows, because one needle cannot reach both spellings: a name is
+    # matched as a whole word, so "kilo" does not find "kilocode", and
+    # "kilocode" does not find "Kilo". Both come before the OpenCode row,
+    # because a hand-written trailer that names both - plausible, since
+    # Kilo's own legacy database is still called opencode-<channel>.db -
+    # belongs to the fork the person was running. Its GitHub agent commits
+    # as kiloconnect[bot], which is an author rather than a trailer, and
+    # which neither needle matches.
+    ("kilocode", "Kilo Code"),
+    ("kilo", "Kilo Code"),
     # OpenCode has added no trailer since v0.4.20; this catches the ones it
     # wrote before that and the ones people add, which name it in many ways
     # ("opencode", "GLM-5.3 via OpenCode", "opencode-go/mimo-v2.5"). It comes
