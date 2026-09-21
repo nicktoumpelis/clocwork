@@ -1,11 +1,12 @@
 # Agent log fixtures
 
-Real Codex CLI, Gemini CLI and OpenCode session logs, reduced to what clocwork's token
-readers use: session identity, working directory, remote, model, token
-usage and timestamps. Prompts, replies, reasoning, tool calls, instructions,
-branch names, commit hashes and time zones were removed, and only Codex's
-`session_meta`, `turn_context`, `token_usage_record`, `token_count` and
-`compacted` lines were kept.
+Real Codex CLI, Copilot CLI, Gemini CLI and OpenCode session logs, reduced
+to what clocwork's token readers use: session identity, working directory,
+remote, model, token usage and timestamps. Prompts, replies, reasoning, tool
+calls, instructions, branch names and time zones were removed, as were
+commit hashes everywhere but the Copilot sessions, which keep theirs for the
+reason given below; and only Codex's `session_meta`, `turn_context`,
+`token_usage_record`, `token_count` and `compacted` lines were kept.
 
 Every session is rewritten to a placeholder repository: its working
 directory is `/work/agent-sample`, a Codex remote is
@@ -19,7 +20,7 @@ pointed at a temporary repository.
   [furkankly/zoetrope](https://github.com/furkankly/zoetrope) at
   `b1f31dd26bd4e9e513885e39edb78d0850a5d1fe`, `assets/codex/cli-0.149.1/`
   and `assets/codex/cli-0.153.4/`.
-- Every other file:
+- Every other `codex/` and `gemini/` file:
   [ingo-eichhorst/Irrlicht](https://github.com/ingo-eichhorst/Irrlicht) at
   `a3f1f8d4683e1194049a92b6b40e44d0aa11aef0`,
   `replaydata/agents/codex/scenarios/{1-6_checkpoint-rewind,5-3_model-switch-midsession,2-12_context-compaction}/`
@@ -28,6 +29,71 @@ pointed at a temporary repository.
   the first recording of each. A recording can hold several sessions one
   after another; each is a file of its own here, named the way the CLI
   names it.
+- `copilot/session-state/`: the same repository at
+  `bf9c07a50c715afde1b8f674061ef49fff9d9b27`,
+  `replaydata/agents/copilot/scenarios/{1-2_session-end,1-4_session-resume}/`,
+  the first recording of each — Copilot CLI 1.0.77 and 1.0.78. See below.
+
+## Copilot CLI
+
+Copilot writes one `events.jsonl` per session, under a directory named for
+the session id, and the four files here are that layout. The recordings
+concatenate the sessions of a replay into one transcript, so each session's
+own records are split back out into the directory Copilot would have written
+them to; the resumed session's block was recorded twice, and **that
+repetition is kept**, because reading it once is the property the reader has
+to have.
+
+Only `session.start`, `session.resume`, `session.shutdown`,
+`session.usage_checkpoint` and `assistant.message` are kept, reduced to the
+fields the reader reads, plus the ones these notes rest on and a few that
+sit beside them: the version, the branch, `reasoningTokens` and the rest of
+`tokenDetails` are kept as evidence for what is said here, and
+`startTime`, `hostType`, `shutdownType`, `resumeTime` and `requests.cost`
+are kept because they cost nothing and show the shape a record really has.
+Nothing reads any of them. The
+checkpoint and the message are kept although the reader ignores them: the
+checkpoint is where a reader might expect to find usage and does not, and
+the message carries an output count that must not be added to the snapshot
+that already covers it.
+
+Between them the four sessions carry every rule a recording can show. The
+rest have no recording and are tested against hand-written records in
+`TestRules` instead -- among them a row whose own uncached input disagrees,
+a snapshot grown in one counter and fallen in another, a snapshot with no
+day, a non-JSON line, a log with no `session.start`, an unreadable log, and
+every request count but one: each recorded row reports exactly one call, so
+what a count does when it holds, falls, is omitted or is carried forward is
+hand-written throughout.
+
+- **`5920fe71…` and `5c068289…`** (v1.0.77, 2026-08-03): one `gpt-5-mini`
+  snapshot each, the first mostly uncached input, the second almost all
+  cache read. Their `tokenDetails` has no `cache_write` key at all.
+- **`144d0848…`** (v1.0.77): a session that called no model, so its
+  shutdown carries an **empty** `modelMetrics` -- present, and a table with
+  nothing in it. A shutdown with the field missing altogether, or holding
+  something that is not a table, is not a shape any recording has.
+- **`aa737378…`** (v1.0.78, 2026-08-05): resumed once, so two cumulative
+  snapshots — the second repeating the first model's row unchanged and
+  adding a second model — and a real cache write. Its whole block appears
+  twice.
+
+The counts are as recorded. Every one of the four model rows has
+`tokenDetails.input.tokenCount` equal to `inputTokens` less both cache
+buckets (8,883 + 1,664 = 10,547; 435 + 10,112 = 10,547; 10 + 12,602 =
+12,612; 9,277 + 1,536 = 10,813), which is what the reader checks each row
+against. `reasoningTokens` is reported beside `outputTokens` in all four
+(64 against 76, 64 against 89, 28 against 35, 64 against 88) with no
+reasoning bucket in `tokenDetails`, and no record carries a total that could
+settle whether it sits inside the output the way OpenCode's does.
+
+The author's own paths, branch and repository are replaced: `gitRoot` is the
+placeholder and `cwd` a directory below it, as recorded, the branch is
+`main`, and the repository is recorded as Copilot records one — the host and
+`owner/name` apart, as `github.com` and `example/agent-sample`, which
+together spell the placeholder remote. The recorded commit hashes are kept,
+because they are a public repository's and the reader is shown asking git
+about hashes that are not the test repository's.
 
 ## OpenCode
 
@@ -124,8 +190,9 @@ rows only:
 
 ## Licences
 
-The Codex, Gemini and Irrlicht material is MIT-licensed, as is kimaki's,
-codor's and tmux-pane-dash's; OpenAgents' and opencode.el's are Apache-2.0.
+The Codex, Copilot, Gemini and Irrlicht material is MIT-licensed, as is
+kimaki's, codor's and tmux-pane-dash's; OpenAgents' and opencode.el's are
+Apache-2.0.
 
 Copyright (c) 2026 Furkan Kalaycioglu
 

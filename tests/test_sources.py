@@ -6,7 +6,7 @@ import unittest
 from clocwork import agents, paths
 from clocwork import sources as src
 from clocwork.sources import claude_code as cc
-from clocwork.sources import codex, gemini
+from clocwork.sources import codex, copilot, gemini
 
 
 def turn(msg_id, date, model="claude-opus-5", output=10, cache_read=1000):
@@ -47,8 +47,11 @@ class TestRegistry(unittest.TestCase):
     def test_gemini_commits_belong_to_the_gemini_reader(self):
         self.assertIs(src.source_for("Gemini"), gemini)
 
+    def test_copilot_commits_belong_to_the_copilot_reader(self):
+        self.assertIs(src.source_for("Copilot"), copilot)
+
     def test_agents_without_a_reader_belong_to_no_source(self):
-        for name in ["Copilot", "Cursor", "Devin", "aider", "Antigravity", "Gemini Code Assist",
+        for name in ["Cursor", "Devin", "aider", "Antigravity", "Gemini Code Assist",
                      "OpenCode GitHub agent", "Misc", "", None]:
             with self.subTest(name=name):
                 self.assertIsNone(src.source_for(name))
@@ -65,6 +68,7 @@ class TestRegistry(unittest.TestCase):
         self.assertIs(src.by_key("claude-code"), cc)
         self.assertIs(src.by_key("codex"), codex)
         self.assertIs(src.by_key("gemini"), gemini)
+        self.assertIs(src.by_key("copilot"), copilot)
         self.assertIsNone(src.by_key("an-agent-from-the-future"))
 
 

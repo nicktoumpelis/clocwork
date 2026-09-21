@@ -87,10 +87,16 @@ def inclusive(prompt=0, output=0, cached=0, cache_write=0):
     return additive(uncached, output, cached, cache_write)
 
 
-def record(days, date, model, counts):
-    """Add one model response to a scan's per-day, per-model totals."""
+def record(days, date, model, counts, turns=1):
+    """Add one model response to a scan's per-day, per-model totals.
+
+    A source whose log records each response counts one turn, which is the
+    default. Copilot CLI reports a session's counts in one cumulative
+    snapshot instead, and says how many calls they cover, so it passes that
+    many; a snapshot recording ten responses is ten turns, not one.
+    """
     day = days.setdefault(date, {"turns": 0, "models": {}})
-    day["turns"] += 1
+    day["turns"] += turns
     totals = day["models"].setdefault(text(model) or "unknown", empty_counts())
     for k in COUNTERS:
         totals[k] += counts[k]

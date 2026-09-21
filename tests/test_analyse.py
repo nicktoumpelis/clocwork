@@ -373,7 +373,7 @@ class TestInputs(unittest.TestCase):
             kinds = {c["agent"]: c["token_kind"] for c in data["commits"] if c["agent"]}
             self.assertEqual((kinds["Claude Opus 4.6"], kinds["Copilot"], kinds["Cursor"]), ("m", "", ""))
             self.assertEqual((tokens["Claude Opus 4.6"], tokens["Copilot"], tokens["Cursor"]), (70, 0, 0))
-            self.assertIn("  2 AI commits carry no token figure (Copilot, Cursor): "
+            self.assertIn("  2 AI commits carry no token figure (Copilot CLI, Cursor): "
                           "no token logs from their agent cover their work", lines)
 
     def test_configured_agents_are_used(self):

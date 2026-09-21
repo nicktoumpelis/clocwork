@@ -229,7 +229,7 @@ class TestEndToEnd(unittest.TestCase):
                      # 1,866,762 from Codex CLI and 238,144 from Gemini CLI (tests/test_sources_*.py).
                      "  Archive now 5 days, 2,104,906 tokens (+5 days, +2,104,906 tokens)",
                      # The polyglot history credits Claude, Copilot and Cursor, never Codex or Gemini.
-                     "  3 AI commits carry no token figure (Claude Code, Copilot, Cursor): "
+                     "  3 AI commits carry no token figure (Claude Code, Copilot CLI, Cursor): "
                      "no token logs from their agent cover their work"):
             self.assertIn(line, log.splitlines())
         self.assertIn("No logs for this repository from Claude Code (" + self.projects + ")", log)
