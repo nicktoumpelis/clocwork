@@ -300,16 +300,20 @@ model rather than per response; a session resumed and shut down again writes
 a further total, and clocwork archives the increase, so a session recorded
 twice is counted once. Releases from 1.0.69 on also keep a row per model
 call in `session-store.db`, each with its own time, and clocwork reads a
-session started on one of them from its rows alone, so each call lands on
-its own day rather than on the day of the shutdown that reported it. Where
-the store is there but such a session's rows are not — pruned, or the store
-unreadable for that run — the session is held back and the run says so,
-rather than read from its snapshots: the archive keeps the larger record
-for each day, so a session that moved to its shutdown days would be counted
-on both. With no store at all, the snapshots are read. A session from an
-earlier release is read from whichever of the two holds more tokens: the
-snapshots, for one begun before the table existed. A session whose log is
-gone is placed by the working directory the store records for it. Both report their uncached input directly, and clocwork
+session whose log names one of those releases at its start from its rows
+alone, so each call lands on its own day rather than on the day of the
+shutdown that reported it. Where the store is there but such a session's
+rows are not — pruned, or the store unreadable for that run — the session
+is held back and the run says so, rather than read from its snapshots: the
+archive keeps the larger record for each day, so a session that moved to
+its shutdown days would be counted on both. A held session keeps what
+earlier runs archived for it, and one whose rows were gone before any run
+saw it is not counted at all. With no store at all, the snapshots are read.
+A session from an earlier release, or whose log names none at its start, is
+read from whichever of the two holds more tokens: the snapshots for one
+begun before the table existed, the rows for one that never shut down. A
+session whose log is gone is placed by the working directory the store
+records for it. Both report their uncached input directly, and clocwork
 checks every row and snapshot that reports it against the figure it
 derives: one that disagrees is counted in the log as unparseable rather
 than archived, because a format that has changed should be visible instead
