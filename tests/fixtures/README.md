@@ -118,8 +118,14 @@ made a fifth and shut down again.
   their ids, session id, turn index, model, the five token columns,
   `initiator`, `finish_reason` and `created_at` as recorded. Their
   `token_details_json` keeps each bucket's `tokenType` and `tokenCount` and
-  drops its prices. Latencies, endpoints and billing columns were dropped.
-  The store's other tables hold prompts and replies and are not here.
+  drops its `model`, `batchSize` and `costPerBatch`. Every other usage
+  column was dropped: `agent_id`, `parent_tool_call_id` and
+  `copilot_usage_model` (null on every row here), `total_nano_aiu`,
+  `request_multiplier`, the four latency columns, `api_endpoint`,
+  `reasoning_effort` and `content_filter_triggered`. The session row keeps
+  `id`, `cwd`, `repository`, `branch` and `created_at`, and drops
+  `host_type`, `updated_at` and `summary`, which holds the prompt's text.
+  None of the store's other tables is here; the reader reads only these two.
 
 The counts are as recorded. The five rows sum to 15 uncached input, 248
 output, 47,632 cache read and 12,503 cache write, which is exactly what the

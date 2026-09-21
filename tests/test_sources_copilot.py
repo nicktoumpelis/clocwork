@@ -736,11 +736,16 @@ class TestStoreRules(LogHome):
                          {"2026-08-05": (1, counts(100, 10)), "2026-08-06": (1, counts(200, 20))})
 
     def test_a_session_in_both_is_counted_once(self):
-        self.write([start(self.repo), shutdown({"m": metric(300, 30, cache_read=50, requests=2)})])
+        # The shutdown runs the day after the calls, so the days say which
+        # source was read: counted from the rows, as a tie is, and not also
+        # from the snapshot.
+        self.write([start(self.repo), shutdown({"m": metric(300, 30, cache_read=50, requests=2)},
+                                               "2026-08-06T09:00:00.000Z")])
         self.store([call(1, input=100, output=10, cache_read=50),
                     call(2, input=200, output=20)])
-        day = self.day()
-        self.assertEqual((day["turns"], day["models"]["m"]), (2, counts(300, 30, cache_read=50)))
+        days = self.scan().days
+        self.assertEqual({d: (v["turns"], v["models"]["m"]) for d, v in days.items()},
+                         {"2026-08-05": (2, counts(300, 30, cache_read=50))})
 
     def test_a_snapshot_that_holds_more_than_the_rows_wins(self):
         # A session begun before the table existed and resumed after it: the

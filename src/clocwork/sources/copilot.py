@@ -442,10 +442,12 @@ def scan(repo, homes):
     the later parts be counted again beside them.
 
     The archive keeps the larger record per day, so a session's tokens must
-    not move between days from one run to the next. Here they could only
-    move if the store lost rows its logs still cover: the session would fall
-    back to its snapshots and land on its shutdown days, beside the per-call
-    days already archived. Whether Copilot prunes the store is not known.
+    not move between days from one run to the next. Here they move when the
+    store cannot give the rows its logs cover -- rows pruned, or the whole
+    store unreadable for one run, say locked while Copilot writes it: the
+    session falls back to its snapshots and lands on its shutdown days,
+    beside the per-call days already archived. The unreadable store is
+    counted as skipped. Whether Copilot prunes the store is not known.
     """
     repo_real = os.path.realpath(repo)
     remote = paths.remote_key(repo) if os.path.isdir(repo) else None
@@ -486,7 +488,7 @@ def scan(repo, homes):
         for session in logged:
             malformed += archive_session(from_logs, session["snapshots"])
         malformed += archive_calls(from_rows, stored[key].values())
-        rows_win = everything(from_rows) > everything(from_logs)
+        rows_win = everything(from_rows) >= everything(from_logs)
         add_days(days, from_rows if rows_win else from_logs)
     if not belonged and not skipped:
         return None
