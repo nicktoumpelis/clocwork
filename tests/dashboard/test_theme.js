@@ -212,6 +212,11 @@ for (const name of ['light', 'dark']) {
   const spare = spareTokens.map(t => c[t]);
   check(spare.every(Boolean) && new Set(spare).size === spare.length && spare.every(x => series.indexOf(x) < 0),
         name + ': colours for unlisted agents are their own, not a listed agent\'s');
+  // Token chart series: one hue per source, stacked side by side, so each
+  // must exist in this theme and differ from the others.
+  const sourceTones = Object.values(page.run('return SOURCE_COLOURS')).map(t => c[t]);
+  check(sourceTones.length >= 6 && sourceTones.every(Boolean) && new Set(sourceTones).size === sourceTones.length,
+        name + ': ' + sourceTones.length + ' source colours, all different');
   const lines = page.run('return ANNOTATION_PALETTE').map(t => c[t]);
   check(lines.every(Boolean) && new Set(lines).size === lines.length, name + ': first-appearance colours all different');
   check(c.blue === SOL.blue && c.yellow === SOL.yellow && c.violet === SOL.violet, name + ': the accents are Solarized\'s own');

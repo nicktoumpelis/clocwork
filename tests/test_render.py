@@ -190,6 +190,21 @@ class TestAgentLabels(unittest.TestCase):
                                 key + " is not a name agents.py produces")
 
 
+    def test_every_source_has_a_fixed_colour_of_its_own(self):
+        # A source left to the palette takes its hue from its place in the
+        # chart's list, so it changes colour whenever another source gains or
+        # loses logs. Both directions: a new source cannot ship without a
+        # colour, and a colour cannot outlive the source it was for.
+        from clocwork import sources
+        block = re.search(r"var SOURCE_COLOURS = \{(.*?)\};", gh.template(), re.S).group(1)
+        pairs = dict(re.findall(r"""['"]([^'"]+)['"]\s*:\s*['"]([^'"]+)['"]""", block))
+        self.assertEqual(len(pairs), block.count(":"))
+        self.assertEqual(set(pairs), {s.KEY for s in sources.SOURCES})
+        # Stacked together, two sources in one hue would read as one.
+        self.assertEqual(len(set(pairs.values())), len(pairs), pairs)
+        # The greys are Human, Misc and the unknown Claude on the other charts.
+        self.assertFalse([c for c in pairs.values() if c.startswith("grey")], pairs)
+
 class TestRenderPage(unittest.TestCase):
     PLACEHOLDERS = ("__TITLE__", "__REPO_NAME__", "__DATA__", "__ANNOTATIONS__")
 
