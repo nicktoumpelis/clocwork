@@ -138,8 +138,8 @@ def carried(version):
 # reach, and a rule no Kilo release carried. If such a record did come from
 # era-A code -- a build from source can be cut from anywhere -- the floor
 # leaves its cache read in `input` as well as in `cache_read`, for a
-# non-Anthropic provider, so a sum over the two counts it twice (1,500 rather
-# than 1,100, for a 1,000-token prompt with 400 served from cache). That is
+# non-Anthropic provider, so a sum over the two counts it twice (1,400 rather
+# than 1,000, for a 1,000-token prompt with 400 served from cache). That is
 # the preferred error: the tokens stay visible in a labelled counter instead
 # of prompt tokens silently disappearing. A record's own `total` is asked
 # first, and the floor only decides where there is none.

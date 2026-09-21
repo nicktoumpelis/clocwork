@@ -170,6 +170,7 @@ class TestTheReleaseTable(unittest.TestCase):
         # The two rules that take a cache read back out of the prompt. Kilo's
         # first release, 1.0.0, already carried v1.1.36, and it
         # went from v1.2.25 to v1.3.13 in one step, past era C's two releases.
+        self.assertTrue(kilo.RELEASES)
         for first, upstream in kilo.RELEASES:
             with self.subTest(kilo=first):
                 self.assertGreaterEqual(upstream, oc.ERA_B)

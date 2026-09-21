@@ -115,7 +115,8 @@ V2_TABLE_FROM = (1, 14, 34)
 
 # What a fork of OpenCode changed about where its store is and how its
 # records are read. Kilo Code is one (sources.kilo): same tables, same message
-# JSON, same project-id hash, five things moved.
+# JSON, same project-id hash. The data directory is the reader's own
+# default_homes(); the rest is here.
 #
 #   databases    the names its channel databases take, in glob form,
 #                **oldest name first**: where two of them hold the same
