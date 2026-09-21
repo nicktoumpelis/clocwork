@@ -353,9 +353,11 @@ in the log. Copilot CLI asks its model to end commit messages with
 `Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>` unless
 `includeCoAuthoredBy` is turned off, and its tokens land on the commits whose
 trailers credit Copilot, whether the agent wrote the trailer or its author
-added it. GitHub's cloud Copilot agent credits the same name, so on a day
-when both worked on the repository, the CLI's tokens are shared across the
-cloud agent's commits too.
+added it. A trailer naming GitHub's cloud Copilot agent
+(`copilot-swe-agent[bot]`) resolves to the same name, so a commit carrying
+one is counted as Copilot's: it takes a share of the CLI's measured tokens
+on the days they cover, and an estimate at the CLI's rate on the days they
+do not.
 
 Kilo Code adds no trailer of its own either — the one its GitHub agent
 writes credits the person who dispatched the workflow, and the agent itself

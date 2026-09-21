@@ -38,8 +38,9 @@ LABEL = "Copilot CLI"
 # asks its model to end commit messages with `Co-authored-by: Copilot
 # <223556219+Copilot@users.noreply.github.com>` while includeCoAuthoredBy is
 # on, which it is by default -- an instruction in the system prompt, so a
-# commit can still lack it (checked on 1.0.87). GitHub's cloud Copilot agent
-# credits the same name, so the two are not told apart.
+# commit can still lack it (checked on 1.0.87). A trailer naming GitHub's
+# cloud Copilot agent resolves to the same name, so the two are not told
+# apart.
 AGENT = re.compile(r"^Copilot\b")
 SKIPPED = "damaged, or not readable as text"
 # Counted: a line that is not JSON, a snapshot whose own uncached input
