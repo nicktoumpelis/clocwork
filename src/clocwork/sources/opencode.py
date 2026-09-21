@@ -114,8 +114,9 @@ ERA_E = (1, 3, 16)    # reasoning no longer inside output
 V2_TABLE_FROM = (1, 14, 34)
 
 # What a fork of OpenCode changed about where its store is and how its
-# records are read. Kilo Code is one: same tables, same message JSON, same
-# project-id hash, four things moved.
+# records are read. Kilo Code is one (sources.kilo): same tables, same message
+# JSON, same project-id hash. The data directory is the reader's own
+# default_homes(); the rest is here.
 #
 #   databases    the names its channel databases take, in glob form,
 #                **oldest name first**: where two of them hold the same
@@ -125,51 +126,18 @@ V2_TABLE_FROM = (1, 14, 34)
 #                written under; () for OpenCode, which wrote every era
 #   file_stores  whether the JSON generations that predate the database can
 #                sit in its data directory
-Store = namedtuple("Store", "databases cache_name floor file_stores")
-OPENCODE = Store(("opencode*.db",), "opencode", (), True)
-# Kilo's own version numbers say nothing about which era wrote a record.
-# Its releases run v1.0.9 (2025-11-01) to v1.0.25, then jump to v7.0.26,
-# so they span every era here and the earliest of them predate even ERA_B -
-# while `version_of` reads a 7.x as above all of them and the literal
-# "local", which a build from source records, as below all of them.
-#
-# A record's own `total` is therefore the only evidence, and counters()
-# asks it first. Where a record has none, the floor lands the record on
-# ERA_B, which input_cache() reads without subtracting: era A's rule needs
-# a version below ERA_B or none at all, and era C's needs one in
-# [ERA_C, ERA_D). Era A is the rule a version-less record would otherwise
-# reach, and the only one it can reach.
-#
-# Both directions are wrong, by exactly the cache read, and the floor picks
-# which -- for a non-Anthropic record, which is the only kind era A's rule
-# touches. Read a post-era-A record under era A and the cache read is taken
-# out of an input that never held it, so the prompt is understated. Read a
-# genuine era-A record under era B and the cache read stays in `input`
-# while `cache_read` reports it too -- those are separate archive counters,
-# so a sum over them counts it twice (1,500 rather than 1,100, for a
-# 1,000-token prompt with 400 served from cache). An Anthropic-shaped
-# record reads the same at either era, at no cost. The floor prefers the
-# over-count, because it leaves the tokens visible in a labelled counter
-# instead of silently deleting prompt tokens, and because era A's window is
-# the fork's first weeks: Kilo v1.0.9 shipped 2025-11-01 and upstream
-# ERA_B landed 2025-11-13. How far past that a Kilo release still vendored
-# era-A semantics is exactly what is not known.
-#
-# Which OpenCode release each Kilo version carried would settle it, and
-# Kilo's sync commits name them ("kilo compat for v1.14.29"), but that is a
-# mapping nobody has built yet.
-#
-# `opencode-<channel>.db` comes first because it is the name Kilo wrote
-# before its rename, and its copy of a record must give way to the current
-# one. A plain `opencode.db` here is not Kilo's: the fork renamed the data
-# directory as well, so a store from before the rename sits in OpenCode's
-# own directory, where its own reader owns it.
-#
-# Kilo does read the file generations. Its database arrived in v7.0.26; up
-# to v1.0.25 it shipped OpenCode's JSON store, already writing to its own
-# directory (`const app = "kilo"` is there at v1.0.25), and that release
-# carries the J0-to-J1 migration, so both layouts can sit in it.
-KILO = Store(("opencode-*.db", "kilo*.db"), "kilo", ERA_B, True)
+#   carried      the OpenCode release a version of its own carried, or ()
+#                for a version it cannot place; the eras above are OpenCode
+#                versions, and a fork numbers its releases its own way
+Store = namedtuple("Store", "databases cache_name floor file_stores carried")
+
+
+def own_release(version):
+    """OpenCode's versions are its own releases."""
+    return version
+
+
+OPENCODE = Store(("opencode*.db",), "opencode", (), True, own_release)
 
 # One model call. `key` is the part or message id the record was read under,
 # which the migrations preserve, so the same call read from two generations
@@ -490,8 +458,8 @@ def read_v2_messages(conn, sessions, damaged=None):
     These are a projection of the V1 rows and carry different ids, so
     nothing merges them: scan() keeps them only for a session whose V1
     tables hold no usage, which is what a session written by the V2 runner
-    alone looks like. The table exists from v1.14.34, so a row in it is
-    never read under an older release's counter rule, whatever version its
+    alone looks like. The table exists from v1.14.34, so scan() never reads
+    a row in it under an older release's counter rule, whatever version its
     session row names. A fork's copies are skipped here as they are in the
     V1 tables, or a forked V2 session would count every call twice.
     """
@@ -511,7 +479,7 @@ def read_v2_messages(conn, sessions, damaged=None):
             records.append(Record(key=row_id, session=session_id, message_id=row_id,
                                   time_ms=created, provider=tokens.text(data.get("providerID")),
                                   model=tokens.text(data.get("modelID")), tokens=usage,
-                                  version=max(slot["version"], V2_TABLE_FROM), v2=True))
+                                  version=slot["version"], v2=True))
     return records
 
 
@@ -760,15 +728,19 @@ def scan(repo, homes, store=OPENCODE):
         if record.session not in mine:
             continue
         date = tokens.day_ms(record.time_ms)
-        # A fork's own version numbering means nothing to these eras, so a
-        # floor stands in for it. The floor does not claim to name the rule
+        # The eras are OpenCode versions, so a fork's version is first turned
+        # into the OpenCode release it carried. Only then can the V2 table's
+        # floor apply, since that floor is an OpenCode version too, and then
+        # the store's own floor, which stands in where the fork's version
+        # could not be placed. That floor does not claim to name the rule
         # that applied; it keeps a record off era A, the only subtracting
-        # rule a version-less record can reach, at the cost of leaving a
-        # genuine era-A record's cache read in `input` as well as in
-        # `cache_read` -- for the non-Anthropic providers that rule covers.
-        # A record's own `total` is still consulted first,
-        # because that is evidence and this is only a default.
-        version = max(record.version or sessions[record.session]["version"], store.floor)
+        # rule a version-less record can reach. A record's own `total` is
+        # still consulted first, because that is evidence and these are
+        # only defaults.
+        version = store.carried(record.version or sessions[record.session]["version"])
+        if record.v2:
+            version = max(version, V2_TABLE_FROM)
+        version = max(version, store.floor)
         c = counters(record.tokens, record.provider, record.model, version)
         if date and any(c.values()):
             counted.append((record, date, c))

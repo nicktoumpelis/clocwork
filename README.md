@@ -339,8 +339,8 @@ case, not an error.
 
 Tokens land only on the commits of the agent whose logs measured them,
 split across that agent's commits of the day by lines changed. A commit
-carries no token figure when its agent's logs are not read (Copilot, Cursor,
-Devin, aider, Antigravity, Gemini Code Assist or any other), or when they
+carries no token figure when its agent's logs are not read (Cursor, Devin,
+aider, Antigravity, Gemini Code Assist or any other), or when they
 cover no day on which that agent's commits changed lines, and it is never
 priced at another agent's rate. When the repository has token data, the run
 summary counts those commits and names their agents. Gemini Code Assist is
@@ -354,8 +354,15 @@ commit credits Gemini by hand, in a trailer such as
 `Co-Authored-By: Gemini CLI <address>`; otherwise the page says its tokens
 land on no commit. Codex rollouts that Codex has compressed are read on
 Python 3.14 and later; earlier versions count them as unreadable and say so
-in the log. Copilot CLI's tokens land on the commits whose trailers credit
-Copilot, whether the agent wrote the trailer or its author added it.
+in the log. Copilot CLI asks its model to end commit messages with
+`Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>` unless
+`includeCoAuthoredBy` is turned off, and its tokens land on the commits whose
+trailers credit Copilot, whether the agent wrote the trailer or its author
+added it. A trailer naming GitHub's cloud Copilot agent
+(`copilot-swe-agent[bot]`) resolves to the same name, so a commit carrying
+one is counted as Copilot's: it takes a share of the CLI's measured tokens
+on the days they cover, and an estimate at the CLI's rate on the days they
+do not.
 
 Kilo Code adds no trailer of its own either — the one its GitHub agent
 writes credits the person who dispatched the workflow, and the agent itself
@@ -380,21 +387,21 @@ the same rule and is read by the same code: the SHA-1 of `origin`'s host and
 path, the id cached in the repository's git directory — under `kilo`, where
 OpenCode writes `opencode`, so the two never claim each other's projects —
 or the repository's first commit. Its releases are numbered 1.0.x and then
-7.x, and a build from source records the version as `local`, none of which
-means anything to OpenCode's counter eras — and its releases span every one
-of them, so the version cannot say which era wrote a record. A record's own
-`total` is therefore the evidence, as it is for OpenCode; where a record has
-none, it is read at the second era rather than the first, because the first
-is the only rule a record naming no version could reach that takes a cache
-read back out of the prompt. That choice has a cost in the other direction,
-for every provider but Anthropic — the ones whose prompt that era left the
-cache read inside: such a record keeps its cache read in the input count
-while the cache-read count reports it too, so the two together count it
-twice. An Anthropic-shaped record is read identically either way, at no
-cost. Erring that way keeps the tokens visible in a labelled count rather
-than dropping prompt tokens silently. Kilo also stores a
-per-session roll-up of its own messages' tokens, which clocwork does not
-count: the per-message rows are the ones that carry a day and a model.
+7.x, which OpenCode's counter eras cannot read as they stand, so each Kilo
+release is mapped to the OpenCode release it carried — from v1.1.36 at
+Kilo 1.0.0 onwards, found by which OpenCode tags each Kilo tag descends
+from — and read at that release's era. A record's own `total` is still the
+first evidence, as it is for OpenCode. A version the mapping cannot place,
+such as the `local` a build from source records, is read at the second era
+rather than the first, because the first is the only rule a record naming
+no version could reach that takes a cache read back out of the prompt, and
+no Kilo release carried it. That choice has a cost if such a record was in
+fact written under the first era, for every provider but Anthropic: it keeps
+its cache read in the input count while the cache-read count reports it too,
+so the two together count it twice. Erring that way keeps the tokens visible
+in a labelled count rather than dropping prompt tokens silently. Kilo also
+stores a per-session roll-up of its own messages' tokens, which clocwork does
+not count: the per-message rows are the ones that carry a day and a model.
 
 An archive written by an earlier version is read as Claude Code's and
 rewritten in the per-agent shape the next time a scan finds logs; an archive
