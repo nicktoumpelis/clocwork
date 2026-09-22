@@ -9,7 +9,8 @@ Antigravity keeps each conversation in a SQLite database of protobuf
 blobs. Its rows are committed as JSONL, one directory per conversation, with
 each blob written as its field tree ({"9": {"2": 11874}}); install() encodes
 them back and builds the databases. Its CLI logs are committed as the one
-fact the reader takes from them, and written back in agy's own format.
+fact the reader takes from them, and written back in agy's own format; its
+history.jsonl is copied as it is.
 
 OpenCode keeps its sessions in SQLite, which a repository cannot hold as a
 readable, diffable fixture. Its rows are committed as JSONL instead, one
@@ -26,6 +27,9 @@ import sqlite3
 
 FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
 PLACEHOLDER = "/work/agent-sample"
+# A directory outside the placeholder repository, as a second workspace
+# (Antigravity's --add-dir); install() puts it beside the test repository.
+ELSEWHERE = "/work/elsewhere"
 REMOTE = "https://github.com/example/agent-sample.git"
 
 
@@ -112,8 +116,9 @@ AGY_CREATED = "I0922 09:36:42.773709       1 server.go:1224] Created conversatio
 
 
 def install_antigravity(root, home, swap):
-    """Build the conversation databases, the summaries database and the CLI
-    logs of the Antigravity fixture under `home`; the paths written."""
+    """Build the conversation databases, the summaries database, the CLI
+    logs and the prompt history of the Antigravity fixture under `home`; the
+    paths written."""
     written = []
     conversations = os.path.join(root, "conversations")
     for cid in sorted(os.listdir(conversations)):
@@ -133,6 +138,12 @@ def install_antigravity(root, home, swap):
     written.append(path)
     with open(os.path.join(root, "log", "runs.jsonl"), encoding="utf-8") as f:
         runs = [json.loads(swap(l)) for l in f.read().splitlines() if l.strip()]
+    with open(os.path.join(root, "history.jsonl"), encoding="utf-8") as f:
+        history = swap(f.read())
+    path = os.path.join(home, "history.jsonl")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(history)
+    written.append(path)
     for run in runs:
         path = os.path.join(home, "log", run["log"])
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -152,6 +163,7 @@ def install(agent, home, repo, remote=REMOTE, database="opencode.db"):
     """
     root = os.path.join(FIXTURES, agent)
     swaps = ((project_hash(PLACEHOLDER), project_hash(repo)),
+             (json.dumps(ELSEWHERE)[1:-1], json.dumps(os.path.join(os.path.dirname(repo), "elsewhere"))[1:-1]),
              (json.dumps(PLACEHOLDER)[1:-1], json.dumps(repo)[1:-1]),
              (REMOTE, remote))
     if agent == "antigravity":

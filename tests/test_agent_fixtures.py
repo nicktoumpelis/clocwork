@@ -108,6 +108,7 @@ ANTIGRAVITY_COLUMNS = {
     "trajectory_metadata_blob": {"id", "data"},
     "conversation_summaries": {"conversation_id", "workspace_uris"},
     "runs": {"log", "workspaceDirs", "created"},
+    "history": {"timestamp", "workspace", "conversationId", "type"},
 }
 ANTIGRAVITY_FIELDS = {"1", "2", "3", "4", "5", "9", "10", "11", "19"}
 ANTIGRAVITY_KEYS = set().union(*ANTIGRAVITY_COLUMNS.values()) | ANTIGRAVITY_FIELDS
@@ -116,14 +117,22 @@ ANTIGRAVITY_KEYS = set().union(*ANTIGRAVITY_COLUMNS.values()) | ANTIGRAVITY_FIEL
 # string it holds is judged by its field instead: the shapes below are all
 # the recordings need.
 ANTIGRAVITY_STRINGS = {
-    "11": re.compile(r"^[A-Za-z0-9_-]{16,32}$"),
+    # Gemini's response ids, and Claude's through Vertex (req_vrtx_...).
+    "11": re.compile(r"^[A-Za-z0-9_-]{16,40}$"),
     "19": MODEL_ID,
     "conversation_id": re.compile(r"^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$"),
     "created": re.compile(r"^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$"),
+    "conversationId": re.compile(r"^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$"),
+    "type": re.compile(r"^slash_command$"),
+    "workspace": re.compile("^" + re.escape(agent_logs.PLACEHOLDER) + "$"),
     "log": re.compile(r"^cli-[0-9]{8}_[0-9]{6}\.log$"),
     "id": re.compile(r"^main$"),
-    "workspaceDirs": re.compile("^" + re.escape(agent_logs.PLACEHOLDER) + "$"),
-    "workspace_uris": re.compile("^file://" + re.escape(agent_logs.PLACEHOLDER) + "$"),
+    # The repository, or a directory beside it added with --add-dir, which
+    # agy logs as typed: absolute, or relative.
+    "workspaceDirs": re.compile("^({}|{}|\\.\\./elsewhere)$".format(re.escape(agent_logs.PLACEHOLDER),
+                                                                re.escape(agent_logs.ELSEWHERE))),
+    "workspace_uris": re.compile("^file://({}|{})$".format(re.escape(agent_logs.PLACEHOLDER),
+                                                         re.escape(agent_logs.ELSEWHERE))),
 }
 KILO_KEYS = {
     "cache", "cost", "created", "data", "directory", "id", "input", "message_id", "model",
@@ -176,7 +185,7 @@ def placeholder(s):
     reduced record may name: the repository's path, a directory below it,
     the remote, or the owner/name that remote spells."""
     s = s[len("file://"):] if s.startswith("file:///") else s
-    return (s in (agent_logs.PLACEHOLDER, agent_logs.REMOTE, REMOTE_PATH)
+    return (s in (agent_logs.PLACEHOLDER, agent_logs.ELSEWHERE, "../elsewhere", agent_logs.REMOTE, REMOTE_PATH)
             or s.startswith(agent_logs.PLACEHOLDER + "/"))
 
 
@@ -199,7 +208,7 @@ def names_a_model(path):
 
 class TestFixturesAreReduced(unittest.TestCase):
     def test_every_agent_has_its_sessions(self):
-        self.assertEqual(tuple(len(agent_logs.files(a)) for a in AGENTS), (11, 13, 4, 3, 5, 3, 17, 4))
+        self.assertEqual(tuple(len(agent_logs.files(a)) for a in AGENTS), (24, 13, 4, 3, 5, 3, 17, 4))
 
     def test_only_allow_listed_keys(self):
         for agent, allowed in (("antigravity", ANTIGRAVITY_KEYS), ("codex", CODEX_KEYS), ("copilot", COPILOT_KEYS),
@@ -264,11 +273,12 @@ class TestFixturesAreReduced(unittest.TestCase):
 
     def test_the_placeholder_rule_allows_no_other_path(self):
         for leak in ("/Users/someone/code/thing", "/work/agent-sample-other/x", "file:///Users/someone/x",
+                     "/work/elsewhere/x", "../somewhere",
                      "file://work/agent-sample",
                      "https://github.com/someone/private.git", "someone/private"):
             with self.subTest(leak=leak):
                 self.assertFalse(placeholder(leak))
-        for allowed in (agent_logs.PLACEHOLDER, agent_logs.PLACEHOLDER + "/src/app",
+        for allowed in (agent_logs.PLACEHOLDER, agent_logs.PLACEHOLDER + "/src/app", agent_logs.ELSEWHERE,
                         "file://" + agent_logs.PLACEHOLDER,
                         agent_logs.REMOTE, REMOTE_PATH):
             with self.subTest(allowed=allowed):

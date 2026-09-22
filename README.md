@@ -282,7 +282,7 @@ archives per-day totals, per agent and model, into `token_usage.json`:
 | Gemini CLI | `~/.gemini/tmp/` and `~/.cache/.gemini/tmp/`, sessions started in the repository or a directory it tracks | `GEMINI_CLI_HOME` replaces `~` |
 | Kilo Code | `~/.local/share/kilo`, on macOS and Windows as well: its `kilo*.db` databases, an `opencode-*.db` left there by the fork's rename, and the file stores its 1.0.x releases wrote | `XDG_DATA_HOME` replaces `~/.local/share`; `KILO_DB` adds the database it names |
 | OpenCode | `~/.local/share/opencode`, on macOS and Windows as well: its `opencode*.db` databases and the file stores older releases wrote | `XDG_DATA_HOME` replaces `~/.local/share`; `OPENCODE_DB` adds the database it names |
-| Antigravity | `~/.gemini/antigravity-cli/conversations/`, one SQLite database per conversation, placed by `conversation_summaries.db` or the CLI logs beside it; the IDE's `~/.gemini/antigravity` and its other names are read the same way | none |
+| Antigravity | `~/.gemini/antigravity-cli/conversations/`, one SQLite database per conversation, placed by the CLI logs beside it, then `history.jsonl`, then `conversation_summaries.db`; the IDE's `~/.gemini/antigravity` and its other names are read the same way | none |
 | Qwen Code | `~/.qwen/projects/*/chats/`, one JSONL file per session from 0.4.0 (an archived one moves to `chats/archive/`), and the Gemini-format sessions under `~/.qwen/tmp/` that earlier releases wrote | `QWEN_HOME` replaces `~/.qwen`; `QWEN_RUNTIME_DIR`, and the `advanced.runtimeOutputDir` setting in any of Qwen Code's settings files, add the directory they name |
 
 A Codex session belongs to the repository when it records the same remote
@@ -433,24 +433,35 @@ Gemini's is Gemini CLI's convention, not yet checked for Qwen Code.
 Antigravity's CLI, agy, keeps each conversation in a SQLite database of
 protobuf records, one row per model call in two tables, which are read once
 per call by its response id. The input, the output (with the thinking
-already in it) and the model are as agy stores them, and they match what agy
-reports itself (`--output-format json`). A cache read would be taken out of
-the input, as in Gemini's own API; no recorded call has one, so that reading
-is unconfirmed. A print-mode conversation's database (`agy -p`) names no
-directory at all. An interactive conversation's workspace is in
-`conversation_summaries.db`, and a print-mode one's only in the log of the
-CLI run that created it, under
-`log/`; the summary is taken first, then the log. A conversation belongs
-when the first directory it names is the repository or a directory in it.
+already in it), the cache read and the model are as agy stores them, and
+they match what agy reports itself (`--output-format json`): the cache read
+sits beside the input, not inside it, as a Claude model's calls through
+agy show. No Gemini call recorded a cache read, so for Gemini models that is
+unconfirmed. No recorded call reports a cache write, not even the first Claude
+call, whose cache the next one read, so a write is presumably inside the
+input, where nothing separates it.
+
+A print-mode conversation's database (`agy -p`) names no directory at all,
+so a conversation is placed by one of three files, in this order. The CLI
+log of the run that created it, under `log/`, names the working directory
+first and any `--add-dir` directories after it; agy kept every log in the
+runs checked, a year-old one included. `history.jsonl` names an interactive
+conversation's working directory when it is ended with `/exit`.
+`conversation_summaries.db` lists the `--add-dir` directories and then, for
+an interactive conversation only, the working directory, so its last entry
+is taken, and a print-mode run with `--add-dir` whose log is gone is read as
+its added directory's; it is the last resort for that reason. A conversation
+belongs when its working directory is the repository or a directory in it.
 A log lists a run's directories separated by spaces, so where one of them has
 a space in its name, the longest part of the text that is a directory on disk
-is taken.
-One that neither places — a print-mode run whose log is gone — is not
-guessed at; when the repository has Antigravity usage, the run's summary
-says how many such conversations the machine holds, since none of them can
-be tied to any one repository. Because agy writes
-no trailer, its tokens land only on commits a person credits to Antigravity.
-The IDE's older conversations are encrypted, and are not read.
+is taken, splitting only before a path (`/…`, `./…`, `../…` or `~/…`). Text
+that no split makes a directory of, as a bare relative `--add-dir docs`
+leaves it, falls through to `history.jsonl` and the summary.
+One that none of the three places is not guessed at; when the repository has
+Antigravity usage, the run's summary says how many such conversations the
+machine holds, since none of them can be tied to any one repository. Because
+agy writes no trailer, its tokens land only on commits a person credits to
+Antigravity. The IDE's older conversations are encrypted, and are not read.
 
 Kilo Code is a fork of OpenCode and keeps the same store, so it belongs by
 the same rule and is read by the same code: the SHA-1 of `origin`'s host and

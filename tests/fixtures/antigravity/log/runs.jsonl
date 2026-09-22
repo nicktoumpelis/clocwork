@@ -1,3 +1,7 @@
 {"log": "cli-20260922_093640.log", "workspaceDirs": ["/work/agent-sample"], "created": ["342e8ba1-6760-4ded-a4b7-32c0f8626273"]}
 {"log": "cli-20260922_093902.log", "workspaceDirs": ["/work/agent-sample"], "created": ["29ac6e7f-cce9-48d3-b2bc-ce3f90e37016"]}
 {"log": "cli-20260922_094140.log", "workspaceDirs": ["/work/agent-sample"], "created": ["4b3fad79-e681-44d0-b8bb-b9095fc49b6a"]}
+{"log": "cli-20260922_104020.log", "workspaceDirs": ["/work/agent-sample"], "created": ["80e4a8f7-f39f-402e-8035-c0dc70a03abf"]}
+{"log": "cli-20260922_104059.log", "workspaceDirs": ["/work/agent-sample", "/work/elsewhere"], "created": ["7023721e-47b4-4c0c-a049-cd7354925b38"]}
+{"log": "cli-20260922_104104.log", "workspaceDirs": ["/work/agent-sample", "../elsewhere"], "created": ["10ca56d2-25f7-4b32-b929-736aa28a1b83"]}
+{"log": "cli-20260922_104128.log", "workspaceDirs": ["/work/agent-sample", "/work/elsewhere"], "created": ["2d64a70a-b782-4bb6-b996-8d455268c629"]}
