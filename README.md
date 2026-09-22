@@ -455,8 +455,9 @@ its added directory's; it is the last resort for that reason. A conversation
 belongs when its working directory is the repository or a directory in it.
 A log lists a run's directories separated by spaces, so where one of them has
 a space in its name, the longest part of the text that is a directory on disk
-is taken, splitting only before a path (`/…`, `./…`, `../…` or `~/…`,
-POSIX forms: on Windows, whose separator is `\`, the text never splits). Text
+is taken, splitting only before a path (`/…`, `./…`, `../…` or `~/…`, with
+the system's own separator; a Windows drive-letter path, `C:\…`, never starts
+one). Text
 that no split makes a directory of, as a bare relative `--add-dir docs`
 leaves it, falls through to `history.jsonl` alone, since that run's summary
 names only its added directories; without an `/exit` record it is held back.
