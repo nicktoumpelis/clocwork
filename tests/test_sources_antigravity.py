@@ -9,15 +9,15 @@ from clocwork import agents
 from clocwork.sources import antigravity
 from tests import agent_logs
 
-# The three recorded conversations in tests/fixtures/antigravity (agy 1.2.7
-# and 1.2.8, Gemini 3.8 Flash), summed by hand from each call's own fields:
+# The three recorded conversations in tests/fixtures/antigravity (agy 1.2.8,
+# Gemini 3.8 Flash), summed by hand from each call's own fields:
 # input is field 2 and output field 3, which holds the thinking (field 9)
 # with the visible reply (field 10); no call read or wrote a cache.
 #   342e8ba1, print mode, placed by its CLI log:    11,874 / 25
 #   29ac6e7f, interactive, placed by its summary:   11,894 / 358, 12,378 / 151, 12,757 / 125
 #   4b3fad79, print mode then continued twice:      11,881 / 1,046, 13,333 / 26, 13,565 / 26
-# agy's own JSON output agrees: 11,899 in all for the first, and 38,779 in and
-# 1,098 out, cumulatively, after the third's last turn.
+# agy's own JSON output agrees: 11,874 / 25 for the first, and 11,881 / 1,046
+# for the third's first call.
 RECORDED = {"2026-09-22": {"turns": 7, "models": {
     "gemini-3.8-flash": {"input": 87_682, "output": 1_757, "cache_read": 0, "cache_write": 0}}}}
 INTERACTIVE = "29ac6e7f-cce9-48d3-b2bc-ce3f90e37016"
@@ -48,9 +48,9 @@ DAY, NEXT = 1_785_924_000, 1_786_010_400
 class TestHomes(unittest.TestCase):
     def test_the_cli_and_the_ide_directories(self):
         home = os.path.expanduser("~")
-        self.assertEqual(antigravity.default_homes({})[:2],
-                         [os.path.join(home, ".gemini", "antigravity-cli"),
-                          os.path.join(home, ".gemini", "antigravity")])
+        self.assertEqual(antigravity.default_homes({}),
+                         [os.path.join(home, ".gemini", name)
+                          for name in ("antigravity-cli", "antigravity", "antigravity-ide", "antigravity-backup")])
 
 
 class TestAttribution(unittest.TestCase):
@@ -257,7 +257,9 @@ class TestRules(Home):
         other = os.path.join(self.root, "other")
         self.conversation(steps=[self.step(usage(100, 1))], logged=f"{self.repo} {other}")
         self.assertEqual(self.day()["turns"], 1)
-        self.conversation(cid="c2", steps=[self.step(usage(100, 1))], logged=f"{other} {self.repo}")
+        # Its own response id, so a wrong match would add a turn rather
+        # than overwrite the first conversation's call.
+        self.conversation(cid="c2", steps=[self.step(usage(100, 1, "c2"))], logged=f"{other} {self.repo}")
         self.assertEqual(self.day()["turns"], 1)
 
     def test_a_workspace_with_a_space_in_its_log(self):
@@ -272,6 +274,29 @@ class TestRules(Home):
         os.makedirs(sibling)
         self.conversation(steps=[self.step(usage(100, 1))], logged=sibling)
         self.assertIsNone(self.scan())
+
+    def test_a_deleted_sibling_named_like_the_repository_and_a_space_is_not_it(self):
+        # The run's directory is gone, so no longer part of the text is a
+        # directory; the repository's own path must not be taken for it.
+        self.conversation(steps=[self.step(usage(100, 1))], logged=self.repo + " 2")
+        self.conversation(cid="c2", steps=[self.step(usage(100, 1, "c2"))],
+                          logged=f"{self.repo} 2 {os.path.join(self.root, 'gone')}")
+        self.assertIsNone(self.scan())
+
+    def test_a_workspace_that_will_not_parse_is_no_workspace(self):
+        # One damaged summary row must not stop every source's scan.
+        self.conversation(steps=[self.step(usage(100, 1))], workspace=["file://[bad/x"])
+        self.conversation(cid="c2", steps=[self.step(usage(100, 1, "c2"))], workspace=["file:///a%00b"])
+        self.conversation(cid="c3", steps=[self.step(usage(100, 1, "c3"))], logged="/tmp/a\x00b")
+        self.conversation(cid="c4", steps=[self.step(usage(100, 1, "c4"))], workspace=self.uri())
+        result = self.scan()
+        # The unparseable URI leaves c1 unplaced; the NUL paths place c2 and
+        # c3 in no directory at all.
+        self.assertEqual((result.days["2026-08-05"]["turns"], result.held), (1, 1))
+
+    def test_a_call_with_no_counts_is_no_turn(self):
+        self.conversation(steps=[self.step(usage(0, 0)), self.step(usage(100, 1, "b"))], workspace=self.uri())
+        self.assertEqual(self.day()["turns"], 1)
 
     def test_a_relative_directory_in_a_log_is_no_workspace(self):
         self.conversation(steps=[self.step(usage(100, 1))], logged=".")

@@ -5,8 +5,8 @@ in its own SQLite database of protobuf records, under
 Every model call is recorded twice: in the step that holds its reply (the
 step's metadata, field 9) and in a gen_metadata row (data field 1.4), both
 carrying the call's response id (field 11), which is what makes them one
-call. The usage message's fields, as checked against agy 1.2.7 and 1.2.8's
-own reported usage: 2 is the input, 3 the output with the thinking already
+call. The usage message's fields, as checked against agy 1.2.8's own
+reported usage: 2 is the input, 3 the output with the thinking already
 in it, 9 the thinking and 10 the visible reply (9 + 10 = 3). 4 and 5 are the
 cache write and read, which no recorded call used; the read is taken to sit
 inside the input, as it does in Gemini's own API, and that is unconfirmed.
@@ -16,7 +16,9 @@ created (field 1), which dates the call; a gen_metadata row has no time of
 its own, so one without a step takes the trajectory's (field 2 of
 trajectory_metadata_blob).
 
-A conversation database holds no working directory. conversation_summaries.db
+A print-mode conversation's database holds no directory at all (an
+interactive one's names its workspace among its tool calls and trajectory,
+but not in one place a reader can rely on). conversation_summaries.db
 names the workspace of an interactive conversation (workspace_uris, a JSON
 list of file:// URIs); a print-mode one (agy -p) has none there, and only the
 CLI log of the run that created it says where it ran: `workspaceDirs=[...]`,
@@ -41,7 +43,7 @@ LABEL = "Antigravity"
 # agents.VENDORS reports every trailer that names Antigravity as
 # "Antigravity"; agy itself writes none.
 AGENT = re.compile(r"^Antigravity$")
-SKIPPED = "damaged, or not a conversation database this reader knows"
+SKIPPED = "damaged, locked, in a directory this user cannot write, or not a conversation database this reader knows"
 MALFORMED_UNIT = "records"
 HELD = ("no workspace recorded for them, in a summary or in a CLI log still on disk,"
         " so no repository can claim them; counted across this machine")
@@ -209,16 +211,22 @@ def summaries(home):
     except READ_ERRORS:
         return {}
     for cid, uris in rows:
-        try:
-            uris = json.loads(uris) if isinstance(uris, str) and uris else []
-        except ValueError:
-            uris = []
+        placed[cid] = workspace_of(uris)
+    return placed
+
+
+def workspace_of(uris):
+    """The first workspace a summary's workspace_uris names, as a local
+    path, or None: for no list, a list with nothing usable first, or a URI
+    that names another host or will not parse."""
+    try:
+        uris = json.loads(uris) if isinstance(uris, str) and uris else []
         first = uris[0] if isinstance(uris, list) and uris else None
         parsed = urllib.parse.urlparse(first) if isinstance(first, str) else None
-        # A URI naming another host is no directory on this machine.
         local = parsed and parsed.scheme == "file" and parsed.netloc in ("", "localhost") and parsed.path
-        placed[cid] = urllib.request.url2pathname(parsed.path) if local else None
-    return placed
+        return urllib.request.url2pathname(parsed.path) if local else None
+    except ValueError:
+        return None
 
 
 def logged(home):
@@ -249,17 +257,24 @@ def logged(home):
 
 
 def inside(path, repo_real):
-    real = os.path.realpath(path)
+    try:
+        real = os.path.realpath(path)
+    except ValueError:
+        # A NUL byte, from a damaged log or a %00 in a URI: no directory.
+        return False
     return real == repo_real or real.startswith(repo_real.rstrip(os.sep) + os.sep)
 
 
 def log_directory(workspace):
     """The first directory a log's workspace text names. agy prints a run's
     directories space-separated, so nothing marks where one with a space in
-    its name ends: the whole text is taken when it is a directory, else the
-    longest part of it before a space that is one. When none is, as when the
-    directories are gone, the whole text is all there is."""
-    heads = [workspace] + [workspace[:i] for i in range(len(workspace) - 1, 0, -1) if workspace[i] == " "]
+    its name ends. The text can only split where a space is followed by an
+    absolute path, as the next directory's is: the whole text is taken when
+    it is a directory, else the longest part before such a split that is one.
+    When none is, as when the directories are gone, the whole text is all
+    there is -- which is why "MyApp 2", deleted, never reads as "MyApp"."""
+    heads = [workspace] + [workspace[:i] for i in range(len(workspace) - 1, 0, -1)
+                           if workspace[i] == " " and workspace[i + 1:].startswith(os.sep)]
     return next((head for head in heads if os.path.isdir(head)), workspace)
 
 

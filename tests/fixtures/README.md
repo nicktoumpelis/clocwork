@@ -42,8 +42,8 @@ pointed at a temporary repository.
   Anthropic APIs, which answered "ok" with distinctive token counts. Real logs, written
   by the real CLI, around counts the mock chose; nobody's data and no
   licence to carry. See below.
-- `antigravity/`: recorded for this repository on 2026-09-22 with agy 1.2.7
-  and 1.2.8, the Antigravity CLI, signed in to a real account, in a throwaway
+- `antigravity/`: recorded for this repository on 2026-09-22 with agy 1.2.8,
+  the Antigravity CLI, signed in to a real account, in a throwaway
   git repository with a fresh `HOME`. Real conversations with Gemini 3.8
   Flash; nobody else's data and no licence to carry. See below.
 
@@ -240,8 +240,11 @@ There are three conversations, each on 2026-09-22:
 Each output holds its thinking: field 9 plus field 10 is field 3 in all
 seven calls (e.g. 926 + 120 = 1,046). agy's own `--output-format json` agrees
 with the stored fields. It reported 11,874 input, 25 output and 24 thinking
-for the first conversation, and 38,779 input and 1,098 output, cumulative
-over its three calls, for the third.
+for the first conversation, and 11,881 input, 1,046 output and 926 thinking
+for the third's first call. On each `--continue` it reports the conversation
+so far rather than the call: 25,214 and 1,072, then 38,779 and 1,098, which
+are the running sums of the stored calls. Those two outputs were read on
+screen during the probe, not kept.
 
 The scratch repository's path is replaced by the placeholder, in the
 summaries' `file://` URI and in the logs.

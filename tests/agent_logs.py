@@ -79,6 +79,8 @@ def build_database(path, tables):
 
 
 def varint(n):
+    if n < 0:
+        raise ValueError("a fixture blob holds no negative number")
     out = bytearray()
     while True:
         low, n = n & 0x7F, n >> 7
@@ -92,6 +94,8 @@ def protobuf(tree):
     UTF-8 bytes and a dict is a nested message, each length-delimited."""
     out = bytearray()
     for field, value in tree.items():
+        if not isinstance(value, (int, str, dict)):
+            raise ValueError(f"field {field}: a fixture blob holds numbers, strings and messages")
         if isinstance(value, int):
             out += varint(int(field) << 3) + varint(value)
             continue

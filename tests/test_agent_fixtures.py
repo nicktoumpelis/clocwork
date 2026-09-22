@@ -111,6 +111,20 @@ ANTIGRAVITY_COLUMNS = {
 }
 ANTIGRAVITY_FIELDS = {"1", "2", "3", "4", "5", "9", "10", "11", "19"}
 ANTIGRAVITY_KEYS = set().union(*ANTIGRAVITY_COLUMNS.values()) | ANTIGRAVITY_FIELDS
+# Its field names are numbers, reused at every depth, so the allow-list above
+# cannot tell a response id from a prompt kept under the same number. Every
+# string it holds is judged by its field instead: the shapes below are all
+# the recordings need.
+ANTIGRAVITY_STRINGS = {
+    "11": re.compile(r"^[A-Za-z0-9_-]{16,32}$"),
+    "19": MODEL_ID,
+    "conversation_id": re.compile(r"^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$"),
+    "created": re.compile(r"^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$"),
+    "log": re.compile(r"^cli-[0-9]{8}_[0-9]{6}\.log$"),
+    "id": re.compile(r"^main$"),
+    "workspaceDirs": re.compile("^" + re.escape(agent_logs.PLACEHOLDER) + "$"),
+    "workspace_uris": re.compile("^file://" + re.escape(agent_logs.PLACEHOLDER) + "$"),
+}
 KILO_KEYS = {
     "cache", "cost", "created", "data", "directory", "id", "input", "message_id", "model",
     "modelID", "output", "parent_id", "path", "project_id", "providerID", "read", "reasoning",
@@ -301,6 +315,25 @@ class TestFixturesAreReduced(unittest.TestCase):
             seen.setdefault(table, set()).update(*(set(r) for r in rows))
         self.assertEqual(seen, ANTIGRAVITY_COLUMNS)
 
+    def test_every_antigravity_string_has_its_field_s_shape(self):
+        found = 0
+        for rel in agent_logs.files("antigravity"):
+            for record in agent_logs.records("antigravity", rel):
+                for path, value in named_strings(record):
+                    if not value and path == ("workspace_uris",):
+                        continue  # a print-mode conversation's, as agy stores it
+                    found += 1
+                    with self.subTest(file=rel, field=".".join(path), value=value):
+                        self.assertIn(path[-1], ANTIGRAVITY_STRINGS)
+                        self.assertRegex(value, ANTIGRAVITY_STRINGS[path[-1]])
+        self.assertGreater(found, 20, "the check read almost nothing")
+
+    def test_the_antigravity_string_shapes_reject_free_text(self):
+        for field, leak in (("19", "Please refactor the login flow for me"), ("11", "Sure, here is the refactor"),
+                            ("workspace_uris", "file:///Users/someone/x"), ("log", "cli-x.log")):
+            with self.subTest(field=field):
+                self.assertNotRegex(leak, ANTIGRAVITY_STRINGS[field])
+
     def test_the_kilo_rows_name_only_their_tables_columns(self):
         # Same reason as OpenCode's: install() infers each table's columns
         # from the rows, so a key nobody meant becomes a column of its own
@@ -385,7 +418,7 @@ class TestFixturesAreReduced(unittest.TestCase):
                        # Qwen Code, run against a local mock of each API.
                        "qwen/", "a local mock",
                        # Antigravity, recorded for this repository.
-                       "antigravity/", "agy 1.2.7",
+                       "antigravity/", "agy 1.2.8",
                        # Kilo Code's recorded session.
                        "autonomous-ai/openharness", "a67e082b6e2985e7f226bf5737ebd3b39ce1d60b",
                        # openharness was Apache-2.0 at the commit its rows

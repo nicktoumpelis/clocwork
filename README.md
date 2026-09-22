@@ -436,9 +436,10 @@ per call by its response id. The input, the output (with the thinking
 already in it) and the model are as agy stores them, and they match what agy
 reports itself (`--output-format json`). A cache read would be taken out of
 the input, as in Gemini's own API; no recorded call has one, so that reading
-is unconfirmed. A conversation's database names no directory. An interactive
-conversation's workspace is in `conversation_summaries.db`, and a print-mode
-one's (`agy -p`) only in the log of the CLI run that created it, under
+is unconfirmed. A print-mode conversation's database (`agy -p`) names no
+directory at all. An interactive conversation's workspace is in
+`conversation_summaries.db`, and a print-mode one's only in the log of the
+CLI run that created it, under
 `log/`; the summary is taken first, then the log. A conversation belongs
 when the first directory it names is the repository or a directory in it.
 A log lists a run's directories separated by spaces, so where one of them has
