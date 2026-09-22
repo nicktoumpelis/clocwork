@@ -2,7 +2,8 @@
 
 tests/fixtures holds real Codex CLI, Copilot CLI, Gemini CLI, Kilo Code and
 OpenCode sessions from public repositories, reduced to identity, model,
-usage and timestamps. These checks fail if a later refresh lets anything else in: a
+usage and timestamps, and Qwen Code and Antigravity sessions recorded for
+this repository. These checks fail if a later refresh lets anything else in: a
 prompt, a reply, a real path.
 """
 
@@ -56,7 +57,7 @@ MODEL_ID = re.compile(r"^[0-9a-z][0-9a-z.-]*$")
 # as repositoryHost and repository, so the path half stands alone in a
 # reduced record and is a placeholder like the remote it comes from.
 REMOTE_PATH = paths.parse_remote(agent_logs.REMOTE)[1]
-AGENTS = ("codex", "copilot", "copilot-store", "gemini", "kilo", "opencode", "qwen")
+AGENTS = ("antigravity", "codex", "copilot", "copilot-store", "gemini", "kilo", "opencode", "qwen")
 COPILOT_KEYS = {
     "baseCommit", "branch", "cacheReadTokens", "cacheWriteTokens", "cache_read", "cache_write",
     "context", "copilotVersion", "cost", "count", "cwd", "data", "gitRoot", "headCommit", "hostType",
@@ -97,6 +98,19 @@ QWEN_KEYS = {
     "tool", "tool_token_count", "total", "totalTokenCount", "total_token_count", "type", "uiEvent",
     "usageMetadata", "uuid", "version",
 }
+# Antigravity's recorded conversations: the columns of the tables install()
+# builds, the protobuf field numbers kept in their blobs (a step's time and
+# usage, a generation's usage and model, the trajectory's start), and the two
+# facts kept from each CLI log.
+ANTIGRAVITY_COLUMNS = {
+    "steps": {"idx", "step_type", "metadata"},
+    "gen_metadata": {"idx", "data"},
+    "trajectory_metadata_blob": {"id", "data"},
+    "conversation_summaries": {"conversation_id", "workspace_uris"},
+    "runs": {"log", "workspaceDirs", "created"},
+}
+ANTIGRAVITY_FIELDS = {"1", "2", "3", "4", "5", "9", "10", "11", "19"}
+ANTIGRAVITY_KEYS = set().union(*ANTIGRAVITY_COLUMNS.values()) | ANTIGRAVITY_FIELDS
 KILO_KEYS = {
     "cache", "cost", "created", "data", "directory", "id", "input", "message_id", "model",
     "modelID", "output", "parent_id", "path", "project_id", "providerID", "read", "reasoning",
@@ -147,6 +161,7 @@ def placeholder(s):
     """Whether a string that holds a slash is one of the placeholders a
     reduced record may name: the repository's path, a directory below it,
     the remote, or the owner/name that remote spells."""
+    s = s[len("file://"):] if s.startswith("file:///") else s
     return (s in (agent_logs.PLACEHOLDER, agent_logs.REMOTE, REMOTE_PATH)
             or s.startswith(agent_logs.PLACEHOLDER + "/"))
 
@@ -170,10 +185,10 @@ def names_a_model(path):
 
 class TestFixturesAreReduced(unittest.TestCase):
     def test_every_agent_has_its_sessions(self):
-        self.assertEqual(tuple(len(agent_logs.files(a)) for a in AGENTS), (13, 4, 3, 5, 3, 17, 4))
+        self.assertEqual(tuple(len(agent_logs.files(a)) for a in AGENTS), (11, 13, 4, 3, 5, 3, 17, 4))
 
     def test_only_allow_listed_keys(self):
-        for agent, allowed in (("codex", CODEX_KEYS), ("copilot", COPILOT_KEYS),
+        for agent, allowed in (("antigravity", ANTIGRAVITY_KEYS), ("codex", CODEX_KEYS), ("copilot", COPILOT_KEYS),
                                ("copilot-store", COPILOT_STORE_KEYS), ("qwen", QWEN_KEYS),
                                ("gemini", GEMINI_KEYS), ("kilo", KILO_KEYS),
                                ("opencode", OPENCODE_KEYS)):
@@ -234,11 +249,13 @@ class TestFixturesAreReduced(unittest.TestCase):
                 self.assertNotRegex(leak, MODEL_ID)
 
     def test_the_placeholder_rule_allows_no_other_path(self):
-        for leak in ("/Users/someone/code/thing", "/work/agent-sample-other/x",
+        for leak in ("/Users/someone/code/thing", "/work/agent-sample-other/x", "file:///Users/someone/x",
+                     "file://work/agent-sample",
                      "https://github.com/someone/private.git", "someone/private"):
             with self.subTest(leak=leak):
                 self.assertFalse(placeholder(leak))
         for allowed in (agent_logs.PLACEHOLDER, agent_logs.PLACEHOLDER + "/src/app",
+                        "file://" + agent_logs.PLACEHOLDER,
                         agent_logs.REMOTE, REMOTE_PATH):
             with self.subTest(allowed=allowed):
                 self.assertTrue(placeholder(allowed))
@@ -268,6 +285,21 @@ class TestFixturesAreReduced(unittest.TestCase):
                 self.assertLessEqual(keys, OPENCODE_COLUMNS[table])
             seen.setdefault(table, set()).update(keys)
         self.assertEqual(seen, OPENCODE_COLUMNS)
+
+    def test_the_antigravity_rows_name_only_their_tables_columns(self):
+        # install() builds each table from its rows' keys, and the reader
+        # selects its columns by name, so a stray key would leave the real
+        # column empty.
+        seen = {}
+        for rel in agent_logs.files("antigravity"):
+            table = os.path.splitext(os.path.basename(rel))[0]
+            rows = agent_logs.records("antigravity", rel)
+            with self.subTest(file=rel):
+                self.assertIn(table, ANTIGRAVITY_COLUMNS)
+                self.assertTrue(rows, "a fixture table with no rows tests nothing")
+                self.assertLessEqual(set().union(*(set(r) for r in rows)), ANTIGRAVITY_COLUMNS[table])
+            seen.setdefault(table, set()).update(*(set(r) for r in rows))
+        self.assertEqual(seen, ANTIGRAVITY_COLUMNS)
 
     def test_the_kilo_rows_name_only_their_tables_columns(self):
         # Same reason as OpenCode's: install() infers each table's columns
@@ -352,6 +384,8 @@ class TestFixturesAreReduced(unittest.TestCase):
                        "copilot-store/", "Copilot CLI 1.0.87",
                        # Qwen Code, run against a local mock of each API.
                        "qwen/", "a local mock",
+                       # Antigravity, recorded for this repository.
+                       "antigravity/", "agy 1.2.7",
                        # Kilo Code's recorded session.
                        "autonomous-ai/openharness", "a67e082b6e2985e7f226bf5737ebd3b39ce1d60b",
                        # openharness was Apache-2.0 at the commit its rows

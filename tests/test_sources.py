@@ -57,8 +57,12 @@ class TestRegistry(unittest.TestCase):
         self.assertIs(src.source_for("Kilo Code"), kilo)
         self.assertIsNot(src.source_for("OpenCode"), kilo)
 
+    def test_antigravity_s_trailers_carry_its_tokens(self):
+        self.assertIs(src.source_for("Antigravity"), src.by_key("antigravity"))
+        self.assertIsNot(src.source_for("Gemini"), src.by_key("antigravity"))
+
     def test_agents_without_a_reader_belong_to_no_source(self):
-        for name in ["Cursor", "Devin", "aider", "Antigravity", "Gemini Code Assist",
+        for name in ["Cursor", "Devin", "aider", "Gemini Code Assist",
                      "OpenCode GitHub agent", "Misc", "", None]:
             with self.subTest(name=name):
                 self.assertIsNone(src.source_for(name))
