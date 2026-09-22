@@ -10,24 +10,27 @@ All notable changes to clocwork are recorded here. The format follows
 
 ### Added
 
-- A run prints one line per phase with the time it took, each warning under
-  the phase it belongs to, a short summary and the page's path. On a
-  terminal the output is coloured, with a live line saying what the phase is
-  doing and a progress bar while cloc measures; redirected, it is plain
-  lines, one fact per line. `-v`/`--verbose` also prints each phase's
-  details and the per-language table. `NO_COLOR`, or `TERM=dumb`, turns the
-  colour off. Ctrl-C prints `clocwork: interrupted` and exits 130. The
-  `Archive now …` line of `clocwork tokens` and the `Test code at …` line
-  keep their wording, for scripts that read them.
+- A run prints one line per phase with the time it took, the phase's
+  warnings, a short summary and the page's path. On a terminal the output is
+  coloured, with each warning under its phase's line, a live line saying
+  what the phase is doing and a progress bar while cloc measures;
+  redirected, it is plain lines, one fact per line. `-v`/`--verbose` also
+  prints each phase's details and the per-language table. `NO_COLOR`, or
+  `TERM=dumb`, turns the colour off. Ctrl-C prints `clocwork: interrupted`
+  and exits 130. In redirected output the `Archive now …` line of
+  `clocwork tokens` and the `Test code at …` line keep their wording, for
+  scripts that read them.
 
 - Token usage from Copilot CLI, read from `~/.copilot` (`COPILOT_HOME`).
-  Where `session-store.db` has a session's per-call rows, each call is
-  archived on its own day; otherwise the cumulative totals each shutdown
-  records are read, and only what a snapshot adds to the largest one before
-  it is archived, so a resumed session is not counted twice. A session
-  started on 1.0.69 or later whose rows are missing from the store is held
-  back, and the archive keeps what earlier runs gave it. Its tokens land on
-  commits with the trailer the CLI asks for by default,
+  A session started on 1.0.69 or later is read from its per-call rows in
+  `session-store.db`, each call on its own day; if a store is there but its
+  rows are missing, the session is held back and the archive keeps what
+  earlier runs gave it. An earlier session is read from whichever of its
+  rows or its shutdown snapshots holds more, and a session with no store at
+  all from its snapshots. The snapshots are cumulative, so only what each
+  adds to the largest one before it is archived, and a resumed session is
+  not counted twice. Its tokens land on commits with the trailer the CLI
+  asks for by default,
   `Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>`.
 
 - Token usage from Kilo Code, read from `~/.local/share/kilo` on every
@@ -48,8 +51,9 @@ All notable changes to clocwork are recorded here. The format follows
   (`~/.gemini/antigravity-cli`) and the IDE. A conversation is placed by the
   CLI log of the run that created it, then `history.jsonl`, then
   `conversation_summaries.db`, then the workspace the conversation records
-  itself; one that none of them places is held back, and the run says how
-  many were.
+  itself; one that none of them places is held back, and a run that finds
+  any of the repository's conversations says how many were. The IDE's older
+  encrypted `.pb` conversations are not read.
 
 - Every token source has a colour of its own on the token chart, whichever
   other sources a repository has logs from. A source this version does not
@@ -114,9 +118,9 @@ All notable changes to clocwork are recorded here. The format follows
   first-appearance lines and token sources have new hues. An agent's table
   badge now always takes that agent's chart colour. The main chart's line is
   the text colour, which no agent has, so no commit's point hides in it.
-  Every agent has a colour of its own, the same on every chart and in every
-  run: a fixed one for each agent clocwork knows, and one chosen by its name
-  for any other.
+  Every agent keeps the same colour on every chart and in every run: a fixed
+  one for the agents in the page's colour table, and for any other one taken
+  from its name, which two agents can share.
 
 - The AI-Assisted tile shows the commit count, with its share of all commits
   on the line below. A tile's value never wraps; one too long for its tile
@@ -125,13 +129,16 @@ All notable changes to clocwork are recorded here. The format follows
 - The HEAD snapshot counts every copy of an identical file, as the history
   always has. A repository that keeps copies of a file sees its lines at
   HEAD rise by those copies.
+
 - Symlinks are no longer counted, nor is any path that was a symlink at some
   point, in any of its commits. cloc counted a symlink in the history only
   when it arrived with its target, so HEAD figures could disagree with the
   history.
+
 - First-appearance labels are opaque, and are stacked in rows so that none
   covers another. A label with no row left takes its short form (`Opus 4.8`
   becomes `O4.8`), and is left off if that finds no room either.
+
 - On a chart too narrow for every first-appearance label, labels are placed
   from the right, so the newest agents keep theirs and a label gives way to
   one that ends further right. A label left off shows while the pointer is
@@ -150,28 +157,36 @@ All notable changes to clocwork are recorded here. The format follows
   history with renames this costs one more cloc run, over both sides of
   every rename; if that run fails, a warning says so and those renames drift
   as before.
+
 - A file cloc names against its extension (`CMakeLists.txt`, a script by its
   shebang) counts under that name in every commit, where it used to show as
   drift.
+
 - A `Co-Authored-By:` trailer is read from its own line. An empty one used to
   take the next line of the message as its value, so `Co-Authored-By:`
   followed by "Codex wrote the tests" credited Codex; it now credits no one.
   Reading trailers no longer slows with the square of the message's length
   when blank lines follow the last one.
+
 - A file with no extension (`Makefile`, `Dockerfile`, a script with a
-  shebang) counts under the language cloc gives it in every commit, where it
-  used to count as `Other` and show as drift.
+  shebang) that is still in the analysed branch, or was renamed into it,
+  counts under the language cloc gives it in every commit, where it used to
+  count as `Other` and show as drift.
+
 - The original Claude Opus 4 is priced at its own list price, $15 and $75
   per million input and output tokens; it was priced at Opus 4.5's, a third
   of that. Opus 4.5 to 4.8 each have a row of their own.
+
 - A model id spelled the way a router or a cloud writes it is priced:
   `openrouter/openai/gpt-5.5`, Bedrock's `us.anthropic.claude-…-v1:0`,
   Vertex's `claude-…@version`, and Claude Code's `[1m]` suffix. An id with
   a router suffix such as `:thinking` names another price and stays
   unpriced.
+
 - A `GIT_DIR`, `GIT_WORK_TREE` or other repository-selecting variable
   inherited from a hook or a wrapper no longer points git or cloc at another
   repository.
+
 - The page no longer scrolls sideways at phone widths or after the window
   is narrowed.
 
