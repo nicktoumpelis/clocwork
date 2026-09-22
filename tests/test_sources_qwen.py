@@ -302,5 +302,147 @@ class TestRules(unittest.TestCase):
         self.assertIsNone(self.scan())
 
 
+class TestSettings(unittest.TestCase):
+    """advanced.runtimeOutputDir: a settings key that moves the sessions, as
+    QWEN_RUNTIME_DIR does, from any of the four files Qwen Code merges."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = os.path.realpath(tmp.name)
+        self.repo = os.path.join(self.root, "repo")
+        os.makedirs(self.repo)
+        self.home = os.path.join(self.root, "home", ".qwen")
+        os.makedirs(self.home)
+        # The system files are named, so no test reads the machine's own.
+        self.env = {"QWEN_CODE_SYSTEM_SETTINGS_PATH": os.path.join(self.root, "etc", "settings.json"),
+                    "QWEN_CODE_SYSTEM_DEFAULTS_PATH": os.path.join(self.root, "etc", "defaults.json")}
+
+    def settings(self, path, text):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text if isinstance(text, str) else json.dumps(text))
+
+    def moved_to(self, directory, uuid="u1", input=100):
+        """A session written under `directory` as its runtime directory."""
+        path = os.path.join(directory, "projects", "-repo", "chats", f"{uuid}.jsonl")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(api_response(self.repo, uuid=uuid, input=input)) + "\n")
+
+    def scan(self, homes=None):
+        return qwen.scan(self.repo, [self.home] if homes is None else homes, self.env)
+
+    def inputs(self, result):
+        return result.days["2026-08-05"]["models"]["m"]["input"] if result else None
+
+    def test_the_user_settings_move_the_sessions(self):
+        elsewhere = os.path.join(self.root, "runtime")
+        self.settings(os.path.join(self.home, "settings.json"), {"advanced": {"runtimeOutputDir": elsewhere}})
+        self.moved_to(elsewhere)
+        self.assertEqual(self.inputs(self.scan()), 100)
+
+    def test_a_relative_directory_is_the_repository_s(self):
+        # Qwen resolves it against the session's working directory; the
+        # repository's root is the one a session in it most often has.
+        self.settings(os.path.join(self.repo, ".qwen", "settings.json"), {"advanced": {"runtimeOutputDir": ".qwen-out"}})
+        self.moved_to(os.path.join(self.repo, ".qwen-out"))
+        self.assertEqual(self.inputs(self.scan()), 100)
+
+    def test_the_system_files_move_them_too(self):
+        for key in ("QWEN_CODE_SYSTEM_SETTINGS_PATH", "QWEN_CODE_SYSTEM_DEFAULTS_PATH"):
+            with self.subTest(key=key):
+                elsewhere = os.path.join(self.root, key)
+                self.settings(self.env[key], {"advanced": {"runtimeOutputDir": elsewhere}})
+                self.moved_to(elsewhere, uuid=key)
+                self.assertEqual(self.inputs(self.scan()), 100 if key.endswith("SETTINGS_PATH") else 200)
+
+    def test_the_system_defaults_sit_beside_the_system_settings(self):
+        del self.env["QWEN_CODE_SYSTEM_DEFAULTS_PATH"]
+        elsewhere = os.path.join(self.root, "runtime")
+        self.settings(os.path.join(self.root, "etc", "system-defaults.json"), {"advanced": {"runtimeOutputDir": elsewhere}})
+        self.moved_to(elsewhere)
+        self.assertEqual(self.inputs(self.scan()), 100)
+
+    def test_every_file_s_directory_is_read_not_only_the_one_that_wins(self):
+        # Sessions stay where they were written when the setting changes, and
+        # the file that wins can differ from one working directory to another.
+        first, second = os.path.join(self.root, "first"), os.path.join(self.root, "second")
+        self.settings(os.path.join(self.home, "settings.json"), {"advanced": {"runtimeOutputDir": first}})
+        self.settings(os.path.join(self.repo, ".qwen", "settings.json"), {"advanced": {"runtimeOutputDir": second}})
+        self.moved_to(first, uuid="a")
+        self.moved_to(second, uuid="b", input=10)
+        self.assertEqual(self.inputs(self.scan()), 110)
+
+    def test_a_directory_named_twice_is_read_once(self):
+        # A record with no id is keyed by its path, so a second reading of the
+        # same file would count it again.
+        elsewhere = os.path.join(self.root, "runtime")
+        for path, spelling in ((os.path.join(self.home, "settings.json"), elsewhere),
+                               (self.env["QWEN_CODE_SYSTEM_SETTINGS_PATH"], os.path.join(elsewhere, "."))):
+            self.settings(path, {"advanced": {"runtimeOutputDir": spelling}})
+        record = api_response(self.repo, input=100)
+        del record["uuid"]
+        path = os.path.join(elsewhere, "projects", "-repo", "chats", "s.jsonl")
+        os.makedirs(os.path.dirname(path))
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(json.dumps(record) + "\n")
+        self.assertEqual(self.inputs(self.scan()), 100)
+
+    def test_variables_and_a_tilde_are_expanded(self):
+        elsewhere = os.path.join(self.root, "runtime")
+        self.moved_to(elsewhere)
+        home = os.path.expanduser("~")
+        for value, env in (("$OUT", {"OUT": elsewhere}), ("${OUT}", {"OUT": elsewhere}),
+                           ("~/" + os.path.relpath(elsewhere, home), {})):
+            with self.subTest(value=value):
+                self.env.update(env)
+                self.settings(os.path.join(self.home, "settings.json"), {"advanced": {"runtimeOutputDir": value}})
+                self.assertEqual(self.inputs(self.scan()), 100)
+
+    def test_an_unknown_variable_is_left_as_written(self):
+        self.settings(os.path.join(self.home, "settings.json"), {"advanced": {"runtimeOutputDir": "/$NOT_SET_ANYWHERE/x"}})
+        self.assertEqual(qwen.runtime_dirs(self.repo, [self.home], self.env), ["/$NOT_SET_ANYWHERE/x"])
+
+    def test_comments_are_allowed_and_a_double_slash_in_a_string_is_not_one(self):
+        elsewhere = os.path.join(self.root, "a//b")
+        self.settings(os.path.join(self.home, "settings.json"),
+                      '{\n  // where the sessions go\n  "advanced": {/* moved */ "runtimeOutputDir": %s}\n}\n'
+                      % json.dumps(elsewhere))
+        self.moved_to(elsewhere)
+        self.assertEqual(self.inputs(self.scan()), 100)
+
+    def test_a_settings_file_that_says_nothing_usable_is_passed_over(self):
+        path = os.path.join(self.home, "settings.json")
+        for text in ("{not json", "[]", '{"advanced": "x"}', '{"advanced": {"runtimeOutputDir": 3}}',
+                     '{"advanced": {"runtimeOutputDir": ""}}'):
+            with self.subTest(text=text):
+                self.settings(path, text)
+                self.assertEqual(qwen.runtime_dirs(self.repo, [self.home], self.env), [])
+        with self.subTest(text="not UTF-8"):
+            with open(path, "wb") as f:
+                f.write(b'{"advanced": {"runtimeOutputDir": "/r\xff"}}')
+            self.assertEqual(qwen.runtime_dirs(self.repo, [self.home], self.env), [])
+
+    def test_a_block_comment_left_open_runs_to_the_end(self):
+        # strip-json-comments blanks it to the end, and Qwen parses the rest.
+        self.settings(os.path.join(self.home, "settings.json"),
+                      '{"advanced": {"runtimeOutputDir": "/r"}} /* an old setting, {"x": 1}')
+        self.assertEqual(qwen.runtime_dirs(self.repo, [self.home], self.env), ["/r"])
+
+    def test_a_tilde_takes_either_separator(self):
+        home = os.path.expanduser("~")
+        for value in ("~\\q\\out", "~/q\\out", "~/q//out/"):
+            with self.subTest(value=value):
+                self.settings(os.path.join(self.home, "settings.json"), {"advanced": {"runtimeOutputDir": value}})
+                self.assertEqual(qwen.runtime_dirs(self.repo, [self.home], self.env), [os.path.join(home, "q", "out")])
+
+    def test_no_homes_still_means_nothing_is_read(self):
+        elsewhere = os.path.join(self.root, "runtime")
+        self.settings(os.path.join(self.repo, ".qwen", "settings.json"), {"advanced": {"runtimeOutputDir": elsewhere}})
+        self.moved_to(elsewhere)
+        self.assertIsNone(self.scan(homes=[]))
+
+
 if __name__ == "__main__":
     unittest.main()

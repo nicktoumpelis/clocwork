@@ -281,7 +281,7 @@ archives per-day totals, per agent and model, into `token_usage.json`:
 | Gemini CLI | `~/.gemini/tmp/` and `~/.cache/.gemini/tmp/`, sessions started in the repository or a directory it tracks | `GEMINI_CLI_HOME` replaces `~` |
 | Kilo Code | `~/.local/share/kilo`, on macOS and Windows as well: its `kilo*.db` databases, an `opencode-*.db` left there by the fork's rename, and the file stores its 1.0.x releases wrote | `XDG_DATA_HOME` replaces `~/.local/share`; `KILO_DB` adds the database it names |
 | OpenCode | `~/.local/share/opencode`, on macOS and Windows as well: its `opencode*.db` databases and the file stores older releases wrote | `XDG_DATA_HOME` replaces `~/.local/share`; `OPENCODE_DB` adds the database it names |
-| Qwen Code | `~/.qwen/projects/*/chats/`, one JSONL file per session from 0.4.0 (an archived one moves to `chats/archive/`), and the Gemini-format sessions under `~/.qwen/tmp/` that earlier releases wrote | `QWEN_HOME` replaces `~/.qwen`; `QWEN_RUNTIME_DIR` adds the directory it names. A directory set only by Qwen Code's `advanced.runtimeOutputDir` setting is not followed |
+| Qwen Code | `~/.qwen/projects/*/chats/`, one JSONL file per session from 0.4.0 (an archived one moves to `chats/archive/`), and the Gemini-format sessions under `~/.qwen/tmp/` that earlier releases wrote | `QWEN_HOME` replaces `~/.qwen`; `QWEN_RUNTIME_DIR`, and the `advanced.runtimeOutputDir` setting in any of Qwen Code's settings files, add the directory they name |
 
 A Codex session belongs to the repository when it records the same remote
 as the repository's `origin`, so sessions from any clone or worktree count.
@@ -394,16 +394,30 @@ unpriced.
 
 Qwen Code appends `Co-authored-by: Qwen-Coder <qwen-coder@alibabacloud.com>`
 to the commits it makes itself, unless `general.gitCoAuthor.commit` is
-turned off, so its tokens land on those commits. It does so by rewriting a
-`git commit -m` (or `-am`) it runs through bash; a commit made in an editor,
-from a message built with `$(…)`, or through another shell carries no
-trailer, and is not credited. `Qwen` alone is not
+turned off, so its tokens land on those commits. It does so by rewriting the
+quoted message of a `git commit -m` (or `-am`, `--message`) it runs through
+bash, which is every shell it uses on macOS and Linux and only Git Bash on
+Windows. A commit made in an editor, from a message built with `$(…)`, after
+a `cd` or with a `git -C` that may leave the repository, or through another
+shell carries no trailer, and is not credited. `Qwen` alone is not
 enough, since it names the model too, and `Qwen-Coder` has to stand whole,
 with no hyphen joining it to another word: `Cline (qwen-coder-plus)` names a
 model Alibaba serves, not Qwen Code. From 0.4.0 a Qwen Code session belongs
 to the repository when the working directory each of its records carries is
 the repository or a directory in it; the earlier releases' sessions belong as
-Gemini CLI's do, by the hash of the root or of a tracked directory. Its usage is read from the telemetry
+Gemini CLI's do, by the hash of the root or of a tracked directory. Beside
+`~/.qwen`, the sessions are looked for wherever `QWEN_RUNTIME_DIR` or the
+`advanced.runtimeOutputDir` setting moved them. That setting is read from
+each file Qwen Code merges: the system defaults and system settings
+(`/Library/Application Support/QwenCode/` on macOS, `/etc/qwen-code/` on
+Linux, or `QWEN_CODE_SYSTEM_DEFAULTS_PATH` and
+`QWEN_CODE_SYSTEM_SETTINGS_PATH`), the user's `settings.json` in `~/.qwen`
+(or `QWEN_HOME`), and the repository's own `.qwen/settings.json`. Every file's directory is read,
+not only the one that wins, because sessions stay where they were written
+when the setting changes. A relative directory is taken from the
+repository's root, so a session started in a subdirectory with a relative
+setting is not found, and neither is a variable that only Qwen Code's `.env`
+files define. Its usage is read from the telemetry
 record every API call writes, so the side calls it makes — the memory
 extractor's, say — are counted beside the main one, each on its own day.
 Qwen Code normalises every provider's counts before it logs them: the input
@@ -457,7 +471,7 @@ such as the 500-row cap, fail over a short history.
 `tests/fixtures/` holds real Codex CLI, Copilot CLI, Gemini CLI, Kilo Code
 and OpenCode sessions from eight public repositories, five MIT-licensed and
 three Apache-2.0, reduced to identity, model, usage and timestamps, and
-Qwen Code sessions recorded against a local mock of each provider's API; its README
+Qwen Code sessions recorded against a local mock of the OpenAI and Anthropic APIs; its README
 names each source with the commit it was taken at, carries their licence
 notices, and says which rows are as recorded and which are hand-written.
 

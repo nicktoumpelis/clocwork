@@ -144,6 +144,8 @@ def render(parser=None, version=__version__, date=None):
                  ".TP\n.B OPENCODE_DB\nAn OpenCode database to read besides every\n.I opencode*.db\nin its data directory; absolute, or relative to that directory.\n"
                  ".TP\n.B QWEN_HOME\nWhere Qwen Code keeps its sessions, read from\n.I projects/*/chats/\nand\n.I tmp/\nbelow it; the default is\n.IR ~/.qwen .\n"
                  ".TP\n.B QWEN_RUNTIME_DIR\nA further directory Qwen Code writes its sessions to, read as\n.B QWEN_HOME\nis.\n"
+                 ".TP\n.B QWEN_CODE_SYSTEM_SETTINGS_PATH\nQwen Code's system settings file, whose\n.B advanced.runtimeOutputDir\nsetting, like the user's and the repository's, can name a further directory for its sessions.\n"
+                 ".TP\n.B QWEN_CODE_SYSTEM_DEFAULTS_PATH\nQwen Code's system defaults file, read the same way.\n"
                  ".TP\n.B XDG_CACHE_HOME\nWhen set, the cloc cache lives under\n.IR $XDG_CACHE_HOME/clocwork/ ;\notherwise under\n.IR ~/.cache/clocwork/ .\n"
                  ".B \\-\\-cache\\-dir\nwins over both. Only\n.B run\nuses the cache.\n"
                  ".TP\n.B XDG_DATA_HOME\nWhere OpenCode and Kilo Code keep their sessions, read from\n.I opencode/\nand\n.I kilo/\nbelow it; the default is\n.I ~/.local/share\non every system, neither having a variable of its own.")
