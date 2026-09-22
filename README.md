@@ -304,9 +304,9 @@ token figure when:
   any other), or
 - they cover no day on which that agent's commits changed lines.
 
-A commit is never priced at another agent's rate. When the repository has
-token data, the run summary counts the commits that carry no figure and names
-their agents. Gemini Code Assist is the name for `gemini-code-assist[bot]`,
+Such a commit is never priced at another agent's rate. When the repository
+has token data, the run summary counts the AI-credited commits that carry no
+figure and names their agents. Gemini Code Assist is the name for `gemini-code-assist[bot]`,
 which GitHub credits when one of its review suggestions is accepted.
 
 A day the archive does not cover for an agent, but on which that agent's
@@ -326,19 +326,19 @@ tokens are read, and which commits they land on.
 #### Claude Code
 
 **Sessions.** Claude Code keeps a directory of transcripts per working
-directory, named after its absolute path with every character other than a
-letter or digit replaced by a hyphen. clocwork reads the one named after the
+directory, named after its absolute path with every character other than an
+ASCII letter or digit replaced by a hyphen. clocwork reads the one named after the
 repository, so a session started in a subdirectory, which Claude Code files
 under that subdirectory's name, is not read.
 
 **Tokens.** A resumed or forked session replays its earlier turns into the
-new transcript, so each assistant turn is counted once, by its message id.
+new transcript, so each assistant turn is counted once, by its message id,
+or its request id or record id where it has none.
 
-**Commits.** Claude Code ends its commit messages with a `Co-Authored-By:`
-trailer crediting Claude unless attribution is turned off, and any Claude
-model is recognised, a trailer naming none as `Claude (unknown version)` (see
-[Which commits are AI-assisted](#which-commits-are-ai-assisted)). Its tokens
-land on the commits that carry one.
+**Commits.** Claude Code's tokens land on the commits whose trailers credit
+Claude. Any Claude model is recognised, and a trailer naming none reads as
+`Claude (unknown version)` (see
+[Which commits are AI-assisted](#which-commits-are-ai-assisted)).
 
 #### Codex CLI
 
@@ -547,24 +547,10 @@ only through a trailer someone wrote by hand, naming it as `Kilo Code`,
 
 #### Antigravity
 
-**Tokens.** Antigravity's CLI, agy, keeps each conversation in a SQLite
-database of protobuf records, one row per model call in two tables, which
-are read once per call by its response id.
-
-The input, the output (with the thinking already in it), the cache read and
-the model are as agy stores them, and they match what agy reports itself
-(`--output-format json`). The cache read sits beside the input, not inside
-it, as a Claude model's calls through agy show. No Gemini call recorded a
-cache read, so for Gemini models that is unconfirmed.
-
-No recorded call reports a cache write, not even the first Claude call,
-whose cache the next one read, so a write is presumably inside the input,
-where nothing separates it. The IDE's older conversations are encrypted, and
-are not read.
-
-**Sessions.** A print-mode conversation's database (`agy -p`) names no
-directory at all, so a conversation is placed by one of three files, in this
-order:
+**Sessions.** Antigravity's CLI, agy, keeps each conversation in a SQLite
+database of protobuf records. A print-mode conversation's database
+(`agy -p`) names no directory at all, so a conversation is placed by one of
+three files, in this order:
 
 1. **The CLI log** of the run that created it, under `log/`, names the
    working directory first and any `--add-dir` directories after it. agy
@@ -582,17 +568,31 @@ directory in it.
 
 A log lists a run's directories separated by spaces, so where one of them has
 a space in its name, the longest part of the text that is a directory on disk
-is taken. It splits only before a path (`/…`, `./…`, `../…` or `~/…`, with
-the system's own separator; a Windows drive-letter path, `C:\…`, never starts
-one). Text that no split makes a directory of, as a bare relative
-`--add-dir docs` leaves it, falls through to `history.jsonl` alone, since
-that run's summary names only its added directories; without an `/exit`
-record it is held back.
+is taken. The text is split only before a path (`/…`, `./…`, `../…` or
+`~/…`, with the system's own separator; a Windows drive-letter path, `C:\…`,
+never starts one). Text that no split makes a directory of, as a bare
+relative `--add-dir docs` leaves it, falls through to `history.jsonl` alone,
+since that run's summary names only its added directories; without an
+`/exit` record it is held back.
 
 A conversation that none of the three places is not guessed at. When the
 repository has Antigravity usage, the run's summary says how many such
 conversations the machine holds, since none of them can be tied to any one
 repository.
+
+**Tokens.** Each database holds one row per model call in two tables, which
+are read once per call by its response id.
+
+The input, the output (with the thinking already in it), the cache read and
+the model are as agy stores them, and they match what agy reports itself
+(`--output-format json`). The cache read sits beside the input, not inside
+it, as a Claude model's calls through agy show. No Gemini call recorded a
+cache read, so for Gemini models that is unconfirmed.
+
+No recorded call reports a cache write, not even the first Claude call,
+whose cache the next one read, so a write is presumably inside the input,
+where nothing separates it. The IDE's older conversations are encrypted, and
+are not read.
 
 **Commits.** agy writes no trailer, so its tokens land only on commits a
 person credits to Antigravity.
