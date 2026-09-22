@@ -218,28 +218,72 @@ class TestEndToEnd(unittest.TestCase):
                  "gemini": gemini.default_homes({"GEMINI_CLI_HOME": os.path.join(self.root, "home")})}
         out = io.StringIO()
         with redirect_stdout(out):
-            code = cli.main([self.repo, "--no-open", "--cache-dir", self.cache], homes=homes)
+            code = cli.main([self.repo, "--no-open", "-v", "--cache-dir", self.cache], homes=homes)
         log = out.getvalue()
+        lines = log.splitlines()
         self.assertEqual(code, 0)
         archive = tokens.load(os.path.join(self.ws, "token_usage.json"))
         self.assertEqual({key for day in archive.values() for key in day}, {"codex", "gemini"})
         self.assertEqual(sorted(archive), ["2026-05-23", "2026-05-29", "2026-06-12", "2026-08-26", "2026-09-07"])
-        for line in ("Step 1/3: Archiving token usage from agent logs...",
-                     "  Scanned 4 days of Codex CLI logs", "  Scanned 1 day of Gemini CLI logs",
+        self.assertTrue(any(l.startswith("[1/3] Tokens: Codex CLI 4 days, Gemini CLI 1 day (") for l in lines), lines)
+        for line in ("  scanned: 4 days of Codex CLI logs", "  scanned: 1 day of Gemini CLI logs",
                      # 1,866,762 from Codex CLI and 238,144 from Gemini CLI (tests/test_sources_*.py).
                      "  Archive now 5 days, 2,104,906 tokens (+5 days, +2,104,906 tokens)",
                      # The polyglot history credits Claude, Copilot and Cursor, never Codex or Gemini.
-                     "  3 AI commits carry no token figure (Claude Code, Copilot CLI, Cursor): "
+                     "3 AI commits carry no token figure (Claude Code, Copilot CLI, Cursor): "
                      "no token logs from their agent cover their work"):
-            self.assertIn(line, log.splitlines())
-        self.assertIn("No logs for this repository from Claude Code (" + self.projects + ")", log)
+            self.assertIn(line, lines)
+        self.assertIn("no logs: Claude Code (" + self.projects + ")", log)
+        self.assertIn(f"Open: {os.path.join(self.ws, 'index.html')}", lines)
+        # Not a terminal, so plain lines: no escape codes, no redraws.
+        self.assertNotIn("\x1b", log)
+        self.assertNotIn("\r", log)
+
+    def test_the_tokens_command_keeps_the_line_the_daily_job_commits(self):
+        agent_logs.install("codex", os.path.join(self.root, "codex"), self.repo)
+        homes = {s.KEY: [self.projects] for s in sources.SOURCES}
+        homes["codex"] = codex.default_homes({"CODEX_HOME": os.path.join(self.root, "codex")})
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.assertEqual(cli.main(["tokens", self.repo], homes=homes), 0)
+        # The job runs `grep 'Archive now' | sed 's/^ *//'` and commits the result.
+        self.assertEqual([l.lstrip(" ") for l in out.getvalue().splitlines() if "Archive now" in l],
+                         ["Archive now 4 days, 1,866,762 tokens (+4 days, +1,866,762 tokens)"])
 
     def test_no_tokens_says_what_it_skipped(self):
         out = io.StringIO()
         with redirect_stdout(out):
             cli.main([self.repo, "--no-open", "--no-tokens", "--cache-dir", self.cache],
                      homes={s.KEY: [self.projects] for s in sources.SOURCES})
-        self.assertIn("Step 1/3: Skipping the agent log scan (--no-tokens)", out.getvalue().splitlines())
+        self.assertTrue(any(l.startswith("[1/3] Tokens: skipped (--no-tokens) (")
+                            for l in out.getvalue().splitlines()), out.getvalue())
+
+    def test_the_test_share_line_is_kept_for_the_end_to_end_check(self):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            cli.main([self.repo, "--no-open", "--no-tokens", "--cache-dir", self.cache],
+                     homes={s.KEY: [self.projects] for s in sources.SOURCES})
+        self.assertIn("Test code at main: 11 of 20 code lines (55.0%)", out.getvalue().splitlines())
+
+    def test_quiet_and_verbose_cannot_be_combined(self):
+        err = io.StringIO()
+        with redirect_stderr(err), self.assertRaises(SystemExit) as caught:
+            cli.main([self.repo, "-q", "-v"])
+        self.assertEqual(caught.exception.code, 2)
+        self.assertIn("not allowed with argument", err.getvalue())
+
+    def test_an_interrupt_exits_130_without_a_traceback(self):
+        original = cli.analyse.analyse
+
+        def interrupted(*a, **k):
+            raise KeyboardInterrupt
+
+        cli.analyse.analyse = interrupted
+        try:
+            code, err = self.run_cli(self.repo, "--cache-dir", self.cache, "--no-tokens")
+        finally:
+            cli.analyse.analyse = original
+        self.assertEqual((code, err), (130, "clocwork: interrupted\n"))
 
     def test_explicit_workspace_and_no_tokens(self):
         ws = os.path.join(self.root, "elsewhere")

@@ -17,10 +17,11 @@ import pathlib
 import sys
 import webbrowser
 
-from clocwork import __version__, analyse, cloc, config, paths, render, sources, tokens
+from clocwork import __version__, analyse, cloc, config, paths, render, sources, tokens, ui
 
 COMMANDS = ("run", "tokens", "render")
 EXIT_ERROR = 2
+EXIT_INTERRUPTED = 130
 
 
 def non_negative(text):
@@ -45,7 +46,9 @@ def build_parser():
     # Each command accepts only the options it acts on, so --help and the
     # manual page cannot promise an option that is silently ignored.
     quiet = argparse.ArgumentParser(add_help=False)
-    quiet.add_argument("-q", "--quiet", action="store_true", help="print nothing but errors")
+    loudness = quiet.add_mutually_exclusive_group()
+    loudness.add_argument("-q", "--quiet", action="store_true", help="print nothing but errors")
+    loudness.add_argument("-v", "--verbose", action="store_true", help="also print each phase's details and the per-language table")
     page = argparse.ArgumentParser(add_help=False)
     page.add_argument("--config", metavar="PATH", help="explicit clocwork.toml")
     page.add_argument("--locale", metavar="TAG",
@@ -85,20 +88,6 @@ def parse_args(argv):
     return args
 
 
-def _quiet(*args, **kwargs):
-    pass
-
-
-def _progress(*args, **kwargs):
-    # Flushed per line: an hour-long run piped to a log file (cron, nohup)
-    # would otherwise show nothing until it ends.
-    print(*args, **kwargs, flush=True)
-
-
-def _log(quiet):
-    return _quiet if quiet else _progress
-
-
 def _open(path, no_open):
     if not no_open:
         webbrowser.open(pathlib.Path(path).resolve().as_uri())
@@ -108,48 +97,53 @@ def _workspace_for(args, repo):
     return os.path.abspath(args.output) if args.output else paths.default_workspace(repo)
 
 
-def cmd_render(args, log):
+def cmd_render(args, report):
     ws = os.path.abspath(args.output)
     ident = paths.read_identity(ws)
     if ident is None:
         raise paths.WorkspaceMismatch(f"{ws} is not a clocwork workspace (no {paths.IDENTITY_FILE})")
     conf = config.load(args.config, ws, None)
     name = conf.title or ident["repo_name"]
-    html = render.render_workspace(ws, title=f"{name} - Full Commit History", repo_name=name,
-                                   locale=args.locale or render.detect_locale(), log=log)
+    report.header(ident["repo_name"], ws, conf.source)
+    with report.phase("Dashboard", 1, 1):
+        html = render.render_workspace(ws, title=f"{name} - Full Commit History", repo_name=name,
+                                       locale=args.locale or render.detect_locale(), report=report)
+    report.finish(html)
     _open(html, args.no_open)
 
 
-def cmd_tokens(args, log, homes):
+def cmd_tokens(args, report, homes):
     repo = paths.find_repo(args.repo or os.getcwd())
     ws = _workspace_for(args, repo)
-    paths.check_identity(ws, repo, __version__)
-    tokens.archive(repo, os.path.join(ws, "token_usage.json"), sources.SOURCES, homes=homes, log=log)
+    ident = paths.check_identity(ws, repo, __version__)
+    report.header(ident["repo_name"], ws)
+    with report.phase("Tokens", 1, 1):
+        tokens.archive(repo, os.path.join(ws, "token_usage.json"), sources.SOURCES, homes=homes, report=report)
+    report.finish()
 
 
-def cmd_run(args, log, homes):
+def cmd_run(args, report, homes):
     cloc.require_cloc()
     repo = paths.find_repo(args.repo or os.getcwd())
     ws = _workspace_for(args, repo)
     ident = paths.check_identity(ws, repo, __version__)
     conf = config.load(args.config, ws, repo)
-    if conf.source:
-        log(f"Config: {conf.source}")
+    report.header(ident["repo_name"], ws, conf.source)
     archive = os.path.join(ws, "token_usage.json")
-    if args.no_tokens:
-        log("Step 1/3: Skipping the agent log scan (--no-tokens)")
-    else:
-        log("Step 1/3: Archiving token usage from agent logs...")
-        tokens.archive(repo, archive, sources.SOURCES, homes=homes, log=log)
-    log("Step 2/3: Analysing commit history...")
-    analyse.analyse(repo, os.path.join(ws, "full_commit_data.json"), paths.cache_path(repo, args.cache_dir),
-                    archive, config=conf, branch=args.branch, max_commits=args.max_commits,
-                    jobs=args.jobs or os.cpu_count() or 1, log=log)
-    log("Step 3/3: Rendering the dashboard...")
+    with report.phase("Tokens", 1, 3):
+        if args.no_tokens:
+            report.done("skipped (--no-tokens)")
+        else:
+            tokens.archive(repo, archive, sources.SOURCES, homes=homes, report=report)
+    with report.phase("History", 2, 3):
+        analyse.analyse(repo, os.path.join(ws, "full_commit_data.json"), paths.cache_path(repo, args.cache_dir),
+                        archive, config=conf, branch=args.branch, max_commits=args.max_commits,
+                        jobs=args.jobs or os.cpu_count() or 1, report=report)
     name = conf.title or ident["repo_name"]
-    html = render.render_workspace(ws, title=f"{name} - Full Commit History", repo_name=name,
-                                   locale=args.locale or render.detect_locale(), log=log)
-    log(f"Open: {html}")
+    with report.phase("Dashboard", 3, 3):
+        html = render.render_workspace(ws, title=f"{name} - Full Commit History", repo_name=name,
+                                       locale=args.locale or render.detect_locale(), report=report)
+    report.finish(html)
     _open(html, args.no_open)
 
 
@@ -157,16 +151,20 @@ def main(argv=None, homes=None):
     """`homes` maps a token source's key to the directories to read instead
     of its defaults; the tests use it to keep real agent logs out."""
     args = parse_args(sys.argv[1:] if argv is None else argv)
-    log = _log(args.quiet)
+    report = ui.choose(args.quiet, args.verbose)
     try:
         if args.command == "render":
-            cmd_render(args, log)
+            cmd_render(args, report)
         elif args.command == "tokens":
-            cmd_tokens(args, log, homes)
+            cmd_tokens(args, report, homes)
         else:
-            cmd_run(args, log, homes)
+            cmd_run(args, report, homes)
+    except KeyboardInterrupt:
+        # The phase has already finished its line; the cloc cache is saved.
+        report.error("interrupted")
+        return EXIT_INTERRUPTED
     except (cloc.ClocMissing, cloc.ClocError, paths.NotARepository, paths.WorkspaceMismatch,
             config.ConfigError, analyse.NoCommits, tokens.ArchiveError, OSError) as e:
-        print(f"clocwork: {e}", file=sys.stderr)
+        report.error(str(e))
         return EXIT_ERROR
     return 0

@@ -83,7 +83,7 @@ class TestRender(unittest.TestCase):
         self.assertIn("explicit clocwork.toml. Taken by run and render.", options)
         self.assertIn("(default: <repo\\-parent>/<repo\\-name>\\-stats). Taken by run and tokens.", options)
         option_tags = re.findall(r"^\.TP\n\.B (.+)$", options, re.M)
-        self.assertEqual(option_tags, ["\\-q, \\-\\-quiet", "\\-\\-config PATH", "\\-\\-locale TAG",
+        self.assertEqual(option_tags, ["\\-q, \\-\\-quiet", "\\-v, \\-\\-verbose", "\\-\\-config PATH", "\\-\\-locale TAG",
                                        "\\-\\-no\\-open", "\\-o, \\-\\-output DIR"])    # run's declaration order
         run, tokens, render = (self.section(n) for n in ("run", "tokens", "render"))
         run_tags = re.findall(r"^\.TP\n\.[BI] (.+)$", run, re.M)

@@ -7,7 +7,9 @@ import unittest
 from clocwork import paths
 from clocwork import sources as src
 from clocwork import tokens as tu
+from clocwork import ui
 from tests.test_sources import turn, write_transcripts
+from tests.ui_recorder import Recorder
 
 
 def entry(output, model="claude-opus-5"):
@@ -88,7 +90,7 @@ class TestArchiveRoundTrip(unittest.TestCase):
                               {"a.jsonl": [turn("m1", "2026-08-06", output=7)]})
             path = os.path.join(d, "token_usage.json")
             tu.save(path, {"2026-07-01": {"claude-code": entry(5)}})
-            days = tu.archive(repo, path, src.SOURCES, homes=claude_only(projects), log=lambda *a: None)
+            days = tu.archive(repo, path, src.SOURCES, homes=claude_only(projects), report=ui.Reporter())
             self.assertEqual(sorted(days), ["2026-07-01", "2026-08-06"])
             self.assertEqual(tu.load(path), days)
 
@@ -99,74 +101,96 @@ class TestArchiveRoundTrip(unittest.TestCase):
             tu.save(path, existing)
             before = os.stat(path).st_mtime_ns
             days = tu.archive(os.path.join(d, "Absent"), path, src.SOURCES,
-                              homes=claude_only(os.path.join(d, "projects")), log=lambda *a: None)
+                              homes=claude_only(os.path.join(d, "projects")), report=ui.Reporter())
             self.assertEqual(days, existing)
             self.assertEqual(os.stat(path).st_mtime_ns, before)
 
     def test_a_source_is_given_its_home_override_and_named_when_it_finds_nothing(self):
-        seen, lines = [], []
+        seen, rec = [], Recorder()
         absent = types.SimpleNamespace(KEY="absent", LABEL="Absent Agent",
                                        default_homes=lambda env: ["/default"],
                                        scan=lambda repo, homes: seen.append(homes))
         with tempfile.TemporaryDirectory() as d:
             path = os.path.join(d, "token_usage.json")
-            tu.archive("/repo", path, [absent], homes={"absent": ["/override"]}, log=lines.append)
+            tu.archive("/repo", path, [absent], homes={"absent": ["/override"]}, report=rec)
             self.assertFalse(os.path.exists(path))
         self.assertEqual(seen, [["/override"]])
-        self.assertTrue(any("Absent Agent (/override)" in line for line in lines), lines)
+        self.assertTrue(any("Absent Agent (/override)" in value for label, value in rec.of("detail")), rec.events)
 
     def test_an_empty_home_override_reads_nothing_rather_than_the_defaults(self):
         seen = []
         source = types.SimpleNamespace(KEY="x", LABEL="X", default_homes=lambda env: ["/default"],
                                        scan=lambda repo, homes: seen.append(homes))
         with tempfile.TemporaryDirectory() as d:
-            tu.archive("/repo", os.path.join(d, "t.json"), [source], homes={"x": []}, log=lambda *a: None)
+            tu.archive("/repo", os.path.join(d, "t.json"), [source], homes={"x": []}, report=ui.Reporter())
         self.assertEqual(seen, [[]])
+
+    def test_the_phase_result_names_each_source_and_the_archive_line_keeps_its_wording(self):
+        found = types.SimpleNamespace(KEY="z", LABEL="Zed", default_homes=lambda env: [],
+                                      scan=lambda repo, homes: tu.ScanResult(
+                                          {"2026-01-01": {"turns": 1, "models": {"m": {
+                                              "input": 7, "output": 3, "cache_read": 0, "cache_write": 0}}}}, 0))
+        rec = Recorder()
+        with tempfile.TemporaryDirectory() as d:
+            tu.archive("/repo", os.path.join(d, "t.json"), [found], report=rec)
+        # The daily token job greps this line and commits it: its wording is an interface.
+        self.assertEqual(rec.of("done"), [("Zed 1 day", ("Archive now 1 days, 10 tokens (+1 days, +10 tokens)",))])
+        self.assertIn(("scanned", "1 day of Zed logs"), rec.of("detail"))
+
+    def test_nothing_found_is_said_in_one_line(self):
+        absent = types.SimpleNamespace(KEY="a", LABEL="Absent", default_homes=lambda env: ["/x"],
+                                       scan=lambda repo, homes: None)
+        rec = Recorder()
+        with tempfile.TemporaryDirectory() as d:
+            tu.archive("/repo", os.path.join(d, "t.json"), [absent], report=rec)
+        self.assertEqual(rec.of("done"), [("no agent logs for this repository", ())])
+        self.assertIn(("no logs", "Absent (/x)"), rec.of("detail"))
+        self.assertIn(("archive", "unchanged: 0 days, 0 tokens"), rec.of("detail"))
 
     def test_a_source_that_finds_no_usage_leaves_the_archive_unwritten(self):
         empty = types.SimpleNamespace(KEY="empty", LABEL="Empty", default_homes=lambda env: [],
                                       scan=lambda repo, homes: tu.ScanResult({}, 0))
-        lines = []
+        rec = Recorder()
         with tempfile.TemporaryDirectory() as d:
             path = os.path.join(d, "token_usage.json")
-            self.assertEqual(tu.archive("/repo", path, [empty], log=lines.append), {})
+            self.assertEqual(tu.archive("/repo", path, [empty], report=rec), {})
             self.assertFalse(os.path.exists(path))
-        self.assertIn("  Scanned 0 days of Empty logs", lines)
+        self.assertIn(("scanned", "0 days of Empty logs"), rec.of("detail"))
 
     def test_unreadable_files_are_counted_with_the_sources_reason(self):
         source = types.SimpleNamespace(KEY="z", LABEL="Zed", SKIPPED="compressed files need a newer Python",
                                        default_homes=lambda env: [],
                                        scan=lambda repo, homes: tu.ScanResult({}, 0, 3))
-        lines = []
+        rec = Recorder()
         with tempfile.TemporaryDirectory() as d:
-            tu.archive("/repo", os.path.join(d, "t.json"), [source], log=lines.append)
+            tu.archive("/repo", os.path.join(d, "t.json"), [source], report=rec)
             self.assertFalse(os.path.exists(os.path.join(d, "t.json")))
-        self.assertIn("  NOTE: could not read 3 Zed files: compressed files need a newer Python", lines)
+        self.assertIn("could not read 3 Zed files: compressed files need a newer Python", rec.of("warn"))
 
     def test_a_source_without_a_reason_still_has_its_unreadable_files_counted(self):
         source = types.SimpleNamespace(KEY="z", LABEL="Zed", default_homes=lambda env: [],
                                        scan=lambda repo, homes: tu.ScanResult({}, 0, 2))
-        lines = []
+        rec = Recorder()
         with tempfile.TemporaryDirectory() as d:
-            tu.archive("/repo", os.path.join(d, "t.json"), [source], log=lines.append)
-        self.assertIn("  NOTE: could not read 2 Zed files", lines)
+            tu.archive("/repo", os.path.join(d, "t.json"), [source], report=rec)
+        self.assertIn("could not read 2 Zed files", rec.of("warn"))
 
     def test_sessions_a_source_held_back_are_counted_with_its_reason(self):
         source = types.SimpleNamespace(KEY="z", LABEL="Zed", HELD="their rows are missing",
                                        default_homes=lambda env: [],
                                        scan=lambda repo, homes: tu.ScanResult({}, 0, 0, 2))
-        lines = []
+        rec = Recorder()
         with tempfile.TemporaryDirectory() as d:
-            tu.archive("/repo", os.path.join(d, "t.json"), [source], log=lines.append)
-        self.assertIn("  NOTE: held back 2 Zed sessions: their rows are missing", lines)
+            tu.archive("/repo", os.path.join(d, "t.json"), [source], report=rec)
+        self.assertIn("held back 2 Zed sessions: their rows are missing", rec.of("warn"))
 
     def test_one_held_session_is_singular(self):
         source = types.SimpleNamespace(KEY="z", LABEL="Zed", default_homes=lambda env: [],
                                        scan=lambda repo, homes: tu.ScanResult({}, 0, 0, 1))
-        lines = []
+        rec = Recorder()
         with tempfile.TemporaryDirectory() as d:
-            tu.archive("/repo", os.path.join(d, "t.json"), [source], log=lines.append)
-        self.assertIn("  NOTE: held back 1 Zed session", lines)
+            tu.archive("/repo", os.path.join(d, "t.json"), [source], report=rec)
+        self.assertIn("held back 1 Zed session", rec.of("warn"))
 
     def test_a_result_that_names_no_held_sessions_reports_none(self):
         self.assertEqual(tu.ScanResult({}, 0).held, 0)
@@ -207,7 +231,7 @@ class TestArchiveRoundTrip(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             path = os.path.join(d, "token_usage.json")
             tu.save(path, {"2026-08-06": {"claude-code": entry(9)}})
-            days = tu.archive("/repo", path, [found], log=lambda *a: None)
+            days = tu.archive("/repo", path, [found], report=ui.Reporter())
             self.assertEqual(days, {"2026-08-06": {"claude-code": entry(9), "found": entry(4)}})
 
     def test_a_failed_save_leaves_the_previous_archive_intact(self):

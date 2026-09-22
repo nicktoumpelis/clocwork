@@ -17,7 +17,7 @@ import sys
 from datetime import datetime
 from importlib import resources
 
-from clocwork import paths
+from clocwork import paths, ui
 
 # One colour per first appearance, cycled by index: the page's theme colour
 # names (template.html, ANNOTATION_PALETTE), in the order of the hues the ten
@@ -148,8 +148,9 @@ def render_page(data, *, title, repo_name, generated, locale, rendered_by=None):
     return page.replace("__DATA__", blob)     # last, so data cannot contain a live placeholder
 
 
-def render_workspace(workspace, *, title, repo_name, locale, log=print):
+def render_workspace(workspace, *, title, repo_name, locale, report=None):
     """Write index.html and commit_bodies.js from the workspace's full_commit_data.json."""
+    report = report or ui.Plain(sys.stdout)
     data_path = os.path.join(workspace, "full_commit_data.json")
     if not os.path.exists(data_path):
         raise FileNotFoundError(
@@ -174,8 +175,8 @@ def render_workspace(workspace, *, title, repo_name, locale, log=print):
     with open(html_path, "w", encoding="utf-8") as f:
         f.write(page)
     s = data["summary"]
-    log(f"Wrote {html_path} ({os.path.getsize(html_path) / 1024:.0f} KB) "
-        f"and commit_bodies.js ({os.path.getsize(bodies_path) / 1024:.0f} KB, {len(bodies):,} bodies)")
-    log(f"  Commits: {s['total_commits']:,}, {s['first_date']} to {s['last_date']}")
-    log(f"  Locale: {locale or 'none recorded, the browser decides'}")
+    report.done(["index.html", ui.size(os.path.getsize(html_path))])
+    report.detail("bodies", f"commit_bodies.js, {ui.size(os.path.getsize(bodies_path))}, {len(bodies):,} bodies")
+    report.detail("commits", f"{s['total_commits']:,}, {s['first_date']} to {s['last_date']}")
+    report.detail("locale", locale or "none recorded, the browser decides")
     return html_path

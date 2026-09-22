@@ -9,6 +9,7 @@ rules are all inputs; nothing here knows which repository it is measuring.
 import json
 import re
 import subprocess
+import sys
 from collections import namedtuple
 
 from clocwork import classify as cf
@@ -16,6 +17,7 @@ from clocwork import cloc as cl
 from clocwork import paths
 from clocwork import sources as src
 from clocwork import tokens as tu
+from clocwork import ui
 from clocwork.agents import DEFAULT_AGENTS
 from clocwork.config import Config
 
@@ -571,14 +573,16 @@ def unmeasured_agents(results, measured_keys):
 
 
 def analyse(repo_dir, output_path, cache_path, archive_path, *, config=None, branch=None,
-            max_commits=None, jobs=1, log=print):
+            max_commits=None, jobs=1, report=None):
     """Analyse `repo_dir` into `output_path` (full_commit_data.json).
 
     `cache_path` is the per-file cloc cache, `archive_path` the token archive
     (read only; absent is normal). `config` supplies the test rules and agent
     table; `branch` defaults to the checked-out branch; `jobs` is how many
-    cloc processes measure commits at once.
+    cloc processes measure commits at once. `report` receives the phase's
+    details, warnings, result and summary.
     """
+    report = report or ui.Plain(sys.stdout)
     cl.require_cloc()
     repo_dir = paths.find_repo(repo_dir)
     config = config or Config()
@@ -591,25 +595,27 @@ def analyse(repo_dir, output_path, cache_path, archive_path, *, config=None, bra
     rev = git(repo_dir, "rev-parse", "--verify", "--quiet", f"{branch}^{{commit}}").strip()
     if not rev:
         raise NoCommits(f"{repo_dir} has no commits on {branch}")
-    log(f"Analysing repo: {repo_dir} (branch: {branch}, {rev[:7]})")
-    log("Step 1: Extracting full commit history...")
+    # git log, the path history and cloc's per-file report of the branch all
+    # run before the first commit is measured, which is minutes on a long
+    # history: say so, or a still live line reads as a hang.
+    report.status(f"reading the history of {branch}")
     commits = parse_log(repo_dir, rev, agents)
     if not commits:
         raise NoCommits(f"{repo_dir} has no commits on {branch}")
-    log(f"  Parsed {len(commits)} commits")
     if is_shallow(repo_dir):
-        log("  WARNING: shallow clone; diffs against absent parents will be wrong")
+        report.warn("shallow clone; diffs against absent parents will be wrong")
 
-    log(f"Step 2: Measuring lines per commit with cloc, {jobs} at a time (cache: {cache_path})...")
+    report.detail("cache", cache_path)
+    report.detail("jobs", f"{jobs} cloc at a time")
     show_ext_table = cl.load_extension_table()
     renames, symlinks = path_history(repo_dir, rev)
     # One per-file report of rev serves the language table here and the
     # snapshot in step 3.
-    report = cl.by_file_report(repo_dir, rev, symlinks)
-    learned = cl.learn_extensions(repo_dir, rev, show_ext_table, report)
+    file_report = cl.by_file_report(repo_dir, rev, symlinks)
+    learned = cl.learn_extensions(repo_dir, rev, show_ext_table, file_report)
     table = cl.merge_language_tables(show_ext_table, learned)
     table.update({cf.path_key(path): cf.UNCOUNTED for path in symlinks})
-    present = {path for path in report if path != "header"}
+    present = {path for path in file_report if path != "header"}
     # One more cloc run counts both sides of every rename, for the names'
     # languages and for the rows that replace cloc's at a language change.
     try:
@@ -617,7 +623,7 @@ def analyse(repo_dir, output_path, cache_path, archive_path, *, config=None, bra
                                  [(r.new_blob, r.new) for r in renames])
         uncounted = False
     except (cl.ClocError, OSError, ValueError) as e:
-        log(f"  WARNING: could not count the renamed files ({e}); renames that change language will drift")
+        report.warn(f"could not count the renamed files ({e}); renames that change language will drift")
         # The table's guess instead: a gone old name without an entry takes
         # the language its new name has, newest first so that a chain
         # resolves, unless that is Other; with no counts to replace them by,
@@ -639,22 +645,23 @@ def analyse(repo_dir, output_path, cache_path, archive_path, *, config=None, bra
     adjustments = cl.rename_adjustments(
         [(renames[i].commit, renames[i].old, renames[i].new, before[i][0], after[i][0]) for i in changed])
     if renames:
-        log(f"  {len(renames)} renames, {len(changed)} of them changing language")
+        report.detail("renames", f"{len(renames):,}, {len(changed):,} of them changing language")
     # Single files are learned too, under path keys ("/Makefile"); they are not extensions.
     new_extensions = sorted(ext for ext in learned if ext not in show_ext_table and not ext.startswith("/"))
     if new_extensions:
-        log(f"  learned {len(new_extensions)} extensions from {branch}: {', '.join(new_extensions)}")
+        report.detail("extensions", f"learned {len(new_extensions)} from {branch}: {', '.join(new_extensions)}")
     cache = cl.Cache(cache_path)
     measure_input = [{"hash": c["hash"], "parent": c["parents"][0] if c["parents"] else None,
                       "is_merge": is_merge_commit(c)} for c in commits]
-    log(f"  {sum(1 for m in measure_input if not m['is_merge'] and cache.get(m['hash']) is None)} commits not yet cached")
+    nonmerge = sum(1 for m in measure_input if not m["is_merge"])
+    uncached = sum(1 for m in measure_input if not m["is_merge"] and cache.get(m["hash"]) is None)
+    if uncached:
+        report.status(f"measuring {uncached:,} new commits with cloc, {jobs} at a time")
     measured = cl.measure_commits(repo_dir, measure_input, cache, table, rules, max_commits=max_commits,
-                                  jobs=jobs, log=log, adjustments=adjustments)
+                                  jobs=jobs, report=report, adjustments=adjustments)
 
-    log(f"Step 3: Snapshot of {branch} for reconciliation...")
-    by_lang, by_file_all, by_file_tests = cl.snapshot(repo_dir, rev, table, rules, report)
+    by_lang, by_file_all, by_file_tests = cl.snapshot(repo_dir, rev, table, rules, file_report)
 
-    log("Step 4: Building per-commit records and running totals...")
     running_all, running_tests = {}, {}
 
     def accumulate(target, matrix):
@@ -706,7 +713,6 @@ def analyse(repo_dir, output_path, cache_path, archive_path, *, config=None, bra
     reconciliation = diff(running_all, by_lang)
     mapping_check = diff(by_file_all, by_lang)
 
-    log("Step 5: Finding first agent appearances...")
     first_appearances = {}
     for r in results:
         if r["agent"] and r["agent"] != MISC and r["agent"] not in first_appearances:
@@ -746,35 +752,26 @@ def analyse(repo_dir, output_path, cache_path, archive_path, *, config=None, bra
         json.dump(output, f, indent=2)
 
     s = output["summary"]
-    log(f"\nDone! Saved to {output_path}")
-    log(f"  Total commits: {s['total_commits']}  (AI-assisted {s['ai_assisted_commits']}, human-only {s['human_only_commits']}, misc {s['misc_commits']})")
     if s["unmeasured_commits"]:
-        log(f"  WARNING: {s['unmeasured_commits']} commits could not be measured by cloc")
+        report.warn(f"{s['unmeasured_commits']:,} commits could not be measured by cloc")
     if s["pending_commits"]:
-        log(f"  NOTE: {s['pending_commits']} commits not yet measured (--max-commits cap); rerun to continue")
-    t = s["tokens"]
-    if t["measured_total"]:
-        log(f"  Tokens: {t['lifetime_total']:,} lifetime "
-            f"({t['measured_total']:,} measured over {t['measured_days']} days, "
-            f"{t['estimated_total']:,} estimated at {t['ratio']:,.0f} per AI line)")
-        if t["unmeasured_agent_commits"]:
-            log(f"  {t['unmeasured_agent_commits']} AI commits carry no token figure "
-                f"({', '.join(t['unmeasured_agents'])}): no token logs from their agent cover their work")
-    else:
-        log("  Tokens: none (no agent token archive for this repository)")
-    head_tests = sum(v["code"] for v in by_file_tests.values())
-    head_all = sum(v["code"] for v in by_file_all.values())
-    log(f"  Test code at {branch}: {head_tests:,} of {head_all:,} code lines ({head_tests / head_all:.1%})"
-        if head_all else f"  Test code at {branch}: none")
-    log("  Lines at HEAD (cloc snapshot) and drift of running totals:")
+        report.warn(f"{s['pending_commits']:,} commits not yet measured (--max-commits cap); rerun to continue")
+    rows, drifting = [], 0
     for lang in languages:
         snap = by_lang.get(lang, {t: 0 for t in cl.TYPES})
-        drift = reconciliation[lang]
-        mapping = mapping_check[lang]
-        log(f"    {lang:<16} code {snap['code']:>8,} comment {snap['comment']:>8,} blank {snap['blank']:>8,}"
-            f"   drift {drift['code']:+} / {drift['comment']:+} / {drift['blank']:+}"
-            + (f"   MAPPING MISMATCH {mapping}" if any(mapping.values()) else ""))
-    log("  First appearances:")
-    for agent, info in sorted(first_appearances.items(), key=lambda x: x[1]["index"]):
-        log(f"    {agent}: {info['date']} ({info['hash']})")
+        drift, mapping = reconciliation[lang], mapping_check[lang]
+        if any(mapping.values()):
+            report.warn(f"mapping mismatch for {lang}: {mapping}")
+        drifting += any(drift.values())
+        rows.append((lang, f"{snap['code']:,}", f"{snap['comment']:,}", f"{snap['blank']:,}",
+                     f"{drift['code']:+} / {drift['comment']:+} / {drift['blank']:+}"))
+    if drifting:
+        report.warn(f"running totals drift from {branch}'s snapshot in {drifting} "
+                    f"language{'s' if drifting > 1 else ''} (-v shows the table)")
+    new = uncached - len(measured.failed) - len(measured.pending)
+    report.done([f"{len(commits):,} commits on {branch} @ {rev[:7]}"],
+                f"{new:,} measured, {nonmerge - uncached:,} from cache")
+    report.detail("saved", output_path)
+    report.summary(ui.summary_rows(s, first_appearances, branch))
+    report.table(f"Lines at {branch}", ("", "code", "comment", "blank", "drift"), rows)
     return output

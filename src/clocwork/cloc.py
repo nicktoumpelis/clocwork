@@ -20,11 +20,12 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from collections import namedtuple
 
-from clocwork import paths
+from clocwork import paths, ui
 from clocwork.classify import DEFAULT_RULES, UNCOUNTED, extension, language_for, parse_extension_table, path_key
 
 TYPES = ("code", "comment", "blank")
@@ -424,7 +425,7 @@ def _measure_one(differ, repo, commit):
 
 
 def measure_commits(repo, commits, cache, table, rules, max_commits=None, flush_every=50,
-                    differ=None, log=print, clock=time.monotonic, jobs=1, adjustments=None):
+                    differ=None, report=None, clock=time.monotonic, jobs=1, adjustments=None):
     """Measure every non-merge commit not already in the cache.
 
     commits: [{"hash", "parent", "is_merge"}] in history order.
@@ -432,18 +433,19 @@ def measure_commits(repo, commits, cache, table, rules, max_commits=None, flush_
     The cache holds per-file rows; every entry, cached or fresh, is classified
     with this run's table and rules on the way out, after this run's
     `adjustments` ({hash: rename_adjustments entry}), which the cache never
-    holds. Failures are logged and
+    holds. Failures are reported and
     not cached so a later run retries them. When max_commits is set, uncached
     commits beyond the cap are left pending.
 
     `jobs` cloc processes run at once. Each is a subprocess a worker thread
     only waits on, so threads suffice and nothing needs pickling; the cache,
-    the results and the log are touched by this thread alone. However the
+    the results and the report are touched by this thread alone. However the
     pass ends, the queue is cancelled and every measured commit, including
     those that finish while the queue is being dropped, is flushed.
     """
     differ = differ or diff_commit
     adjustments = adjustments or {}
+    report = report or ui.Plain(sys.stdout)
     measured, failed, pending = {}, [], []
 
     def classify(commit_hash, rows):
@@ -472,16 +474,15 @@ def measure_commits(repo, commits, cache, table, rules, max_commits=None, flush_
         nonlocal done
         if error is not None:
             failed.append(c["hash"])
-            log(f"  cloc failed on {c['hash'][:7]}: {error}")
-            return
-        cache.put(c["hash"], rows)
-        measured[c["hash"]] = classify(c["hash"], rows)
-        done += 1
-        if done % flush_every == 0:
-            cache.save()
-            elapsed = clock() - started
-            remaining = (len(todo) - done) * (elapsed / done)
-            log(f"  measured {done}/{len(todo)} new commits, {elapsed:.0f}s elapsed, ~{remaining:.0f}s remaining")
+            report.warn(f"cloc failed on {c['hash'][:7]}: {error}")
+        else:
+            cache.put(c["hash"], rows)
+            measured[c["hash"]] = classify(c["hash"], rows)
+            done += 1
+            if done % flush_every == 0:
+                cache.save()
+        # A failure is processed too, or the bar would never reach its end.
+        report.progress(done + len(failed), len(todo), clock() - started)
 
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=jobs)
     futures, outstanding = {}, set()
