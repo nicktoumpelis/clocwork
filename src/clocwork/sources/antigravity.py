@@ -7,9 +7,15 @@ step's metadata, field 9) and in a gen_metadata row (data field 1.4), both
 carrying the call's response id (field 11), which is what makes them one
 call. The usage message's fields, as checked against agy 1.2.8's own
 reported usage: 2 is the input, 3 the output with the thinking already
-in it, 9 the thinking and 10 the visible reply (9 + 10 = 3). 4 and 5 are the
-cache write and read, which no recorded call used; the read is taken to sit
-inside the input, as it does in Gemini's own API, and that is unconfirmed.
+in it, 9 the thinking and 10 the visible reply (9 + 10 = 3), and 5 the cache
+read, reported beside the input rather than inside it (a Claude call that
+read 13,228 cached tokens records 684 in field 2, and agy's own total is
+input + output). That is confirmed for Claude only: no Gemini call recorded a
+cache read, and Gemini's own API counts one inside the prompt, so a Gemini
+cache read may yet be counted twice here. 4 would be the cache write, which
+no recorded call has: the first Claude call, which must have written the
+cache the next one read, reports none, so a write presumably sits in the
+input, as Qwen Code folds one.
 The model's name is in the gen_metadata row (field 1.19); a step carries
 only its numeric id (field 1). A step's metadata also holds the time it was
 created (field 1), which dates the call; a gen_metadata row has no time of
@@ -18,12 +24,24 @@ trajectory_metadata_blob).
 
 A print-mode conversation's database holds no directory at all (an
 interactive one's names its workspace among its tool calls and trajectory,
-but not in one place a reader can rely on). conversation_summaries.db
-names the workspace of an interactive conversation (workspace_uris, a JSON
-list of file:// URIs); a print-mode one (agy -p) has none there, and only the
-CLI log of the run that created it says where it ran: `workspaceDirs=[...]`,
-then `Created conversation <id>`. The summary is taken first, then the log.
-A conversation that neither places is held back rather than guessed at.
+but not in one place a reader can rely on). Three files say where one ran,
+and a conversation belongs by the working directory it was created in:
+
+- the CLI log of the run that created it: `workspaceDirs=[...]`, the working
+  directory first and any --add-dir ones after it (a relative one as
+  typed), then `Created conversation <id>`. agy keeps these logs (none was pruned, by count or by
+  age, in the runs checked), so this is taken first;
+- history.jsonl, whose /exit record carries an interactive conversation's
+  id and working directory;
+- conversation_summaries.db, whose workspace_uris lists the --add-dir
+  directories given as absolute paths and then, for an interactive conversation only, the working
+  directory: so its last URI is taken, and a print-mode conversation that
+  names an added directory there is read as that directory's. It is the
+  last resort for that reason.
+
+A conversation that none of them places is held back rather than guessed at.
+One whose log cannot be read unambiguously (see log_directory) is placed by
+the history alone: its summary would name only its added directories.
 
 The IDE's older conversations are encrypted .pb files, and are not read.
 """
@@ -45,7 +63,7 @@ LABEL = "Antigravity"
 AGENT = re.compile(r"^Antigravity$")
 SKIPPED = "damaged, locked, in a directory this user cannot write, or not a conversation database this reader knows"
 MALFORMED_UNIT = "records"
-HELD = ("no workspace recorded for them, in a summary or in a CLI log still on disk,"
+HELD = ("no workspace recorded for them, in a CLI log still on disk, the history or a summary,"
         " so no repository can claim them; counted across this machine")
 READ_ERRORS = (OSError, ValueError, TypeError, sqlite3.Error)
 # The directories Antigravity keeps its data in, under ~/.gemini: the CLI's,
@@ -135,9 +153,8 @@ def is_usage(usage):
 
 
 def counters(usage):
-    prompt, cached = tokens.count(usage.get(2)), tokens.count(usage.get(5))
-    return tokens.additive(input=max(0, prompt - cached), output=usage.get(3),
-                           cache_read=cached, cache_write=usage.get(4))
+    return tokens.additive(input=usage.get(2), output=usage.get(3),
+                           cache_read=usage.get(5), cache_write=usage.get(4))
 
 
 def open_read_only(path):
@@ -196,8 +213,9 @@ def read_conversation(path):
 
 
 def summaries(home):
-    """{conversation id: its first workspace path} from the summaries
-    database; a conversation it records without one maps to None."""
+    """{conversation id: its working directory, the last workspace URI} from
+    the summaries database; a conversation it records without one maps to
+    None."""
     path = os.path.join(home, "conversation_summaries.db")
     if not os.path.isfile(path):
         return {}
@@ -216,16 +234,17 @@ def summaries(home):
 
 
 def workspace_of(uris):
-    """The first workspace a summary's workspace_uris names, as a local
-    path, or None: for no list, a list with nothing usable first, or a URI
-    that names another host or will not parse."""
+    """The working directory a summary's workspace_uris names, as a local
+    path, or None: for no list, a list with nothing usable last, or a URI
+    that names another host or will not parse. agy lists the --add-dir
+    directories first and the working directory last."""
     try:
         uris = json.loads(uris) if isinstance(uris, str) and uris else []
-        first = uris[0] if isinstance(uris, list) and uris else None
+        first = uris[-1] if isinstance(uris, list) and uris else None
         parsed = urllib.parse.urlparse(first) if isinstance(first, str) else None
         local = parsed and parsed.scheme == "file" and parsed.netloc in ("", "localhost") and parsed.path
         return urllib.request.url2pathname(parsed.path) if local else None
-    except ValueError:
+    except (ValueError, RecursionError):
         return None
 
 
@@ -256,6 +275,27 @@ def logged(home):
     return placed
 
 
+def history(home):
+    """{conversation id: working directory} from history.jsonl, whose /exit
+    record names both."""
+    placed = {}
+    try:
+        with open(os.path.join(home, "history.jsonl"), encoding="utf-8", errors="replace") as f:
+            for line in f:
+                try:
+                    record = json.loads(line)
+                except (ValueError, RecursionError):
+                    continue
+                if isinstance(record, dict):
+                    cid, workspace = tokens.text(record.get("conversationId")), tokens.text(record.get("workspace"))
+                    if cid and workspace:
+                        # The first, as the log's is the run that created it.
+                        placed.setdefault(cid, workspace)
+    except OSError:
+        pass
+    return placed
+
+
 def inside(path, repo_real):
     try:
         real = os.path.realpath(path)
@@ -266,23 +306,28 @@ def inside(path, repo_real):
 
 
 def log_directory(workspace):
-    """The first directory a log's workspace text names. agy prints a run's
-    directories space-separated, so nothing marks where one with a space in
-    its name ends. The text can only split where a space is followed by an
-    absolute path, as the next directory's is: the whole text is taken when
-    it is a directory, else the longest part before such a split that is one.
-    When none is, as when the directories are gone, the whole text is all
-    there is -- which is why "MyApp 2", deleted, never reads as "MyApp"."""
+    """The first directory a log's workspace text names, or None when it
+    cannot be told. agy prints a run's directories space-separated, and an
+    --add-dir one as typed, so nothing marks where a directory with a space
+    in its name ends. The whole text is taken when it is a directory, else
+    the longest part of it that is one, cut before a space followed by a
+    path (`/`, `./`, `../` or `~/`, with this system's separator: on Windows
+    a drive-letter path never starts one). Text with no space is one directory,
+    whether or not it is still there. Text with a space that no cut makes a
+    directory of -- a bare relative --add-dir, or directories since deleted --
+    cannot be told apart from a directory whose name holds a space, so it is
+    None: "MyApp 2", deleted, never reads as "MyApp"."""
     heads = [workspace] + [workspace[:i] for i in range(len(workspace) - 1, 0, -1)
-                           if workspace[i] == " " and workspace[i + 1:].startswith(os.sep)]
-    return next((head for head in heads if os.path.isdir(head)), workspace)
+                           if workspace[i] == " "
+                           and workspace[i + 1:].startswith((os.sep, "." + os.sep, ".." + os.sep, "~" + os.sep))]
+    found = next((head for head in heads if os.path.isdir(head)), None)
+    return found if found or " " in workspace else workspace
 
 
-def in_log(workspace, repo_real):
-    """Whether a log's workspace text puts a run in the repository. A
-    relative path is none: agy logs absolute ones."""
-    directory = log_directory(workspace)
-    return os.path.isabs(directory) and inside(directory, repo_real)
+def placed_by(directory, repo_real):
+    """Whether a recorded working directory is the repository or in it. A
+    relative one is none: agy records absolute ones."""
+    return bool(directory) and os.path.isabs(directory) and inside(directory, repo_real)
 
 
 def scan(repo, homes):
@@ -301,18 +346,21 @@ def scan(repo, homes):
         except OSError:
             skipped += 1
             continue
-        summary, log = summaries(home), None
+        log, exits, summary = logged(home), history(home), summaries(home)
         for name in names:
             cid = name[:-3]
-            workspace = summary.get(cid)
-            if workspace:
-                mine = inside(workspace, repo_real)
+            # The log first, then the history, then the summary. A log whose
+            # text cannot be told falls through to the history only: it says
+            # the run had added directories, and in print mode the summary
+            # names those alone.
+            if cid in log:
+                directory = log_directory(log[cid]) or exits.get(cid)
             else:
-                log = logged(home) if log is None else log
-                if cid not in log:
-                    held += 1
-                    continue
-                mine = in_log(log[cid], repo_real)
+                directory = exits.get(cid) or summary.get(cid)
+            if not directory:
+                held += 1
+                continue
+            mine = placed_by(directory, repo_real)
             if not mine:
                 continue
             belonged = True

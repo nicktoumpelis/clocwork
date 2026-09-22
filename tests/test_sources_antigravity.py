@@ -9,18 +9,28 @@ from clocwork import agents
 from clocwork.sources import antigravity
 from tests import agent_logs
 
-# The three recorded conversations in tests/fixtures/antigravity (agy 1.2.8,
-# Gemini 3.8 Flash), summed by hand from each call's own fields:
-# input is field 2 and output field 3, which holds the thinking (field 9)
-# with the visible reply (field 10); no call read or wrote a cache.
-#   342e8ba1, print mode, placed by its CLI log:    11,874 / 25
-#   29ac6e7f, interactive, placed by its summary:   11,894 / 358, 12,378 / 151, 12,757 / 125
-#   4b3fad79, print mode then continued twice:      11,881 / 1,046, 13,333 / 26, 13,565 / 26
-# agy's own JSON output agrees: 11,874 / 25 for the first, and 11,881 / 1,046
-# for the third's first call.
-RECORDED = {"2026-09-22": {"turns": 7, "models": {
-    "gemini-3.8-flash": {"input": 87_682, "output": 1_757, "cache_read": 0, "cache_write": 0}}}}
-INTERACTIVE = "29ac6e7f-cce9-48d3-b2bc-ce3f90e37016"
+# The seven recorded conversations in tests/fixtures/antigravity (agy 1.2.8),
+# summed by hand from each call's own fields: input is field 2, output field
+# 3 (the thinking, field 9, with the visible reply, field 10), and cache read
+# field 5, reported beside the input. Every one is placed by its CLI log.
+#   342e8ba1, print mode:                            11,874 / 25
+#   29ac6e7f, interactive (and its /exit record):    11,894 / 358, 12,378 / 151, 12,757 / 125
+#   4b3fad79, print mode, continued twice:           11,881 / 1,046, 13,333 / 26, 13,565 / 26
+#   7023721e, print mode, --add-dir <absolute>:      11,879 / 26
+#   10ca56d2, print mode, --add-dir ../<relative>:   11,876 / 29
+#   2d64a70a, interactive, --add-dir <absolute>:     11,915 / 25
+#   80e4a8f7, print mode, Claude Sonnet 4.6, continued twice:
+#                                                    13,697 / 13, 684 / 13 + 13,228 read, 358 / 13 + 13,769 read
+# agy's own JSON agrees: 11,874 / 25 for the first; and for the Claude one,
+# cumulatively after its third call, 14,739 input, 39 output and 26,997 cache
+# read, with a total of input + output only.
+RECORDED = {"2026-09-22": {"turns": 13, "models": {
+    "gemini-3.8-flash": {"input": 123_352, "output": 1_837, "cache_read": 0, "cache_write": 0},
+    "claude-sonnet-4-6": {"input": 14_739, "output": 39, "cache_read": 26_997, "cache_write": 0}}}}
+# The interactive conversations, which history.jsonl and the summaries can
+# place without the logs: 29ac6e7f and 2d64a70a.
+INTERACTIVE = {"turns": 4, "models": {"gemini-3.8-flash": {
+    "input": 11_894 + 12_378 + 12_757 + 11_915, "output": 358 + 151 + 125 + 25, "cache_read": 0, "cache_write": 0}}}
 MODEL = "gemini-3.8-flash"
 
 
@@ -85,16 +95,33 @@ class TestRecordings(Home):
     def test_a_repository_elsewhere_is_not_matched(self):
         self.assertIsNone(self.scan(os.path.join(self.root, "elsewhere")))
 
-    def test_the_summaries_place_the_interactive_conversation_alone(self):
-        shutil.rmtree(os.path.join(self.home, "log"))
-        result = self.scan()
-        self.assertEqual((result.days["2026-09-22"]["turns"],
-                          result.days["2026-09-22"]["models"][MODEL]["input"], result.held),
-                         (3, 11_894 + 12_378 + 12_757, 2))
-
-    def test_the_logs_place_every_conversation_without_the_summaries(self):
+    def test_the_logs_place_every_conversation_on_their_own(self):
         os.remove(os.path.join(self.home, "conversation_summaries.db"))
+        os.remove(os.path.join(self.home, "history.jsonl"))
         self.assertEqual(self.scan().days, RECORDED)
+
+    def test_without_the_logs_the_history_places_the_interactive_ones(self):
+        # Without the summaries too, so that only the history can place
+        # them: the five print-mode conversations are held.
+        shutil.rmtree(os.path.join(self.home, "log"))
+        os.remove(os.path.join(self.home, "conversation_summaries.db"))
+        result = self.scan()
+        self.assertEqual((result.days["2026-09-22"], result.held), (INTERACTIVE, 5))
+
+    def test_without_the_logs_or_the_history_the_summary_s_last_uri_does(self):
+        shutil.rmtree(os.path.join(self.home, "log"))
+        os.remove(os.path.join(self.home, "history.jsonl"))
+        result = self.scan()
+        self.assertEqual((result.days["2026-09-22"], result.held), (INTERACTIVE, 4))
+
+    def test_an_added_directory_is_not_the_workspace_while_the_log_is_there(self):
+        elsewhere = os.path.join(self.root, "elsewhere")
+        self.assertTrue(os.path.isdir(elsewhere))  # made by install()
+        self.assertIsNone(self.scan(elsewhere))
+
+    def test_the_claude_calls_report_their_cache_read_beside_the_input(self):
+        self.assertEqual(self.scan().days["2026-09-22"]["models"]["claude-sonnet-4-6"],
+                         {"input": 14_739, "output": 39, "cache_read": 26_997, "cache_write": 0})
 
 
 class TestRules(Home):
@@ -129,6 +156,11 @@ class TestRules(Home):
             f.write(agent_logs.AGY_WORKSPACE.format(dirs, self.home))
             f.write(agent_logs.AGY_CREATED.format(cid))
 
+    def exit(self, cid, workspace):
+        with open(os.path.join(self.home, "history.jsonl"), "a", encoding="utf-8") as f:
+            f.write(json.dumps({"timestamp": 1, "workspace": workspace, "conversationId": cid,
+                                "type": "slash_command"}) + "\n")
+
     def uri(self, path=None):
         return ["file://" + (path or self.repo)]
 
@@ -151,11 +183,11 @@ class TestRules(Home):
         self.conversation(steps=[self.step(u)], gens=[self.gen(u)], workspace=self.uri())
         self.assertEqual(self.day()["models"][MODEL], counts(100, 25))
 
-    def test_the_cache_read_comes_out_of_the_input(self):
-        # Gemini's convention, unconfirmed here: no recorded call read a cache.
-        self.conversation(steps=[self.step(usage(1_000, 5, cache_read=300, cache_write=40))],
+    def test_the_cache_counts_are_beside_the_input(self):
+        # As a recorded Claude call has them: 684 input beside 13,228 read.
+        self.conversation(steps=[self.step(usage(684, 13, cache_read=13_228, cache_write=40))],
                           workspace=self.uri())
-        self.assertEqual(self.day()["models"]["unknown"], counts(700, 5, 300, 40))
+        self.assertEqual(self.day()["models"]["unknown"], counts(684, 13, 13_228, 40))
 
     def test_each_call_on_its_step_s_day(self):
         self.conversation(steps=[self.step(usage(100, 1, "a")), self.step(usage(10, 1, "b"), NEXT)],
@@ -237,10 +269,12 @@ class TestRules(Home):
                           logged=self.repo + "-other")
         self.assertIsNone(self.scan())
 
-    def test_the_first_workspace_is_the_one_that_counts(self):
+    def test_a_summary_s_last_workspace_is_the_working_directory(self):
+        # agy lists the --add-dir directories first.
         other = os.path.join(self.root, "other")
         self.conversation(steps=[self.step(usage(100, 1))], workspace=self.uri(other) + self.uri())
-        self.assertIsNone(self.scan())
+        self.conversation(cid="c2", steps=[self.step(usage(7, 1, "c2"))], workspace=self.uri() + self.uri(other))
+        self.assertEqual(self.day()["models"]["unknown"], counts(100, 1))
 
     def test_a_percent_encoded_workspace_is_decoded(self):
         repo = os.path.join(self.root, "my repo")
@@ -309,10 +343,75 @@ class TestRules(Home):
         self.conversation(steps=[self.step(usage(100, 1))], workspace=["file://elsewhere" + self.repo])
         self.assertIsNone(self.scan())
 
-    def test_the_summary_wins_over_the_log(self):
-        self.conversation(steps=[self.step(usage(100, 1))], workspace=self.uri(os.path.join(self.root, "other")),
-                          logged=self.repo)
+    def test_the_log_wins_over_the_history_and_the_summary(self):
+        other = os.path.join(self.root, "other")
+        self.conversation(steps=[self.step(usage(100, 1))], workspace=self.uri(other), logged=self.repo)
+        self.exit("c1", other)
+        self.assertEqual(self.day()["turns"], 1)
+
+    def test_the_history_wins_over_the_summary(self):
+        self.conversation(steps=[self.step(usage(100, 1))], workspace=self.uri(os.path.join(self.root, "other")))
+        self.exit("c1", self.repo)
+        self.assertEqual(self.day()["turns"], 1)
+
+    def test_a_history_line_that_is_not_json_is_passed_over(self):
+        self.conversation(steps=[self.step(usage(100, 1))])
+        with open(os.path.join(self.home, "history.jsonl"), "w", encoding="utf-8") as f:
+            f.write("not json\n[1]\n")
+        self.exit("c1", self.repo)
+        self.assertEqual(self.day()["turns"], 1)
+
+    def test_a_home_relative_added_directory_in_a_log(self):
+        self.conversation(steps=[self.step(usage(100, 1))], logged=f"{self.repo} ~/x")
+        self.assertEqual(self.day()["turns"], 1)
+
+    def test_a_log_that_cannot_be_told_falls_through_to_the_history(self):
+        # A bare relative --add-dir is logged as typed: nothing marks where
+        # the first directory ends.
+        self.conversation(steps=[self.step(usage(100, 1))], logged=f"{self.repo} docs")
+        self.exit("c1", self.repo)
+        self.assertEqual(self.day()["turns"], 1)
+
+    def test_a_log_that_cannot_be_told_does_not_fall_through_to_the_summary(self):
+        # In print mode the summary names only the added directory, so it
+        # would credit the run to that directory.
+        docs = os.path.join(self.root, "docs")
+        os.makedirs(docs)
+        self.conversation(steps=[self.step(usage(100, 1))], logged=f"{self.repo} docs", workspace=self.uri(docs))
+        self.conversation(cid="c2", steps=[self.step(usage(7, 1, "c2"))], logged=self.repo)
+        self.assertIsNone(self.scan(docs))
+        result = self.scan()
+        self.assertEqual((result.days["2026-08-05"]["models"]["unknown"], result.held), (counts(7, 1), 1))
+
+    def test_a_log_that_cannot_be_told_and_nothing_else_is_held(self):
+        self.conversation(steps=[self.step(usage(100, 1))], logged=f"{self.repo} docs")
+        self.conversation(cid="c2", steps=[self.step(usage(100, 1, "c2"))], workspace=self.uri())
+        result = self.scan()
+        self.assertEqual((result.days["2026-08-05"]["turns"], result.held), (1, 1))
+
+    def test_a_deleted_sibling_with_a_dot_is_not_the_repository(self):
+        self.conversation(steps=[self.step(usage(100, 1))], logged=self.repo + " .old")
+        self.conversation(cid="c2", steps=[self.step(usage(100, 1, "c2"))], logged=self.repo + " ~x")
         self.assertIsNone(self.scan())
+
+    def test_a_relative_directory_in_the_history_is_no_workspace(self):
+        self.conversation(steps=[self.step(usage(100, 1))])
+        self.exit("c1", ".")
+        cwd = os.getcwd()
+        os.chdir(self.repo)
+        self.addCleanup(os.chdir, cwd)
+        self.assertIsNone(self.scan())
+
+    def test_the_history_s_first_record_places_a_conversation(self):
+        self.conversation(steps=[self.step(usage(100, 1))])
+        self.exit("c1", self.repo)
+        self.exit("c1", os.path.join(self.root, "other"))
+        self.assertEqual(self.day()["turns"], 1)
+
+    def test_a_relative_added_directory_in_a_log(self):
+        # agy logs --add-dir ../x as typed.
+        self.conversation(steps=[self.step(usage(100, 1))], logged=f"{self.repo} ../x")
+        self.assertEqual(self.day()["turns"], 1)
 
     def test_a_conversation_placed_nowhere_is_held(self):
         self.conversation(steps=[self.step(usage(100, 1))], workspace=self.uri())

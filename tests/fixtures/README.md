@@ -45,7 +45,8 @@ pointed at a temporary repository.
 - `antigravity/`: recorded for this repository on 2026-09-22 with agy 1.2.8,
   the Antigravity CLI, signed in to a real account, in a throwaway
   git repository with a fresh `HOME`. Real conversations with Gemini 3.8
-  Flash; nobody else's data and no licence to carry. See below.
+  Flash and Claude Sonnet 4.6; nobody else's data and no licence to carry.
+  See below.
 
 ## Copilot CLI
 
@@ -212,9 +213,10 @@ with the values as recorded:
   (field 1.19).
 - **`trajectory_metadata_blob`**: the conversation's start (field 2).
 - In each usage message: the model's numeric id (1), input (2), output (3),
-  thinking (9), visible reply (10) and response id (11). Fields 4 and 5, the
-  cache write and read, appear in no call here. Field 6 (24 in every call,
-  meaning unknown) and 7 and 8 (a bot id and a session id) were dropped.
+  cache read (5), thinking (9), visible reply (10) and response id (11).
+  Field 4, which would be the cache write, appears in no call here. Field 6
+  (24 on every Gemini call and 26 on every Claude one, meaning unknown) and 7
+  and 8 (a bot id and a session id) were dropped.
 
 Everything else was dropped: the prompts, the replies, the system prompt, the
 tool calls and the executor's state. `conversation_summaries.jsonl` keeps
@@ -222,9 +224,12 @@ each summary row's `conversation_id` and `workspace_uris`, and drops its
 title, its preview and the rest. `log/runs.jsonl` keeps the two facts the
 reader takes from each CLI log: the run's `workspaceDirs`, and the
 conversation it created. `tests/agent_logs.py` writes them back as the two
-log lines agy prints for them.
+log lines agy prints for them. `history.jsonl` keeps the records that carry
+a conversation id (the `/exit` of an interactive session), reduced to that
+id, the working directory, the time and the record's type; the prompts it
+also records were dropped.
 
-There are three conversations, each on 2026-09-22:
+There are seven conversations, each on 2026-09-22:
 
 - **`342e8ba1…`**: `agy -p` (print mode), one call, 11,874 input and 25
   output. Its summary row has no workspace, so it is placed by its CLI log
@@ -236,9 +241,23 @@ There are three conversations, each on 2026-09-22:
   `Co-authored-by` trailer.
 - **`4b3fad79…`**: print mode, then continued twice with `--continue`, three
   calls (11,881 / 1,046, 13,333 / 26, 13,565 / 26). Placed by its log.
+- **`80e4a8f7…`**: print mode with `--model claude-sonnet-4-6`, continued
+  twice: 13,697 / 13, then 684 / 13 with 13,228 cache read, then 358 / 13
+  with 13,769 cache read. No thinking (field 9 absent, 10 = 3). agy's JSON
+  after the third call, cumulative: 14,739 input, 39 output, 26,997 cache
+  read, and a total of 14,778, input + output only.
+- **`7023721e…`**: print mode with `--add-dir` an absolute directory beside
+  the repository, one call (11,879 / 26). Its log names the repository and
+  then the added directory; its summary names only the added directory.
+- **`10ca56d2…`**: print mode with `--add-dir ../<that directory>`, one call
+  (11,876 / 29). Its log names the added directory as typed, relative.
+- **`2d64a70a…`**: interactive with `--add-dir` the same absolute directory,
+  one call (11,915 / 25). Its summary names the added directory first and
+  the repository last; its log the other way round; `history.jsonl` records
+  the repository on `/exit`.
 
-Each output holds its thinking: field 9 plus field 10 is field 3 in all
-seven calls (e.g. 926 + 120 = 1,046). agy's own `--output-format json` agrees
+Each output holds its thinking: field 9 plus field 10 is field 3 in every
+Gemini call (e.g. 926 + 120 = 1,046), and 10 is 3 in the Claude ones. agy's own `--output-format json` agrees
 with the stored fields. It reported 11,874 input, 25 output and 24 thinking
 for the first conversation, and 11,881 input, 1,046 output and 926 thinking
 for the third's first call. On each `--continue` it reports the conversation
@@ -246,8 +265,11 @@ so far rather than the call: 25,214 and 1,072, then 38,779 and 1,098, which
 are the running sums of the stored calls. Those two outputs were read on
 screen during the probe, not kept.
 
-The scratch repository's path is replaced by the placeholder, in the
-summaries' `file://` URI and in the logs.
+The scratch repository's path is replaced by the placeholder, and the added
+directory beside it by `/work/elsewhere` (`../elsewhere` where it was given
+relative), in the summaries' `file://` URIs, the logs and the history.
+`tests/agent_logs.py` installs `/work/elsewhere` as a directory beside the
+test repository.
 
 ## Kilo Code
 
