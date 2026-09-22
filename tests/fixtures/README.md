@@ -293,13 +293,14 @@ the start (field 2), these were kept:
 A repeated field is written as a list (`{"7": ["file:///a", "file:///b"]}`),
 which `tests/agent_logs.py` encodes as the field written once per value.
 The rest of each database was dropped as the CLI's was: the prompts, the
-replies, the tool calls, the executor's state and the IDE's other
-directories (`brain/`, whose transcripts repeat the conversation, and
-`implicit/`, one `.pb` file).
+replies, the tool calls, the executor's state and, among the IDE's other
+directories, `brain/` (whose `.system_generated/logs/` transcripts repeat
+each conversation) and `implicit/` (three `.pb` files after these three
+conversations).
 
 There are three conversations, each on 2026-09-22 and each one prompt, whose
 calls were all Gemini 3.8 Flash except one per conversation: a step of type
-23 on model id 1050, about 100 input and 5 output, with no `gen_metadata`
+23 on model id 1050, 100 or 101 input and 4 or 5 output, with no `gen_metadata`
 row and so no model name.
 
 - **`092375a1…`**: the repository opened as the IDE's folder. Six Flash

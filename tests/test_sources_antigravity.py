@@ -34,7 +34,7 @@ INTERACTIVE = {"turns": 4, "models": {"gemini-3.8-flash": {
 # The three recorded IDE conversations in tests/fixtures/antigravity-ide
 # (Antigravity IDE 2.5.5), summed by hand from each step's usage, every call
 # being in its step. Each has one call on model id 1050 (a step of type 23,
-# about 100 input and 5 output) with no generation row, so no model name.
+# 100 or 101 input and 4 or 5 output) with no generation row, so no model name.
 # The IDE writes no log, history or summary: each is placed by its own
 # trajectory's workspace (field 1.1).
 #   092375a1, the repository opened:             6 calls, 68,023 / 943 + 36,614 read; 100 / 5
@@ -459,8 +459,10 @@ class TestRules(Home):
 
     def test_the_first_of_several_folders_is_the_workspace(self):
         other = os.path.join(self.root, "other")
-        self.conversation(steps=[self.step(usage(100, 1))],
-                          trajectory={"1": [{"1": self.uri(other)[0]}, {"1": self.uri()[0]}]})
+        trajectory = {"1": [{"1": self.uri(other)[0]}, {"1": self.uri()[0]}]}
+        # Both folders are written, so the second is there to be passed over.
+        self.assertEqual([n for n, _ in antigravity.pairs(agent_logs.protobuf(trajectory))], [1, 1])
+        self.conversation(steps=[self.step(usage(100, 1))], trajectory=trajectory)
         self.assertIsNone(self.scan())
         self.assertEqual(self.scan(other).days["2026-08-05"]["turns"], 1)
 

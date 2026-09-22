@@ -593,7 +593,8 @@ only through a trailer someone wrote by hand, naming it as `Kilo Code`,
 database of protobuf records, and the Antigravity IDE keeps its own the
 same way under `~/.gemini/antigravity-ide`. A print-mode conversation's
 database (`agy -p`) names no directory at all, so a conversation is placed
-by the first of these that names one:
+by the first of these that names one (except that one a CLI log records goes
+no further than `history.jsonl`, as below):
 
 1. **The CLI log** of the run that created it, under `log/`, names the
    working directory first and any `--add-dir` directories after it. agy
@@ -608,7 +609,9 @@ by the first of these that names one:
 4. **The conversation itself.** The IDE writes none of the three files, but
    each of its conversations records the folders of the IDE's workspace. The
    first is taken: the folder that was opened, or the first folder listed in
-   a workspace of several. Checked with Antigravity IDE 2.5.5.
+   a workspace of several. Checked with Antigravity IDE 2.5.5; an agy
+   conversation that none of the three files places is read the same way,
+   although whether agy records its folders there was not checked.
 
 A conversation belongs when its working directory is the repository or a
 directory in it.
@@ -637,7 +640,7 @@ it. A Claude model's calls through agy show it, and so do a Gemini model's
 through the IDE, whose prompt (input plus cache read) grows from one call to
 the next rather than falling to the uncached part.
 
-Each IDE conversation also makes one small call, about 100 input tokens, on a
+Each IDE conversation also makes one small call, of 100 or so input tokens, on a
 model it does not name, and that call is counted under `unknown`.
 
 No recorded call reports a cache write, not even the first Claude call,

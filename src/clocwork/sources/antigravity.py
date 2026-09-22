@@ -27,7 +27,7 @@ trajectory_metadata_blob).
 
 A print-mode conversation's database holds no directory at all (an
 interactive one's names its workspace among its tool calls and trajectory,
-but not in one place a reader can rely on). Three files say where one ran,
+in fields not checked against agy). Three files say where one ran,
 and a conversation belongs by the working directory it was created in:
 
 - the CLI log of the run that created it: `workspaceDirs=[...]`, the working
@@ -40,11 +40,14 @@ and a conversation belongs by the working directory it was created in:
   directories given as absolute paths and then, for an interactive conversation only, the working
   directory: so its last URI is taken, and a print-mode conversation that
   names an added directory there is read as that directory's. It is the
-  last resort for that reason.
+  last of the three for that reason.
 
 The IDE writes none of the three. Its conversations name their workspace in
-their own trajectory (see own_workspace), which is read only when the files
-place nothing, so that agy's placement stays as checked.
+their own trajectory (see own_workspace), which is read only for a
+conversation no CLI log records, when the history and the summary place it
+nowhere either. So every conversation the three files place is placed as
+before; an agy one that none of them places falls back to its trajectory
+too, whose fields were checked on the IDE only.
 
 A conversation that none of them places is held back rather than guessed at.
 One whose log cannot be read unambiguously (see log_directory) is placed by
@@ -74,9 +77,9 @@ HELD = ("no workspace recorded for them, in a CLI log still on disk, the history
         " or the conversation itself, so no repository can claim them; counted across this machine")
 READ_ERRORS = (OSError, ValueError, TypeError, sqlite3.Error)
 # The directories Antigravity keeps its data in, under ~/.gemini: the CLI's,
-# the IDE's (Antigravity 1.2.3 writes conversation_summaries.db there), and
-# the IDE's other names other readers list. A directory holding none of the
-# files below adds nothing.
+# the one Antigravity 1.2.3 writes conversation_summaries.db in, the IDE's
+# (Antigravity IDE 2.5.5), and a name other readers list. A directory
+# holding none of the files below adds nothing.
 ROOTS = ("antigravity-cli", "antigravity", "antigravity-ide", "antigravity-backup")
 WORKSPACE = re.compile(r"workspaceDirs=\[([^\]\n]*)\]")
 CREATED = re.compile(r"Created conversation ([0-9A-Za-z-]+)")
@@ -273,7 +276,8 @@ def own_workspace(path):
     a local path, or None. The IDE records each folder of its workspace as
     a field 1 of trajectory_metadata_blob, in the workspace's order, whose
     field 1 is the folder's URI (2 is its git root); the first is taken, as
-    the IDE's primary folder. agy's print-mode conversations record none."""
+    the IDE's primary folder. agy's print-mode conversations hold no path at
+    all; whether its interactive ones fill these fields was not checked."""
     try:
         conn = open_read_only(path)
         try:
