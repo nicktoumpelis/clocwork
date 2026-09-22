@@ -12,4 +12,4 @@ if _sys.version_info < (3, 11):
                       % (_v[0], _v[1], _v[2], _sys.executable))
     raise SystemExit(2)
 
-__version__ = "0.1.1"
+__version__ = "0.2.0"
