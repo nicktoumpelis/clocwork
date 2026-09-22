@@ -649,7 +649,7 @@ def analyse(repo_dir, output_path, cache_path, archive_path, *, config=None, bra
                       "is_merge": is_merge_commit(c)} for c in commits]
     log(f"  {sum(1 for m in measure_input if not m['is_merge'] and cache.get(m['hash']) is None)} commits not yet cached")
     measured = cl.measure_commits(repo_dir, measure_input, cache, table, rules, max_commits=max_commits,
-                                  jobs=jobs, log=log, adjustments=adjustments)
+                                  jobs=jobs, adjustments=adjustments)
 
     log(f"Step 3: Snapshot of {branch} for reconciliation...")
     by_lang, by_file_all, by_file_tests = cl.snapshot(repo_dir, rev, table, rules, report)

@@ -3,6 +3,8 @@ import unittest
 
 from clocwork import classify as cf
 from clocwork import cloc as cl
+from clocwork import ui
+from tests.ui_recorder import Recorder
 
 EXT_TEXT = """swift           Swift
 md              Markdown
@@ -252,7 +254,7 @@ class TestMeasureCommits(unittest.TestCase):
 
     def measure(self, **kw):
         return cl.measure_commits("/nowhere", self.COMMITS, self.cache, self.TABLE, cf.DEFAULT_RULES,
-                                  differ=self.differ, log=lambda *a: None, **kw)
+                                  differ=self.differ, report=ui.Reporter(), **kw)
 
     def test_cap_leaves_pending_and_skips_merges(self):
         res = self.measure(max_commits=2)
@@ -275,7 +277,7 @@ class TestMeasureCommits(unittest.TestCase):
         self.measure()
         self.calls.clear()
         res = cl.measure_commits("/nowhere", self.COMMITS, self.cache, self.TABLE, cf.TestRules(include=["*.swift"]),
-                                 differ=self.differ, log=lambda *a: None)
+                                 differ=self.differ, report=ui.Reporter())
         self.assertEqual(self.calls, [])
         self.assertEqual(res.measured["a"][1], {"Swift": [1, 0, 0, 0, 0, 0]})
 
@@ -287,7 +289,7 @@ class TestMeasureCommits(unittest.TestCase):
         for run in ("fresh", "cached"):
             with self.subTest(run=run):
                 res = cl.measure_commits("/nowhere", self.COMMITS, self.cache, table, cf.DEFAULT_RULES,
-                                         differ=self.differ, log=lambda *a: None, adjustments=adj)
+                                         differ=self.differ, report=ui.Reporter(), adjustments=adj)
                 self.assertEqual(res.measured["b"], (expected, {}))
                 self.assertEqual(res.measured["a"], ({"Swift": [1, 0, 0, 0, 0, 0]}, {}))
                 self.assertEqual(self.cache.get("b"), self.differ("/nowhere", "a", "b"))
@@ -316,7 +318,7 @@ class TestMeasureCommits(unittest.TestCase):
             return self.differ(repo, parent, commit)
 
         res = cl.measure_commits("/nowhere", self.COMMITS, self.cache, self.TABLE, cf.DEFAULT_RULES,
-                                 differ=differ, log=lambda *a: None, jobs=2)
+                                 differ=differ, report=ui.Reporter(), jobs=2)
         self.assertEqual(sorted(res.measured), ["a", "b", "c"])
         self.assertFalse(barrier.broken)
 
@@ -332,7 +334,7 @@ class TestMeasureCommits(unittest.TestCase):
 
         def measure(cache, jobs):
             return cl.measure_commits("/nowhere", commits, cache, self.TABLE, cf.DEFAULT_RULES,
-                                      differ=differ, log=lambda *a: None, jobs=jobs)
+                                      differ=differ, report=ui.Reporter(), jobs=jobs)
 
         serial_cache = cl.Cache(os.path.join(self.tmp.name, "serial.json"))
         serial = measure(serial_cache, 1)
@@ -356,7 +358,7 @@ class TestMeasureCommits(unittest.TestCase):
 
         with self.assertRaises(KeyboardInterrupt):
             cl.measure_commits("/nowhere", commits, self.cache, self.TABLE, cf.DEFAULT_RULES,
-                               differ=differ, log=lambda *a: None, jobs=1)
+                               differ=differ, report=ui.Reporter(), jobs=1)
         self.assertNotIn("c49", called)                                  # the queue was cancelled
         self.assertIsNotNone(cl.Cache(self.cache.path).get("c00"))       # the flush happened on the way out
 
@@ -372,7 +374,7 @@ class TestMeasureCommits(unittest.TestCase):
 
         with self.assertRaises(KeyboardInterrupt):
             cl.measure_commits("/nowhere", commits, self.cache, self.TABLE, cf.DEFAULT_RULES,
-                               differ=differ, log=lambda *a: None, jobs=2)
+                               differ=differ, report=ui.Reporter(), jobs=2)
         self.assertIsNotNone(cl.Cache(self.cache.path).get("slow"))      # not thrown away, not re-measured next run
 
     def test_a_job_failing_during_the_shutdown_is_not_reported(self):
@@ -381,7 +383,7 @@ class TestMeasureCommits(unittest.TestCase):
         # run retries them, so the shutdown keeps results and says nothing.
         commits = [{"hash": "dying", "parent": None, "is_merge": False},
                    {"hash": "boom", "parent": None, "is_merge": False}]
-        lines = []
+        rec = Recorder()
 
         def differ(repo, parent, commit):
             if commit == "boom":
@@ -391,8 +393,22 @@ class TestMeasureCommits(unittest.TestCase):
 
         with self.assertRaises(KeyboardInterrupt):
             cl.measure_commits("/nowhere", commits, self.cache, self.TABLE, cf.DEFAULT_RULES,
-                               differ=differ, log=lines.append, jobs=2)
-        self.assertEqual([line for line in lines if "failed" in line], [])
+                               differ=differ, report=rec, jobs=2)
+        self.assertEqual([w for w in rec.of("warn") if "failed" in w], [])
+
+    def test_progress_and_failures_are_reported(self):
+        commits = [{"hash": f"c{i:02d}", "parent": None, "is_merge": False} for i in range(3)]
+
+        def differ(repo, parent, commit):
+            if commit == "c01":
+                raise cl.ClocError("cloc exited with 2")
+            return {"added": {"a.swift": {"code": 1, "comment": 0, "blank": 0}}, "removed": {}}
+
+        rec = Recorder()
+        cl.measure_commits("/nowhere", commits, self.cache, self.TABLE, cf.DEFAULT_RULES,
+                           differ=differ, report=rec, jobs=1)
+        self.assertEqual(rec.of("warn"), ["cloc failed on c01: cloc exited with 2"])
+        self.assertEqual([e[1:] for e in rec.events if e[0] == "progress"], [(1, 3), (2, 3)])
 
     def test_a_second_interrupt_during_the_join_keeps_what_was_recorded(self):
         # The join waits for in-flight cloc runs; a second Ctrl-C there ends
@@ -416,7 +432,7 @@ class TestMeasureCommits(unittest.TestCase):
         try:
             with self.assertRaises(KeyboardInterrupt):
                 cl.measure_commits("/nowhere", commits, self.cache, self.TABLE, cf.DEFAULT_RULES,
-                                   differ=differ, log=lambda *a: None, jobs=1)
+                                   differ=differ, report=ui.Reporter(), jobs=1)
         finally:
             concurrent.futures.ThreadPoolExecutor.shutdown = original
         self.assertIsNotNone(cl.Cache(self.cache.path).get("c00"))
