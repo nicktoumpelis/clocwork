@@ -1,6 +1,6 @@
 # Agent log fixtures
 
-Real Codex CLI, Copilot CLI, Gemini CLI, Kilo Code, OpenCode and Qwen Code
+Real Antigravity, Codex CLI, Copilot CLI, Gemini CLI, Kilo Code, OpenCode and Qwen Code
 session logs, reduced to what clocwork's token readers use: session identity, working directory,
 remote, model, token usage and timestamps. Prompts, replies, reasoning, tool
 calls, instructions, branch names and time zones were removed, as were
@@ -42,6 +42,10 @@ pointed at a temporary repository.
   Anthropic APIs, which answered "ok" with distinctive token counts. Real logs, written
   by the real CLI, around counts the mock chose; nobody's data and no
   licence to carry. See below.
+- `antigravity/`: recorded for this repository on 2026-09-22 with agy 1.2.8,
+  the Antigravity CLI, signed in to a real account, in a throwaway
+  git repository with a fresh `HOME`. Real conversations with Gemini 3.8
+  Flash; nobody else's data and no licence to carry. See below.
 
 ## Copilot CLI
 
@@ -190,6 +194,60 @@ The working directories are the placeholder, and the project hash is the
 placeholder's, so `tests/agent_logs.py` swaps both for the test repository.
 The mock's model names, `mock-model` and `mock-claude`, are kept: they name
 no real model and have no price, which is right for counts no model made.
+
+## Antigravity
+
+agy keeps each conversation in a SQLite database of protobuf blobs, which a
+repository cannot hold as a readable fixture. So each table is committed as
+JSONL, one directory per conversation under `conversations/`, with every
+blob written as its protobuf field tree (`{"9": {"2": 11874}}`: field 9, a
+message whose field 2 is 11,874). `tests/agent_logs.py` encodes the trees
+back into protobuf and builds the databases. Only these fields were kept,
+with the values as recorded:
+
+- **`steps`**: each step's index and type, and from its metadata the time
+  it was created (field 1) and, on a step that holds a model's reply, the
+  call's usage (field 9).
+- **`gen_metadata`**: each model call's usage (field 1.4) and model name
+  (field 1.19).
+- **`trajectory_metadata_blob`**: the conversation's start (field 2).
+- In each usage message: the model's numeric id (1), input (2), output (3),
+  thinking (9), visible reply (10) and response id (11). Fields 4 and 5, the
+  cache write and read, appear in no call here. Field 6 (24 in every call,
+  meaning unknown) and 7 and 8 (a bot id and a session id) were dropped.
+
+Everything else was dropped: the prompts, the replies, the system prompt, the
+tool calls and the executor's state. `conversation_summaries.jsonl` keeps
+each summary row's `conversation_id` and `workspace_uris`, and drops its
+title, its preview and the rest. `log/runs.jsonl` keeps the two facts the
+reader takes from each CLI log: the run's `workspaceDirs`, and the
+conversation it created. `tests/agent_logs.py` writes them back as the two
+log lines agy prints for them.
+
+There are three conversations, each on 2026-09-22:
+
+- **`342e8ba1…`**: `agy -p` (print mode), one call, 11,874 input and 25
+  output. Its summary row has no workspace, so it is placed by its CLI log
+  alone.
+- **`29ac6e7f…`**: interactive. `agy` asked for permission to create
+  `hello.txt` and to run `git add hello.txt && git commit -m "Add hello"`,
+  and made three calls (11,894 / 358, 12,378 / 151, 12,757 / 125). Its
+  summary row names the workspace. The commit it made carries no
+  `Co-authored-by` trailer.
+- **`4b3fad79…`**: print mode, then continued twice with `--continue`, three
+  calls (11,881 / 1,046, 13,333 / 26, 13,565 / 26). Placed by its log.
+
+Each output holds its thinking: field 9 plus field 10 is field 3 in all
+seven calls (e.g. 926 + 120 = 1,046). agy's own `--output-format json` agrees
+with the stored fields. It reported 11,874 input, 25 output and 24 thinking
+for the first conversation, and 11,881 input, 1,046 output and 926 thinking
+for the third's first call. On each `--continue` it reports the conversation
+so far rather than the call: 25,214 and 1,072, then 38,779 and 1,098, which
+are the running sums of the stored calls. Those two outputs were read on
+screen during the probe, not kept.
+
+The scratch repository's path is replaced by the placeholder, in the
+summaries' `file://` URI and in the logs.
 
 ## Kilo Code
 

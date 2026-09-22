@@ -4,7 +4,7 @@ Run `clocwork` inside any git repository and get a dashboard of its whole
 history: lines per language and type (code, comment, blank) at every commit,
 which commits an AI agent co-authored and when each model first appeared, and,
 when the repository was worked on with Claude Code, Codex CLI, Copilot CLI,
-Gemini CLI, Kilo Code, OpenCode or Qwen Code, what that work cost in tokens,
+Gemini CLI, Kilo Code, OpenCode, Qwen Code or Antigravity, what that work cost in tokens,
 dollars and electricity. Every commit is measured with `cloc --git --diff`, cached per
 file, and reconciled against a `cloc` snapshot of HEAD so drift is visible
 rather than silent.
@@ -252,7 +252,8 @@ does not know rather than renaming the ones it does. Neither `match` nor
 with a dot in it (`jules.google`) matches a domain only as whole labels, so
 `x@jules.google-mirror.example` is not it.
 
-Antigravity writes no trailer of its own, and the ones people add agree on
+Antigravity writes no trailer of its own (agy 1.2.8 commits with the message
+it was asked for and nothing after it), and the ones people add agree on
 nothing but the word itself, so a trailer naming "Antigravity" — in its
 display name or its address, by the rules above — counts as Antigravity. It
 is matched before Gemini,
@@ -281,6 +282,7 @@ archives per-day totals, per agent and model, into `token_usage.json`:
 | Gemini CLI | `~/.gemini/tmp/` and `~/.cache/.gemini/tmp/`, sessions started in the repository or a directory it tracks | `GEMINI_CLI_HOME` replaces `~` |
 | Kilo Code | `~/.local/share/kilo`, on macOS and Windows as well: its `kilo*.db` databases, an `opencode-*.db` left there by the fork's rename, and the file stores its 1.0.x releases wrote | `XDG_DATA_HOME` replaces `~/.local/share`; `KILO_DB` adds the database it names |
 | OpenCode | `~/.local/share/opencode`, on macOS and Windows as well: its `opencode*.db` databases and the file stores older releases wrote | `XDG_DATA_HOME` replaces `~/.local/share`; `OPENCODE_DB` adds the database it names |
+| Antigravity | `~/.gemini/antigravity-cli/conversations/`, one SQLite database per conversation, placed by `conversation_summaries.db` or the CLI logs beside it; the IDE's `~/.gemini/antigravity` and its other names are read the same way | none |
 | Qwen Code | `~/.qwen/projects/*/chats/`, one JSONL file per session from 0.4.0 (an archived one moves to `chats/archive/`), and the Gemini-format sessions under `~/.qwen/tmp/` that earlier releases wrote | `QWEN_HOME` replaces `~/.qwen`; `QWEN_RUNTIME_DIR`, and the `advanced.runtimeOutputDir` setting in any of Qwen Code's settings files, add the directory they name |
 
 A Codex session belongs to the repository when it records the same remote
@@ -350,7 +352,7 @@ case, not an error.
 Tokens land only on the commits of the agent whose logs measured them,
 split across that agent's commits of the day by lines changed. A commit
 carries no token figure when its agent's logs are not read (Cursor, Devin,
-aider, Antigravity, Gemini Code Assist or any other), or when they
+aider, Gemini Code Assist or any other), or when they
 cover no day on which that agent's commits changed lines, and it is never
 priced at another agent's rate. When the repository has token data, the run
 summary counts those commits and names their agents. Gemini Code Assist is
@@ -428,6 +430,28 @@ already inside its output, and where it has none the provider does; the
 OpenAI and Anthropic readings were checked against a mock of each API, and
 Gemini's is Gemini CLI's convention, not yet checked for Qwen Code.
 
+Antigravity's CLI, agy, keeps each conversation in a SQLite database of
+protobuf records, one row per model call in two tables, which are read once
+per call by its response id. The input, the output (with the thinking
+already in it) and the model are as agy stores them, and they match what agy
+reports itself (`--output-format json`). A cache read would be taken out of
+the input, as in Gemini's own API; no recorded call has one, so that reading
+is unconfirmed. A print-mode conversation's database (`agy -p`) names no
+directory at all. An interactive conversation's workspace is in
+`conversation_summaries.db`, and a print-mode one's only in the log of the
+CLI run that created it, under
+`log/`; the summary is taken first, then the log. A conversation belongs
+when the first directory it names is the repository or a directory in it.
+A log lists a run's directories separated by spaces, so where one of them has
+a space in its name, the longest part of the text that is a directory on disk
+is taken.
+One that neither places — a print-mode run whose log is gone — is not
+guessed at; when the repository has Antigravity usage, the run's summary
+says how many such conversations the machine holds, since none of them can
+be tied to any one repository. Because agy writes
+no trailer, its tokens land only on commits a person credits to Antigravity.
+The IDE's older conversations are encrypted, and are not read.
+
 Kilo Code is a fork of OpenCode and keeps the same store, so it belongs by
 the same rule and is read by the same code: the SHA-1 of `origin`'s host and
 path, the id cached in the repository's git directory — under `kilo`, where
@@ -470,8 +494,9 @@ such as the 500-row cap, fail over a short history.
 
 `tests/fixtures/` holds real Codex CLI, Copilot CLI, Gemini CLI, Kilo Code
 and OpenCode sessions from eight public repositories, five MIT-licensed and
-three Apache-2.0, reduced to identity, model, usage and timestamps, and
-Qwen Code sessions recorded against a local mock of the OpenAI and Anthropic APIs; its README
+three Apache-2.0, reduced to identity, model, usage and timestamps,
+Qwen Code sessions recorded against a local mock of the OpenAI and Anthropic APIs,
+and Antigravity conversations recorded with agy for this repository; its README
 names each source with the commit it was taken at, carries their licence
 notices, and says which rows are as recorded and which are hand-written.
 

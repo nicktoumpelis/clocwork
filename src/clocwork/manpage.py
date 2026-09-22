@@ -122,7 +122,7 @@ def render(parser=None, version=__version__, date=None):
                  "(its charts load Chart.js and its plugins from a CDN) plus a\n.I commit_bodies.js\nsidecar, "
                  "written to a workspace next to the repository, never inside it: lines per language and type at every commit, "
                  "which commits an AI agent co\\-authored and when each model first appeared, and, when a coding agent's logs "
-                 "for the repository are on the machine (Claude Code, Codex CLI, Copilot CLI, Gemini CLI, Kilo Code, OpenCode, Qwen Code), what the work cost in tokens.\n.PP\n"
+                 "for the repository are on the machine (Claude Code, Codex CLI, Copilot CLI, Gemini CLI, Kilo Code, OpenCode, Qwen Code, Antigravity), what the work cost in tokens.\n.PP\n"
                  "A first argument that is not a command is taken as\n.IR REPO ,\nso\n.B clocwork ~/code/foo\nworks; "
                  "the default is the current directory, and any directory inside the repository will do.")
     lines.append(".SH OPTIONS\nOptions more than one command takes. Each command's own options follow it below.\n"

@@ -5,6 +5,12 @@ directory is PLACEHOLDER, Codex's remote is REMOTE and Gemini's project hash
 is the hash of PLACEHOLDER. install() copies one agent's tree into a home
 directory with those replaced by a real, temporary repository.
 
+Antigravity keeps each conversation in a SQLite database of protobuf
+blobs. Its rows are committed as JSONL, one directory per conversation, with
+each blob written as its field tree ({"9": {"2": 11874}}); install() encodes
+them back and builds the databases. Its CLI logs are committed as the one
+fact the reader takes from them, and written back in agy's own format.
+
 OpenCode keeps its sessions in SQLite, which a repository cannot hold as a
 readable, diffable fixture. Its rows are committed as JSONL instead, one
 file per table under `s1/` for rows as recorded, `s1-derived/` for real
@@ -72,6 +78,71 @@ def build_database(path, tables):
         conn.close()
 
 
+def varint(n):
+    if n < 0:
+        raise ValueError("a fixture blob holds no negative number")
+    out = bytearray()
+    while True:
+        low, n = n & 0x7F, n >> 7
+        out.append(low | (0x80 if n else 0))
+        if not n:
+            return bytes(out)
+
+
+def protobuf(tree):
+    """A message from its field tree: a number is a varint, a string is
+    UTF-8 bytes and a dict is a nested message, each length-delimited."""
+    out = bytearray()
+    for field, value in tree.items():
+        if not isinstance(value, (int, str, dict)):
+            raise ValueError(f"field {field}: a fixture blob holds numbers, strings and messages")
+        if isinstance(value, int):
+            out += varint(int(field) << 3) + varint(value)
+            continue
+        body = protobuf(value) if isinstance(value, dict) else value.encode("utf-8")
+        out += varint(int(field) << 3 | 2) + varint(len(body)) + body
+    return bytes(out)
+
+
+# The two lines of an agy CLI log the reader takes: the workspace a run was
+# started in, and each conversation it created.
+AGY_WORKSPACE = ("I0922 09:36:40.604617       1 server.go:309] Creating CLI server backend: "
+                 "product=antigravity workspaceDirs=[{}] appDataDir={}\n")
+AGY_CREATED = "I0922 09:36:42.773709       1 server.go:1224] Created conversation {}\n"
+
+
+def install_antigravity(root, home, swap):
+    """Build the conversation databases, the summaries database and the CLI
+    logs of the Antigravity fixture under `home`; the paths written."""
+    written = []
+    conversations = os.path.join(root, "conversations")
+    for cid in sorted(os.listdir(conversations)):
+        tables = {}
+        for name in sorted(os.listdir(os.path.join(conversations, cid))):
+            with open(os.path.join(conversations, cid, name), encoding="utf-8") as f:
+                rows = [json.loads(l) for l in f.read().splitlines() if l.strip()]
+            tables[os.path.splitext(name)[0]] = [{k: protobuf(v) if isinstance(v, dict) else v
+                                                 for k, v in row.items()} for row in rows]
+        path = os.path.join(home, "conversations", cid + ".db")
+        build_database(path, tables)
+        written.append(path)
+    with open(os.path.join(root, "conversation_summaries.jsonl"), encoding="utf-8") as f:
+        rows = [json.loads(swap(l)) for l in f.read().splitlines() if l.strip()]
+    path = os.path.join(home, "conversation_summaries.db")
+    build_database(path, {"conversation_summaries": rows})
+    written.append(path)
+    with open(os.path.join(root, "log", "runs.jsonl"), encoding="utf-8") as f:
+        runs = [json.loads(swap(l)) for l in f.read().splitlines() if l.strip()]
+    for run in runs:
+        path = os.path.join(home, "log", run["log"])
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(AGY_WORKSPACE.format(" ".join(run["workspaceDirs"]), home))
+            f.writelines(AGY_CREATED.format(cid) for cid in run["created"])
+        written.append(path)
+    return written
+
+
 def install(agent, home, repo, remote=REMOTE, database="opencode.db"):
     """Copy one agent's fixtures under `home`, pointed at `repo`; the paths written.
 
@@ -83,6 +154,12 @@ def install(agent, home, repo, remote=REMOTE, database="opencode.db"):
     swaps = ((project_hash(PLACEHOLDER), project_hash(repo)),
              (json.dumps(PLACEHOLDER)[1:-1], json.dumps(repo)[1:-1]),
              (REMOTE, remote))
+    if agent == "antigravity":
+        def swap(text):
+            for old, new in swaps:
+                text = text.replace(old, new)
+            return text
+        return install_antigravity(root, home, swap)
     written, tables = [], {}
     for rel in files(agent):
         with open(os.path.join(root, rel), encoding="utf-8") as f:
