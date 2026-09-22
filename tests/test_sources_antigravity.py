@@ -31,6 +31,27 @@ RECORDED = {"2026-09-22": {"turns": 13, "models": {
 # place without the logs: 29ac6e7f and 2d64a70a.
 INTERACTIVE = {"turns": 4, "models": {"gemini-3.8-flash": {
     "input": 11_894 + 12_378 + 12_757 + 11_915, "output": 358 + 151 + 125 + 25, "cache_read": 0, "cache_write": 0}}}
+# The three recorded IDE conversations in tests/fixtures/antigravity-ide
+# (Antigravity IDE 2.5.5), summed by hand from each step's usage, every call
+# being in its step. Each has one call on model id 1050 (a step of type 23,
+# 100 or 101 input and 4 or 5 output) with no generation row, so no model name.
+# The IDE writes no log, history or summary: each is placed by its own
+# trajectory's workspace (field 1.1).
+#   092375a1, the repository opened:             6 calls, 68,023 / 943 + 36,614 read; 100 / 5
+#   d79bd73f, its subdirectory sub/ opened:      9 calls, 63,751 / 1,449 + 97,576 read; 100 / 4
+#   87baf5fe, a workspace of /work/elsewhere and then the repository:
+#                                                6 calls, 52,412 / 874 + 52,860 read; 101 / 4
+# A Gemini call's cache read is beside its input, as a Claude one's is: the
+# prompt, input plus cache read, grows call by call (16,559, 16,974, then
+# 5,033 + 12,210 = 17,243, ...), where a read inside the input would have it
+# fall from 17k to 5k and back.
+IDE_REPOSITORY = {"2026-09-22": {"turns": 17, "models": {
+    "gemini-3.8-flash": {"input": 68_023 + 63_751, "output": 943 + 1_449,
+                         "cache_read": 36_614 + 97_576, "cache_write": 0},
+    "unknown": {"input": 200, "output": 9, "cache_read": 0, "cache_write": 0}}}}
+IDE_ELSEWHERE = {"2026-09-22": {"turns": 7, "models": {
+    "gemini-3.8-flash": {"input": 52_412, "output": 874, "cache_read": 52_860, "cache_write": 0},
+    "unknown": {"input": 101, "output": 4, "cache_read": 0, "cache_write": 0}}}}
 MODEL = "gemini-3.8-flash"
 
 
@@ -122,6 +143,21 @@ class TestRecordings(Home):
     def test_the_claude_calls_report_their_cache_read_beside_the_input(self):
         self.assertEqual(self.scan().days["2026-09-22"]["models"]["claude-sonnet-4-6"],
                          {"input": 14_739, "output": 39, "cache_read": 26_997, "cache_write": 0})
+
+
+class TestIdeRecordings(Home):
+    def setUp(self):
+        super().setUp()
+        self.home = os.path.join(self.root, "home", ".gemini", "antigravity-ide")
+        agent_logs.install("antigravity-ide", self.home, self.repo)
+        self.elsewhere = os.path.join(self.root, "elsewhere")
+
+    def test_every_recorded_call_is_placed_by_its_own_workspace(self):
+        result = self.scan()
+        self.assertEqual((result.days, result.held, result.malformed, result.skipped), (IDE_REPOSITORY, 0, 0, 0))
+
+    def test_a_workspace_of_several_folders_is_its_first_folder_s(self):
+        self.assertEqual(self.scan(self.elsewhere).days, IDE_ELSEWHERE)
 
 
 class TestRules(Home):
@@ -412,6 +448,63 @@ class TestRules(Home):
         # agy logs --add-dir ../x as typed.
         self.conversation(steps=[self.step(usage(100, 1))], logged=f"{self.repo} ../x")
         self.assertEqual(self.day()["turns"], 1)
+
+    def test_a_conversation_s_own_workspace_places_it_when_nothing_else_does(self):
+        # The IDE's way: field 1 of the trajectory, whose field 1 is the
+        # folder opened (2 is its git root).
+        self.conversation(steps=[self.step(usage(100, 1))],
+                          trajectory={"1": {"1": self.uri(os.path.join(self.repo, "src"))[0], "2": self.uri()[0]}})
+        result = self.scan()
+        self.assertEqual((result.days["2026-08-05"]["turns"], result.held), (1, 0))
+
+    def test_the_first_of_several_folders_is_the_workspace(self):
+        other = os.path.join(self.root, "other")
+        trajectory = {"1": [{"1": self.uri(other)[0]}, {"1": self.uri()[0]}]}
+        # Both folders are written, so the second is there to be passed over.
+        self.assertEqual([n for n, _ in antigravity.pairs(agent_logs.protobuf(trajectory))], [1, 1])
+        self.conversation(steps=[self.step(usage(100, 1))], trajectory=trajectory)
+        self.assertIsNone(self.scan())
+        self.assertEqual(self.scan(other).days["2026-08-05"]["turns"], 1)
+
+    def test_the_summary_wins_over_the_conversation_s_own_workspace(self):
+        # The CLI's placement is unchanged by the IDE's: its own workspace
+        # is the last resort.
+        other = os.path.join(self.root, "other")
+        self.conversation(steps=[self.step(usage(100, 1))], workspace=self.uri(other),
+                          trajectory={"1": {"1": self.uri()[0]}})
+        self.assertIsNone(self.scan())
+        self.assertEqual(self.scan(other).days["2026-08-05"]["turns"], 1)
+
+    def test_a_conversation_s_own_workspace_on_another_host_is_none(self):
+        self.conversation(steps=[self.step(usage(100, 1))], trajectory={"1": {"1": "file://elsewhere" + self.repo}})
+        self.conversation(cid="c2", steps=[self.step(usage(100, 1, "c2"))], trajectory={"1": {"1": "not a uri"}})
+        self.conversation(cid="c3", steps=[self.step(usage(7, 1, "c3"))], workspace=self.uri())
+        result = self.scan()
+        self.assertEqual((result.days["2026-08-05"]["models"]["unknown"], result.held), (counts(7, 1), 2))
+
+    def test_a_logged_conversation_is_not_placed_by_its_own_workspace(self):
+        # A log that cannot be told falls through to the history alone.
+        self.conversation(steps=[self.step(usage(100, 1))], logged=f"{self.repo} docs",
+                          trajectory={"1": {"1": self.uri()[0]}})
+        self.conversation(cid="c2", steps=[self.step(usage(7, 1, "c2"))], workspace=self.uri())
+        result = self.scan()
+        self.assertEqual((result.days["2026-08-05"]["models"]["unknown"], result.held), (counts(7, 1), 1))
+
+    def test_a_folder_s_git_root_is_not_its_workspace(self):
+        # 1.2 is the git root of the folder opened, which is 1.1.
+        self.conversation(steps=[self.step(usage(100, 1))], trajectory={"1": {"2": self.uri()[0]}})
+        self.conversation(cid="c2", steps=[self.step(usage(7, 1, "c2"))], workspace=self.uri())
+        result = self.scan()
+        self.assertEqual((result.days["2026-08-05"]["models"]["unknown"], result.held), (counts(7, 1), 1))
+
+    def test_a_conversation_placed_nowhere_that_will_not_open_is_held(self):
+        path = os.path.join(self.home, "conversations", "c1.db")
+        os.makedirs(os.path.dirname(path))
+        with open(path, "wb") as f:
+            f.write(b"not a database")
+        self.conversation(cid="c2", steps=[self.step(usage(100, 1, "c2"))], workspace=self.uri())
+        result = self.scan()
+        self.assertEqual((result.days["2026-08-05"]["turns"], result.held, result.skipped), (1, 1, 0))
 
     def test_a_conversation_placed_nowhere_is_held(self):
         self.conversation(steps=[self.step(usage(100, 1))], workspace=self.uri())

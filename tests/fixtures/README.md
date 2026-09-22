@@ -47,6 +47,10 @@ pointed at a temporary repository.
   git repository with a fresh `HOME`. Real conversations with Gemini 3.8
   Flash and Claude Sonnet 4.6; nobody else's data and no licence to carry.
   See below.
+- `antigravity-ide/`: recorded for this repository on 2026-09-22 with
+  Antigravity IDE 2.5.5, signed in to a real account, in two throwaway git
+  repositories. Real conversations with Gemini 3.8 Flash; nobody else's data
+  and no licence to carry. See below.
 
 ## Copilot CLI
 
@@ -270,6 +274,54 @@ directory beside it by `/work/elsewhere` (`../elsewhere` where it was given
 relative), in the summaries' `file://` URIs, the logs and the history.
 `tests/agent_logs.py` installs `/work/elsewhere` as a directory beside the
 test repository.
+
+## Antigravity IDE
+
+The IDE keeps its conversations as agy does, one SQLite database each under
+`~/.gemini/antigravity-ide/conversations/`, with the same tables and the same
+usage fields, and `antigravity-ide/conversations/` is committed and built the
+same way. It writes no `conversation_summaries.db`, no CLI log and no
+`history.jsonl`, so there are none here. The one record of where a
+conversation ran is its own `trajectory_metadata_blob`, and from it, beside
+the start (field 2), these were kept:
+
+- **field 1**, once for each folder of the IDE's workspace, in the
+  workspace's order: the folder opened (1.1) and its git root (1.2), each a
+  `file://` URI. The branch (1.4) was dropped.
+- **field 7**, the folder opened again, once for each folder.
+
+A repeated field is written as a list (`{"7": ["file:///a", "file:///b"]}`),
+which `tests/agent_logs.py` encodes as the field written once per value.
+The rest of each database was dropped as the CLI's was: the prompts, the
+replies, the tool calls, the executor's state and, among the IDE's other
+directories, `brain/` (whose `.system_generated/logs/` transcripts repeat
+each conversation) and `implicit/` (three `.pb` files after these three
+conversations).
+
+There are three conversations, each on 2026-09-22 and each one prompt, whose
+calls were all Gemini 3.8 Flash except one per conversation: a step of type
+23 on model id 1050, 100 or 101 input and 4 or 5 output, with no `gen_metadata`
+row and so no model name.
+
+- **`092375a1…`**: the repository opened as the IDE's folder. Six Flash
+  calls, 68,023 input, 943 output and 36,614 cache read, and 100 / 5 on
+  model 1050.
+- **`d79bd73f…`**: its subdirectory `sub/` opened. Field 1.1 and field 7
+  name `sub/`, field 1.2 the repository. Nine Flash calls, 63,751 / 1,449 /
+  97,576, and 100 / 4.
+- **`87baf5fe…`**: a workspace of two folders, a second repository and then
+  this one, which asked for a change in the first. Fields 1 and 7 are each
+  written twice, the first folder first. Six Flash calls, 52,412 / 874 /
+  52,860, and 101 / 4.
+
+Each output holds its thinking, as on the CLI: field 9 plus field 10 is
+field 3 in every Flash call. The cache read is beside the input: the
+prompt, input plus cache read, grows from one call to the next (16,559,
+16,974, then 5,033 + 12,210 = 17,243, 5,523 + 12,205 = 17,728), which it would
+not if the read were inside the input.
+
+The first repository's path is replaced by the placeholder and the second's
+by `/work/elsewhere`, in every URI.
 
 ## Kilo Code
 

@@ -283,7 +283,7 @@ archives per-day totals, per agent and model, into `token_usage.json`.
 | Qwen Code | `~/.qwen/projects/*/chats/`, one JSONL file per session from 0.4.0 (an archived one moves to `chats/archive/`), and the Gemini-format sessions under `~/.qwen/tmp/` that earlier releases wrote | `QWEN_HOME` replaces `~/.qwen`; `QWEN_RUNTIME_DIR`, and the `advanced.runtimeOutputDir` setting in any of Qwen Code's settings files, add the directory they name |
 | OpenCode | `~/.local/share/opencode`, on macOS and Windows as well: its `opencode*.db` databases and the file stores older releases wrote | `XDG_DATA_HOME` replaces `~/.local/share`; `OPENCODE_DB` adds the database it names |
 | Kilo Code | `~/.local/share/kilo`, on macOS and Windows as well: its `kilo*.db` databases, an `opencode-*.db` left there by the fork's rename, and the file stores its 1.0.x releases wrote | `XDG_DATA_HOME` replaces `~/.local/share`; `KILO_DB` adds the database it names |
-| Antigravity | `~/.gemini/antigravity-cli/conversations/`, one SQLite database per conversation, placed by the CLI logs beside it, then `history.jsonl`, then `conversation_summaries.db`; the IDE's `~/.gemini/antigravity` and its other names are read the same way | none |
+| Antigravity | `~/.gemini/antigravity-cli/conversations/`, one SQLite database per conversation, placed by the CLI logs beside it, then `history.jsonl`, then `conversation_summaries.db`, then the conversation's own record of its workspace; the IDE's `~/.gemini/antigravity-ide`, and `~/.gemini/antigravity` and `~/.gemini/antigravity-backup`, are read the same way | none |
 
 For any repository not worked on with these agents on this machine, the
 section and the commit table's Tokens column are simply absent. That is the
@@ -590,9 +590,11 @@ only through a trailer someone wrote by hand, naming it as `Kilo Code`,
 #### Antigravity
 
 **Sessions.** Antigravity's CLI, agy, keeps each conversation in a SQLite
-database of protobuf records. A print-mode conversation's database
-(`agy -p`) names no directory at all, so a conversation is placed by one of
-three files, in this order:
+database of protobuf records, and the Antigravity IDE keeps its own the
+same way under `~/.gemini/antigravity-ide`. A print-mode conversation's
+database (`agy -p`) names no directory at all, so a conversation is placed
+by the first of these that names one (except that one a CLI log records goes
+no further than `history.jsonl`, as below):
 
 1. **The CLI log** of the run that created it, under `log/`, names the
    working directory first and any `--add-dir` directories after it. agy
@@ -603,7 +605,13 @@ three files, in this order:
    absolute paths and then, for an interactive conversation only, the working
    directory, so its last entry is taken. A print-mode run with `--add-dir`
    whose log is gone is therefore read as its added directory's, which is why
-   this file is the last resort.
+   this file comes after the other two.
+4. **The conversation itself.** The IDE writes none of the three files, but
+   each of its conversations records the folders of the IDE's workspace. The
+   first is taken: the folder that was opened, or the first folder listed in
+   a workspace of several. Checked with Antigravity IDE 2.5.5; an agy
+   conversation that none of the three files places is read the same way,
+   although whether agy records its folders there was not checked.
 
 A conversation belongs when its working directory is the repository or a
 directory in it.
@@ -617,7 +625,7 @@ relative `--add-dir docs` leaves it, falls through to `history.jsonl` alone,
 since that run's summary names only its added directories; without an
 `/exit` record it is held back.
 
-A conversation that none of the three places is not guessed at. When the
+A conversation that none of these places is not guessed at. When the
 repository has Antigravity usage, the run's summary says how many such
 conversations the machine holds, since none of them can be tied to any one
 repository.
@@ -628,8 +636,12 @@ are read once per call by its response id.
 The input, the output (with the thinking already in it), the cache read and
 the model are as agy stores them, and they match what agy reports itself
 (`--output-format json`). The cache read sits beside the input, not inside
-it, as a Claude model's calls through agy show. No Gemini call recorded a
-cache read, so for Gemini models that is unconfirmed.
+it. A Claude model's calls through agy show it, and so do a Gemini model's
+through the IDE, whose prompt (input plus cache read) grows from one call to
+the next rather than falling to the uncached part.
+
+Each IDE conversation also makes one small call, of 100 or so input tokens, on a
+model it does not name, and that call is counted under `unknown`.
 
 No recorded call reports a cache write, not even the first Claude call,
 whose cache the next one read, so a write is presumably inside the input,

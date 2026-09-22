@@ -1,6 +1,8 @@
 """Antigravity: Google's coding agent, whose CLI (agy) keeps each conversation
 in its own SQLite database of protobuf records, under
-~/.gemini/antigravity-cli/conversations/<conversation id>.db.
+~/.gemini/antigravity-cli/conversations/<conversation id>.db. The IDE
+(Antigravity IDE 2.5.5) keeps its own the same way, with the same tables and
+fields, under ~/.gemini/antigravity-ide.
 
 Every model call is recorded twice: in the step that holds its reply (the
 step's metadata, field 9) and in a gen_metadata row (data field 1.4), both
@@ -10,9 +12,10 @@ reported usage: 2 is the input, 3 the output with the thinking already
 in it, 9 the thinking and 10 the visible reply (9 + 10 = 3), and 5 the cache
 read, reported beside the input rather than inside it (a Claude call that
 read 13,228 cached tokens records 684 in field 2, and agy's own total is
-input + output). That is confirmed for Claude only: no Gemini call recorded a
-cache read, and Gemini's own API counts one inside the prompt, so a Gemini
-cache read may yet be counted twice here. 4 would be the cache write, which
+input + output). A Gemini call's is beside it too, although Gemini's own API
+counts one inside the prompt: through the IDE, the prompt that input plus
+cache read makes grows call by call (16,974, then 5,033 + 12,210), where a
+read inside the input would have it fall from 17k to 5k. 4 would be the cache write, which
 no recorded call has: the first Claude call, which must have written the
 cache the next one read, reports none, so a write presumably sits in the
 input, as Qwen Code folds one.
@@ -24,7 +27,7 @@ trajectory_metadata_blob).
 
 A print-mode conversation's database holds no directory at all (an
 interactive one's names its workspace among its tool calls and trajectory,
-but not in one place a reader can rely on). Three files say where one ran,
+in fields not checked against agy). Three files say where one ran,
 and a conversation belongs by the working directory it was created in:
 
 - the CLI log of the run that created it: `workspaceDirs=[...]`, the working
@@ -37,7 +40,14 @@ and a conversation belongs by the working directory it was created in:
   directories given as absolute paths and then, for an interactive conversation only, the working
   directory: so its last URI is taken, and a print-mode conversation that
   names an added directory there is read as that directory's. It is the
-  last resort for that reason.
+  last of the three for that reason.
+
+The IDE writes none of the three. Its conversations name their workspace in
+their own trajectory (see own_workspace), which is read only for a
+conversation no CLI log records, when the history and the summary place it
+nowhere either. So every conversation the three files place is placed as
+before; an agy one that none of them places falls back to its trajectory
+too, whose fields were checked on the IDE only.
 
 A conversation that none of them places is held back rather than guessed at.
 One whose log cannot be read unambiguously (see log_directory) is placed by
@@ -63,13 +73,13 @@ LABEL = "Antigravity"
 AGENT = re.compile(r"^Antigravity$")
 SKIPPED = "damaged, locked, in a directory this user cannot write, or not a conversation database this reader knows"
 MALFORMED_UNIT = "records"
-HELD = ("no workspace recorded for them, in a CLI log still on disk, the history or a summary,"
-        " so no repository can claim them; counted across this machine")
+HELD = ("no workspace recorded for them, in a CLI log still on disk, the history, a summary"
+        " or the conversation itself, so no repository can claim them; counted across this machine")
 READ_ERRORS = (OSError, ValueError, TypeError, sqlite3.Error)
 # The directories Antigravity keeps its data in, under ~/.gemini: the CLI's,
-# the IDE's (Antigravity 1.2.3 writes conversation_summaries.db there), and
-# the IDE's other names other readers list. A directory holding none of the
-# files below adds nothing.
+# the one Antigravity 1.2.3 writes conversation_summaries.db in, the IDE's
+# (Antigravity IDE 2.5.5), and a name other readers list. A directory
+# holding none of the files below adds nothing.
 ROOTS = ("antigravity-cli", "antigravity", "antigravity-ide", "antigravity-backup")
 WORKSPACE = re.compile(r"workspaceDirs=\[([^\]\n]*)\]")
 CREATED = re.compile(r"Created conversation ([0-9A-Za-z-]+)")
@@ -97,9 +107,15 @@ def message(blob):
     """A protobuf message's fields, {number: value}, the last one written
     winning: a varint as an int, a length-delimited field as bytes, the fixed
     widths as ints. Raises ValueError on anything that is not one."""
+    return dict(pairs(blob))
+
+
+def pairs(blob):
+    """A protobuf message's fields in the order written, (number, value), a
+    repeated field once for each value. Raises ValueError as message()."""
     if not isinstance(blob, bytes):
         raise ValueError("not a message")
-    fields, i = {}, 0
+    i = 0
     while i < len(blob):
         key, i = varint(blob, i)
         number, wire = key >> 3, key & 7
@@ -117,8 +133,7 @@ def message(blob):
             raise ValueError(f"wire type {wire}")
         if i > len(blob):
             raise ValueError("truncated field")
-        fields[number] = value
-    return fields
+        yield number, value
 
 
 def sub(fields, number):
@@ -240,12 +255,42 @@ def workspace_of(uris):
     directories first and the working directory last."""
     try:
         uris = json.loads(uris) if isinstance(uris, str) and uris else []
-        first = uris[-1] if isinstance(uris, list) and uris else None
-        parsed = urllib.parse.urlparse(first) if isinstance(first, str) else None
-        local = parsed and parsed.scheme == "file" and parsed.netloc in ("", "localhost") and parsed.path
-        return urllib.request.url2pathname(parsed.path) if local else None
     except (ValueError, RecursionError):
         return None
+    return local_path(uris[-1] if isinstance(uris, list) and uris else None)
+
+
+def local_path(uri):
+    """A file URI's local path, or None for anything else: another host, a
+    URI that will not parse, or no string at all."""
+    try:
+        parsed = urllib.parse.urlparse(uri) if isinstance(uri, str) else None
+        local = parsed and parsed.scheme == "file" and parsed.netloc in ("", "localhost") and parsed.path
+        return urllib.request.url2pathname(parsed.path) if local else None
+    except ValueError:
+        return None
+
+
+def own_workspace(path):
+    """The folder a conversation's own trajectory says it was opened in, as
+    a local path, or None. The IDE records each folder of its workspace as
+    a field 1 of trajectory_metadata_blob, in the workspace's order, whose
+    field 1 is the folder's URI (2 is its git root); the first is taken, as
+    the IDE's primary folder. agy's print-mode conversations hold no path at
+    all; whether its interactive ones fill these fields was not checked."""
+    try:
+        conn = open_read_only(path)
+        try:
+            rows = conn.execute("SELECT data FROM trajectory_metadata_blob").fetchall()
+        finally:
+            conn.close()
+        for (blob,) in rows:
+            folder = next((value for number, value in pairs(blob) if number == 1), None)
+            if isinstance(folder, bytes):
+                return local_path(string(message(folder), 1))
+    except READ_ERRORS:
+        pass
+    return None
 
 
 def logged(home):
@@ -349,14 +394,15 @@ def scan(repo, homes):
         log, exits, summary = logged(home), history(home), summaries(home)
         for name in names:
             cid = name[:-3]
-            # The log first, then the history, then the summary. A log whose
-            # text cannot be told falls through to the history only: it says
-            # the run had added directories, and in print mode the summary
-            # names those alone.
+            # The log first, then the history, then the summary, then the
+            # conversation's own trajectory, the IDE's only record. A log
+            # whose text cannot be told falls through to the history only:
+            # it says the run had added directories, and in print mode the
+            # summary names those alone.
             if cid in log:
                 directory = log_directory(log[cid]) or exits.get(cid)
             else:
-                directory = exits.get(cid) or summary.get(cid)
+                directory = exits.get(cid) or summary.get(cid) or own_workspace(os.path.join(folder, name))
             if not directory:
                 held += 1
                 continue

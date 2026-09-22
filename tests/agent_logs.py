@@ -10,7 +10,9 @@ blobs. Its rows are committed as JSONL, one directory per conversation, with
 each blob written as its field tree ({"9": {"2": 11874}}); install() encodes
 them back and builds the databases. Its CLI logs are committed as the one
 fact the reader takes from them, and written back in agy's own format; its
-history.jsonl is copied with the placeholders swapped, as the rest are.
+history.jsonl is copied with the placeholders swapped, as the rest are. The
+IDE's conversations, under antigravity-ide/, are built the same way, and
+the IDE writes no summaries, logs or history beside them.
 
 OpenCode keeps its sessions in SQLite, which a repository cannot hold as a
 readable, diffable fixture. Its rows are committed as JSONL instead, one
@@ -95,16 +97,18 @@ def varint(n):
 
 def protobuf(tree):
     """A message from its field tree: a number is a varint, a string is
-    UTF-8 bytes and a dict is a nested message, each length-delimited."""
+    UTF-8 bytes and a dict is a nested message, each length-delimited. A list
+    is a repeated field, each of its values written in turn."""
     out = bytearray()
-    for field, value in tree.items():
-        if not isinstance(value, (int, str, dict)):
-            raise ValueError(f"field {field}: a fixture blob holds numbers, strings and messages")
-        if isinstance(value, int):
-            out += varint(int(field) << 3) + varint(value)
-            continue
-        body = protobuf(value) if isinstance(value, dict) else value.encode("utf-8")
-        out += varint(int(field) << 3 | 2) + varint(len(body)) + body
+    for field, values in tree.items():
+        for value in values if isinstance(values, list) else [values]:
+            if not isinstance(value, (int, str, dict)):
+                raise ValueError(f"field {field}: a fixture blob holds numbers, strings and messages")
+            if isinstance(value, int):
+                out += varint(int(field) << 3) + varint(value)
+                continue
+            body = protobuf(value) if isinstance(value, dict) else value.encode("utf-8")
+            out += varint(int(field) << 3 | 2) + varint(len(body)) + body
     return bytes(out)
 
 
@@ -116,21 +120,23 @@ AGY_CREATED = "I0922 09:36:42.773709       1 server.go:1224] Created conversatio
 
 
 def install_antigravity(root, home, swap):
-    """Build the conversation databases, the summaries database, the CLI
-    logs and the prompt history of the Antigravity fixture under `home`; the
-    paths written."""
+    """Build the conversation databases, and the summaries database, the
+    CLI logs and the prompt history where the fixture has them (the IDE's has
+    none), under `home`; the paths written."""
     written = []
     conversations = os.path.join(root, "conversations")
     for cid in sorted(os.listdir(conversations)):
         tables = {}
         for name in sorted(os.listdir(os.path.join(conversations, cid))):
             with open(os.path.join(conversations, cid, name), encoding="utf-8") as f:
-                rows = [json.loads(l) for l in f.read().splitlines() if l.strip()]
+                rows = [json.loads(swap(l)) for l in f.read().splitlines() if l.strip()]
             tables[os.path.splitext(name)[0]] = [{k: protobuf(v) if isinstance(v, dict) else v
                                                  for k, v in row.items()} for row in rows]
         path = os.path.join(home, "conversations", cid + ".db")
         build_database(path, tables)
         written.append(path)
+    if not os.path.exists(os.path.join(root, "conversation_summaries.jsonl")):
+        return written
     with open(os.path.join(root, "conversation_summaries.jsonl"), encoding="utf-8") as f:
         rows = [json.loads(swap(l)) for l in f.read().splitlines() if l.strip()]
     path = os.path.join(home, "conversation_summaries.db")
@@ -166,7 +172,7 @@ def install(agent, home, repo, remote=REMOTE, database="opencode.db"):
              (json.dumps(ELSEWHERE)[1:-1], json.dumps(os.path.join(os.path.dirname(repo), "elsewhere"))[1:-1]),
              (json.dumps(PLACEHOLDER)[1:-1], json.dumps(repo)[1:-1]),
              (REMOTE, remote))
-    if agent == "antigravity":
+    if agent in ("antigravity", "antigravity-ide"):
         os.makedirs(os.path.join(os.path.dirname(repo), "elsewhere"), exist_ok=True)
 
         def swap(text):
