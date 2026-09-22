@@ -16,9 +16,12 @@ never counts a token twice.
 import json
 import os
 import re
+import sys
 import tempfile
 from collections import namedtuple
 from datetime import datetime, timezone
+
+from clocwork import ui
 
 COUNTERS = ("input", "output", "cache_read", "cache_write")
 
@@ -170,7 +173,7 @@ def save(path, days):
     os.chmod(path, 0o644)
 
 
-def archive(repo_path, archive_path, sources, homes=None, log=print):
+def archive(repo_path, archive_path, sources, homes=None, report=None):
     """Scan every source's logs for a repository and merge them into its archive.
 
     `homes` maps a source key to the directories to read in place of the
@@ -178,10 +181,11 @@ def archive(repo_path, archive_path, sources, homes=None, log=print):
     The archive is written only when some source found usage for the
     repository, so a machine without any never creates or touches one.
     """
+    report = report or ui.Plain(sys.stdout)
     days = load(archive_path)
     was_days, was_total = len(days), sum(day_total(d) for d in days.values())
 
-    scanned, missing = {}, []
+    scanned, missing, found = {}, [], []
     for source in sources:
         # An override is used even when empty: [] means read nothing.
         where = (homes or {}).get(source.KEY)
@@ -194,26 +198,28 @@ def archive(repo_path, archive_path, sources, homes=None, log=print):
         for date, day in result.days.items():
             scanned.setdefault(date, {})[source.KEY] = day
         n = len(result.days)
-        log(f"  Scanned {n} {'day' if n == 1 else 'days'} of {source.LABEL} logs")
+        found.append(f"{source.LABEL} {n:,} {'day' if n == 1 else 'days'}")
+        report.detail("scanned", f"{n:,} {'day' if n == 1 else 'days'} of {source.LABEL} logs")
         if result.malformed:
             unit = getattr(source, "MALFORMED_UNIT", "lines")
-            log(f"  NOTE: skipped {result.malformed} unparseable {source.LABEL} {unit}")
+            report.warn(f"skipped {result.malformed} unparseable {source.LABEL} {unit}")
         if result.skipped:
             reason = getattr(source, "SKIPPED", "")
-            log(f"  NOTE: could not read {result.skipped} {source.LABEL} files" + (f": {reason}" if reason else ""))
+            report.warn(f"could not read {result.skipped} {source.LABEL} files" + (f": {reason}" if reason else ""))
         if result.held:
             reason = getattr(source, "HELD", "")
-            log(f"  NOTE: held back {result.held} {source.LABEL} "
-                f"{'session' if result.held == 1 else 'sessions'}" + (f": {reason}" if reason else ""))
+            report.warn(f"held back {result.held} {source.LABEL} "
+                        f"{'session' if result.held == 1 else 'sessions'}" + (f": {reason}" if reason else ""))
     if missing:
-        log(f"  No logs for this repository from {'; '.join(missing)}")
+        report.detail("no logs", "; ".join(missing))
     if not scanned:
-        log(f"  Archive left unchanged: {was_days} days, {was_total:,} tokens")
+        report.done(found or "no agent logs for this repository")
+        report.detail("archive", f"unchanged: {was_days:,} days, {was_total:,} tokens")
         return days
 
     days = merge(days, scanned)
     save(archive_path, days)
     total = sum(day_total(d) for d in days.values())
-    log(f"  Archive now {len(days)} days, {total:,} tokens "
-        f"(+{len(days) - was_days} days, +{total - was_total:,} tokens)")
+    report.done(found, f"Archive now {len(days)} days, {total:,} tokens "
+                       f"(+{len(days) - was_days} days, +{total - was_total:,} tokens)")
     return days

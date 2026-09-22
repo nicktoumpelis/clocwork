@@ -36,6 +36,15 @@ class TestFormatting(unittest.TestCase):
         self.assertEqual(ui.bar(0.55, 10, True), ("━━━━━╸", "━━━━"))
         self.assertEqual(ui.bar(1, 4, False), ("####", ""))
 
+    def test_parts_are_packed_whole_into_lines(self):
+        parts = ["Copilot from 2025-02-01", "Cursor from 2025-02-02", "Claude Opus 4.6 from 2025-02-03"]
+        self.assertEqual(ui.pack(parts, " · ", 50),
+                         ["Copilot from 2025-02-01 · Cursor from 2025-02-02", "Claude Opus 4.6 from 2025-02-03"])
+        self.assertEqual(ui.pack(parts, " · ", 200), [" · ".join(parts)])
+        self.assertEqual(ui.pack(["x" * 30], " · ", 10), ["x" * 30])     # a part wider than the line stands alone
+        self.assertEqual(ui.pack("one string", " · ", 5), ["one string"])
+        self.assertEqual(ui.pack([], " · ", 5), [""])
+
     def test_columns_align_left_then_right(self):
         self.assertEqual(ui.columns(("", "code", "drift"), [("Swift", "98,120", "+0"), ("Go", "5", "-12")]),
                          ["         code  drift", "Swift  98,120     +0", "Go          5    -12"])
@@ -222,6 +231,12 @@ class TestTerminal(unittest.TestCase):
                 raise ValueError("boom")
         self.assertIn("✗", out.getvalue())
         self.assertTrue(out.getvalue().endswith("\n"))
+
+    def test_a_long_path_wraps_only_at_spaces(self):
+        out = Stream(tty=True)
+        report = ui.Terminal(out, verbose=True, width=40, clock=Clock())
+        report.detail("saved", "/tmp/a-very-long-directory-name/poly-stats/full_commit_data.json")
+        self.assertIn("/tmp/a-very-long-directory-name/poly-stats/full_commit_data.json", out.getvalue())
 
     def test_a_live_line_never_exceeds_the_width(self):
         out, clock = Stream(tty=True), Clock()

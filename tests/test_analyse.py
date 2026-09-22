@@ -16,7 +16,9 @@ from clocwork import config as cfg
 from clocwork import paths
 from clocwork import sources as src
 from clocwork import tokens as tu
+from clocwork import ui
 from tests import repo_fixture as fx
+from tests.ui_recorder import Recorder
 
 HAVE_CLOC = shutil.which("cloc") is not None
 
@@ -56,7 +58,7 @@ class TestAnalyse(unittest.TestCase):
         cls.out = os.path.join(cls.tmp.name, "out.json")
         cls.cache = os.path.join(cls.tmp.name, "cache.json")
         cls.archive = os.path.join(cls.tmp.name, "token_usage.json")
-        cls.data = an.analyse(cls.tmp.name, cls.out, cls.cache, cls.archive, log=lambda *a: None)
+        cls.data = an.analyse(cls.tmp.name, cls.out, cls.cache, cls.archive, report=ui.Reporter())
 
     @classmethod
     def tearDownClass(cls):
@@ -106,7 +108,7 @@ class TestAnalyse(unittest.TestCase):
         original = an.cl.diff_commit
         an.cl.diff_commit = lambda *a, **k: calls.append(a) or original(*a, **k)
         try:
-            an.analyse(self.tmp.name, self.out, self.cache, self.archive, log=lambda *a: None)
+            an.analyse(self.tmp.name, self.out, self.cache, self.archive, report=ui.Reporter())
         finally:
             an.cl.diff_commit = original
         self.assertEqual(calls, [])
@@ -114,7 +116,7 @@ class TestAnalyse(unittest.TestCase):
     def test_cap_marks_pending(self):
         with tempfile.TemporaryDirectory() as d:
             hashes = fx.make_repo(d)
-            data = an.analyse(d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), os.path.join(d, "t.json"), max_commits=1, log=lambda *a: None)
+            data = an.analyse(d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), os.path.join(d, "t.json"), max_commits=1, report=ui.Reporter())
             self.assertEqual([c["status"] for c in data["commits"]], ["ok", "pending", "pending", "merge"])
             self.assertEqual(data["summary"]["pending_commits"], 2)
 
@@ -128,7 +130,7 @@ class TestAnalyse(unittest.TestCase):
 
         an.cl.measure_commits = spy
         try:
-            an.analyse(self.tmp.name, self.out, self.cache, self.archive, jobs=3, log=lambda *a: None)
+            an.analyse(self.tmp.name, self.out, self.cache, self.archive, jobs=3, report=ui.Reporter())
         finally:
             an.cl.measure_commits = original
         self.assertEqual(seen["jobs"], 3)
@@ -165,7 +167,7 @@ class TestNonPrMerge(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             fx.make_repo(d)
             extra, merge = fx.add_branch_merge(d)
-            data = an.analyse(d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), os.path.join(d, "t.json"), log=lambda *a: None)
+            data = an.analyse(d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), os.path.join(d, "t.json"), report=ui.Reporter())
             by_hash = {c["full_hash"]: c for c in data["commits"]}
             self.assertEqual(by_hash[extra]["lines"], {"Markdown": [1, 0, 0, 0, 0, 0]})
             self.assertEqual(by_hash[merge]["status"], "merge")
@@ -181,20 +183,20 @@ class TestInputs(unittest.TestCase):
     def test_not_a_repository(self):
         with tempfile.TemporaryDirectory() as d:
             with self.assertRaises(paths.NotARepository):
-                an.analyse(d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), os.path.join(d, "t.json"), log=lambda *a: None)
+                an.analyse(d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), os.path.join(d, "t.json"), report=ui.Reporter())
 
     def test_empty_repository_is_an_error_not_an_empty_dashboard(self):
         with tempfile.TemporaryDirectory() as d:
             subprocess.run(["git", "init", "-q"], cwd=d, check=True)
             with self.assertRaises(an.NoCommits):
-                an.analyse(d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), os.path.join(d, "t.json"), log=lambda *a: None)
+                an.analyse(d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), os.path.join(d, "t.json"), report=ui.Reporter())
 
     def test_configured_rules_change_the_test_split(self):
         with tempfile.TemporaryDirectory() as d:
             fx.make_repo(d)
             conf = cfg.parse('[tests]\ninclude = ["App/**"]\n', "x")
             data = an.analyse(d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), os.path.join(d, "t.json"),
-                              config=conf, log=lambda *a: None)
+                              config=conf, report=ui.Reporter())
             self.assertEqual(data["commits"][0]["test_lines"], {"Swift": fx.SWIFT_ROW_1})
             self.assertEqual(data["summary"]["head_snapshot"]["tests"]["Swift"], fx.HEAD_SWIFT)
 
@@ -202,7 +204,7 @@ class TestInputs(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             fx.make_extensionless_repo(d)
             data = an.analyse(d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), os.path.join(d, "t.json"),
-                              log=lambda *a: None)
+                              report=ui.Reporter())
             self.assertEqual(data["commits"][0]["lines"],
                              {lang: [2, 0, 0, 0, 0, 0] for _, lang in fx.EXTENSIONLESS.values()})
             self.assertEqual(data["commits"][1]["lines"], {"Bourne Shell": [1, 0, 0, 0, 0, 0]})
@@ -215,7 +217,7 @@ class TestInputs(unittest.TestCase):
 
     def run_quietly(self, d):
         return an.analyse(d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), os.path.join(d, "t.json"),
-                          log=lambda *a: None)
+                          report=ui.Reporter())
 
     def assert_no_drift(self, summary):
         for name in ("reconciliation", "mapping_check"):
@@ -299,12 +301,12 @@ class TestInputs(unittest.TestCase):
     def test_a_failed_count_of_the_renamed_files_is_a_warning(self):
         with tempfile.TemporaryDirectory() as d:
             fx.make_language_change_repo(d)
-            lines = []
+            rec = Recorder()
             with mock.patch.object(an.cl, "count_blobs", side_effect=an.cl.ClocError("bad JSON")):
                 data = an.analyse(d, os.path.join(d, "o.json"), os.path.join(d, "c.json"),
-                                  os.path.join(d, "t.json"), log=lines.append)
-            self.assertIn("  WARNING: could not count the renamed files (bad JSON); "
-                          "renames that change language will drift", lines)
+                                  os.path.join(d, "t.json"), report=rec)
+            self.assertIn("could not count the renamed files (bad JSON); "
+                          "renames that change language will drift", rec.of("warn"))
             self.assertEqual(data["commits"][1]["status"], "ok")
             self.assertTrue(any(any(v.values()) for v in data["summary"]["reconciliation"].values()))
             # The table's guess: the page's old name takes the table's
@@ -367,14 +369,14 @@ class TestInputs(unittest.TestCase):
             with open(archive, "w") as f:
                 json.dump({"version": 2, "days": {"2025-02-03": {"claude-code": {"turns": 1, "models": {
                     "claude-opus-4-6": {"input": 0, "output": 70, "cache_read": 0, "cache_write": 0}}}}}}, f)
-            lines = []
-            data = an.analyse(d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), archive, log=lines.append)
+            rec = Recorder()
+            data = an.analyse(d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), archive, report=rec)
             tokens = {c["agent"]: c["tokens"] for c in data["commits"] if c["agent"]}
             kinds = {c["agent"]: c["token_kind"] for c in data["commits"] if c["agent"]}
             self.assertEqual((kinds["Claude Opus 4.6"], kinds["Copilot"], kinds["Cursor"]), ("m", "", ""))
             self.assertEqual((tokens["Claude Opus 4.6"], tokens["Copilot"], tokens["Cursor"]), (70, 0, 0))
-            self.assertIn("  2 AI commits carry no token figure (Copilot CLI, Cursor): "
-                          "no token logs from their agent cover their work", lines)
+            self.assertTrue(any("2 AI commits carry no token figure (Copilot CLI, Cursor): "
+                                "no token logs from their agent cover their work" in r.plain for r in rec.rows), rec.rows)
 
     def test_configured_agents_are_used(self):
         # The polyglot fixture's last commit credits "Jules", which no built-in
@@ -382,10 +384,10 @@ class TestInputs(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             fx.make_polyglot_repo(d)
             args = (d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), os.path.join(d, "t.json"))
-            plain = an.analyse(*args, log=lambda *a: None)
+            plain = an.analyse(*args, report=ui.Reporter())
             self.assertIsNone(plain["commits"][3]["agent"])
             conf = cfg.parse('[agents]\nextra = [{ match = "Jules", name = "Jules" }]\n', "x")
-            data = an.analyse(*args, config=conf, log=lambda *a: None)
+            data = an.analyse(*args, config=conf, report=ui.Reporter())
             self.assertEqual(data["commits"][3]["agent"], "Jules")
             self.assertIn("Jules", data["first_appearances"])
 
@@ -403,13 +405,13 @@ class TestInputs(unittest.TestCase):
             fx._write(d, "docs/decoy.md", "# decoy\n")
             fx._write(d, "main/decoy.md", "# decoy\n")
             args = (d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), os.path.join(d, "t.json"))
-            lines = []
-            on_docs = an.analyse(*args, branch="docs", log=lines.append)
+            rec = Recorder()
+            on_docs = an.analyse(*args, branch="docs", report=rec)
             self.assertEqual(on_docs["summary"]["total_commits"], 5)
             self.assertEqual(on_docs["summary"]["head_snapshot"]["tests"]["Python"]["code"], 2)
             self.assertEqual({l: v for l, v in on_docs["summary"]["reconciliation"].items() if any(v.values())}, {})
-            self.assertTrue(any(l.startswith("  Test code at docs:") for l in lines), lines)
-            on_main = an.analyse(*args, log=lambda *a: None)
+            self.assertTrue(any(r.plain.startswith("Test code at docs:") for r in rec.rows), rec.rows)
+            on_main = an.analyse(*args, report=ui.Reporter())
             self.assertEqual(on_main["summary"]["total_commits"], 4)
             self.assertNotIn("Python", on_main["summary"]["head_snapshot"]["all"])
             self.assertEqual(on_main["summary"]["head_snapshot"]["all"]["Swift"], fx.HEAD_SWIFT)
@@ -421,23 +423,44 @@ class TestInputs(unittest.TestCase):
             fx.make_repo(src)
             shallow = os.path.join(d, "shallow")
             subprocess.run(["git", "clone", "-q", "--depth", "1", "file://" + src, shallow], check=True, capture_output=True)
-            lines = []
-            an.analyse(shallow, os.path.join(d, "o.json"), os.path.join(d, "c.json"), os.path.join(d, "t.json"), log=lines.append)
-            self.assertTrue(any("shallow" in l.lower() and "WARNING" in l for l in lines), lines)
+            rec = Recorder()
+            an.analyse(shallow, os.path.join(d, "o.json"), os.path.join(d, "c.json"), os.path.join(d, "t.json"), report=rec)
+            self.assertTrue(any("shallow" in w for w in rec.of("warn")), rec.events)
 
     def test_explicit_branch(self):
         with tempfile.TemporaryDirectory() as d:
             fx.make_repo(d)
             data = an.analyse(d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), os.path.join(d, "t.json"),
-                              branch="feature", log=lambda *a: None)
+                              branch="feature", report=ui.Reporter())
             self.assertEqual(data["summary"]["total_commits"], 3)
+
+    def test_the_phase_result_and_the_summary(self):
+        with tempfile.TemporaryDirectory() as d:
+            fx.make_repo(d)
+            rec = Recorder()
+            data = an.analyse(d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), os.path.join(d, "t.json"),
+                              report=rec)
+            (text, more), = rec.of("done")
+            total = data["summary"]["total_commits"]
+            merges = sum(1 for c in data["commits"] if c["is_merge"])
+            self.assertTrue(text.startswith(f"{total:,} commits on main @ "), text)
+            self.assertEqual(more, (f"{total - merges:,} measured, 0 from cache",))
+            self.assertEqual([r.label for r in rec.rows][:3], ["Commits", "Tokens", "Tests"])
+            title, header, rows = rec.lines
+            self.assertEqual((title, header), ("Lines at main", ("", "code", "comment", "blank", "drift")))
+            self.assertEqual({r[0] for r in rows}, set(data["languages"]))
+            # A second run measures nothing new.
+            rec = Recorder()
+            an.analyse(d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), os.path.join(d, "t.json"), report=rec)
+            self.assertEqual(rec.of("done")[0][1], (f"0 measured, {total - merges:,} from cache",))
+            self.assertEqual(rec.of("status"), [])
 
     def test_run_summary_reports_the_test_share_at_head(self):
         with tempfile.TemporaryDirectory() as d:
             fx.make_repo(d)
-            lines = []
-            an.analyse(d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), os.path.join(d, "t.json"), log=lines.append)
-            share = [l for l in lines if "Test code at main" in l]
+            rec = Recorder()
+            an.analyse(d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), os.path.join(d, "t.json"), report=rec)
+            share = [r.plain for r in rec.rows if r.plain.startswith("Test code at main")]
             self.assertEqual(len(share), 1)
             self.assertIn(f"{fx.HEAD_TEST_SWIFT['code']:,} of {fx.HEAD_SWIFT['code'] + fx.HEAD_MARKDOWN['code']:,}", share[0])
 

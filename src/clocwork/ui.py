@@ -72,6 +72,25 @@ def joined(parts, sep):
     return parts if isinstance(parts, str) else sep.join(parts)
 
 
+def pack(parts, sep, width):
+    """A row's parts as lines of at most `width`, never splitting a part; a
+    part wider than the line has one of its own."""
+    if isinstance(parts, str):
+        return [parts]
+    lines = []
+    for part in parts:
+        if lines and len(lines[-1]) + len(sep) + len(part) <= width:
+            lines[-1] += sep + part
+        else:
+            lines.append(part)
+    return lines or [""]
+
+
+def wrap(text, width):
+    """Text wrapped at spaces only: a path is never broken at a hyphen or mid-name."""
+    return textwrap.wrap(text, max(20, width), break_on_hyphens=False, break_long_words=False) or [""]
+
+
 def bar(fraction, width, unicode=True):
     """(done, rest): the two halves of a progress bar `width` cells wide."""
     fraction = min(max(fraction, 0.0), 1.0)
@@ -340,7 +359,7 @@ class Terminal(Reporter):
         if not self.verbose:
             return
         lead = " " * 6 + f"{label:<13} "
-        wrapped = textwrap.wrap(str(value), max(20, self.width - len(lead) - 1)) or [""]
+        wrapped = wrap(str(value), self.width - len(lead) - 1)
         self.emit([self.paint(lead + wrapped[0], "dim")]
                   + [self.paint(" " * len(lead) + more, "dim") for more in wrapped[1:]])
 
@@ -369,7 +388,7 @@ class Terminal(Reporter):
             for r in self.rows:
                 lead = f"  {r.label:<{LABEL_WIDTH}} "
                 value = f"{r.value:<{width}}   " if width else ""
-                rest = textwrap.wrap(joined(r.rest, self.sep), max(20, self.width - len(lead) - len(value) - 1)) or [""]
+                rest = pack(r.rest, self.sep, max(20, self.width - len(lead) - len(value) - 1))
                 self.line(lead + self.paint(value, "bold") + rest[0])
                 for more in rest[1:]:
                     self.line(" " * (len(lead) + len(value)) + more)

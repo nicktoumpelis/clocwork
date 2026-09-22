@@ -18,7 +18,7 @@ import sys
 from datetime import date as _date
 
 from clocwork import __version__
-from clocwork.cli import EXIT_ERROR, build_parser
+from clocwork.cli import EXIT_ERROR, EXIT_INTERRUPTED, build_parser
 
 
 def escape(text):
@@ -141,11 +141,14 @@ def render(parser=None, version=__version__, date=None):
                  ".TP\n.B COPILOT_HOME\nWhere Copilot CLI keeps its sessions, read from the\n.I events.jsonl\nin each directory below\n.IR session-state/\nand from\n.IR session-store.db ;\nthe default is\n.IR ~/.copilot .\n"
                  ".TP\n.B GEMINI_CLI_HOME\nThe directory Gemini CLI uses in place of the home directory; its sessions are read from\n.I .gemini/tmp/\nand\n.I .cache/.gemini/tmp/\nbelow it.\n"
                  ".TP\n.B KILO_DB\nA Kilo Code database to read besides every\n.I kilo*.db\nand\n.I opencode\\-*.db\nin its data directory; absolute, or relative to that directory.\n"
+                 ".TP\n.B NO_COLOR\nWhen set and not empty, output is plain lines even on a terminal: "
+                 "no colour, no symbols, no redrawn progress line.\n"
                  ".TP\n.B OPENCODE_DB\nAn OpenCode database to read besides every\n.I opencode*.db\nin its data directory; absolute, or relative to that directory.\n"
                  ".TP\n.B QWEN_HOME\nWhere Qwen Code keeps its sessions, read from\n.I projects/*/chats/\nand\n.I tmp/\nbelow it; the default is\n.IR ~/.qwen .\n"
                  ".TP\n.B QWEN_RUNTIME_DIR\nA further directory Qwen Code writes its sessions to, read as\n.B QWEN_HOME\nis.\n"
                  ".TP\n.B QWEN_CODE_SYSTEM_SETTINGS_PATH\nQwen Code's system settings file, whose\n.B advanced.runtimeOutputDir\nsetting, like the user's and the repository's, can name a further directory for its sessions.\n"
                  ".TP\n.B QWEN_CODE_SYSTEM_DEFAULTS_PATH\nQwen Code's system defaults file, read the same way.\n"
+                 ".TP\n.B TERM\nWhen\n.BR dumb ,\noutput is plain lines, as with\n.BR NO_COLOR .\n"
                  ".TP\n.B XDG_CACHE_HOME\nWhen set, the cloc cache lives under\n.IR $XDG_CACHE_HOME/clocwork/ ;\notherwise under\n.IR ~/.cache/clocwork/ .\n"
                  ".B \\-\\-cache\\-dir\nwins over both. Only\n.B run\nuses the cache.\n"
                  ".TP\n.B XDG_DATA_HOME\nWhere OpenCode and Kilo Code keep their sessions, read from\n.I opencode/\nand\n.I kilo/\nbelow it; the default is\n.I ~/.local/share\non every system, neither having a variable of its own.")
@@ -161,7 +164,8 @@ def render(parser=None, version=__version__, date=None):
     lines.append(".SH EXIT STATUS\n.TP\n.B 0\nSuccess.\n"
                  f".TP\n.B {EXIT_ERROR}\nAn error the command reported: Python older than 3.11, cloc missing, older than 2.06 or failing, no git repository, a repository with no commits, "
                  "a workspace belonging to another repository, invalid configuration, or an unreadable, unwritable or corrupt file. "
-                 "A usage error also exits 2, with the usage line on standard error.")
+                 "A usage error also exits 2, with the usage line on standard error.\n"
+                 f".TP\n.B {EXIT_INTERRUPTED}\nInterrupted (Ctrl\\-C). Commits measured so far are cached, so the next run resumes.")
     lines.append(".SH SEE ALSO\n.BR cloc (1),\n.BR git (1),\n.BR git\\-log (1)")
     return "\n".join(lines) + "\n"
 

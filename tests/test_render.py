@@ -6,6 +6,8 @@ import unittest
 from unittest import mock
 
 from clocwork import render as gh
+from clocwork import ui
+from tests.ui_recorder import Recorder
 
 DATA = {
     "languages": ["Swift", "Markdown"],
@@ -245,14 +247,17 @@ class TestRenderWorkspace(unittest.TestCase):
             data["summary"].update({"first_date": "2025-01-01", "last_date": "2025-01-04"})
             with open(os.path.join(d, "full_commit_data.json"), "w") as f:
                 json.dump(data, f)
-            lines = []
-            out = gh.render_workspace(d, title="T", repo_name="R", locale=None, log=lines.append)
+            rec = Recorder()
+            out = gh.render_workspace(d, title="T", repo_name="R", locale=None, report=rec)
             self.assertEqual(out, os.path.join(d, "index.html"))
             with open(out) as f:
                 self.assertIn("var RAW = {", f.read())
             with open(os.path.join(d, "commit_bodies.js")) as f:
                 self.assertEqual(f.read(), 'var COMMIT_BODIES = {"abc1234":"long body"};\n')
-            self.assertTrue(any("1 bodies" in l for l in lines))
+            self.assertEqual(rec.of("done")[0][0], "index.html · " + ui.size(os.path.getsize(out)))
+            self.assertIn(("commits", f"{data['summary']['total_commits']:,}, 2025-01-01 to 2025-01-04"), rec.of("detail"))
+            self.assertTrue(any("1 bodies" in value for label, value in rec.of("detail")), rec.events)
+            self.assertIn(("locale", "none recorded, the browser decides"), rec.of("detail"))
 
     def test_the_page_names_the_build_that_rendered_it(self):
         with tempfile.TemporaryDirectory() as d:
@@ -262,7 +267,7 @@ class TestRenderWorkspace(unittest.TestCase):
                 json.dump(data, f)
             build = {"version": "9.9.9", "commit": None}
             with mock.patch.object(gh.paths, "build", return_value=build):
-                gh.render_workspace(d, title="T", repo_name="R", locale=None, log=lambda *a: None)
+                gh.render_workspace(d, title="T", repo_name="R", locale=None, report=ui.Reporter())
             with open(os.path.join(d, "index.html")) as f:
                 raw = json.loads(re.search(r"(?m)^var RAW = (.*);$", f.read()).group(1))
             self.assertEqual(raw["rendered_by"], build)
