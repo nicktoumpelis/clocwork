@@ -57,7 +57,7 @@ MODEL_ID = re.compile(r"^[0-9a-z][0-9a-z.-]*$")
 # as repositoryHost and repository, so the path half stands alone in a
 # reduced record and is a placeholder like the remote it comes from.
 REMOTE_PATH = paths.parse_remote(agent_logs.REMOTE)[1]
-AGENTS = ("antigravity", "codex", "copilot", "copilot-store", "gemini", "kilo", "opencode", "qwen")
+AGENTS = ("antigravity", "antigravity-ide", "codex", "copilot", "copilot-store", "gemini", "kilo", "opencode", "qwen")
 COPILOT_KEYS = {
     "baseCommit", "branch", "cacheReadTokens", "cacheWriteTokens", "cache_read", "cache_write",
     "context", "copilotVersion", "cost", "count", "cwd", "data", "gitRoot", "headCommit", "hostType",
@@ -98,9 +98,10 @@ QWEN_KEYS = {
     "tool", "tool_token_count", "total", "totalTokenCount", "total_token_count", "type", "uiEvent",
     "usageMetadata", "uuid", "version",
 }
-# Antigravity's recorded conversations: the columns of the tables install()
-# builds, the protobuf field numbers kept in their blobs (a step's time and
-# usage, a generation's usage and model, the trajectory's start), and the two
+# Antigravity's recorded conversations, the CLI's and the IDE's: the columns
+# of the tables install() builds, the protobuf field numbers kept in their
+# blobs (a step's time and usage, a generation's usage and model, the
+# trajectory's start and, from the IDE, its workspace folders), and the two
 # facts kept from each CLI log.
 ANTIGRAVITY_COLUMNS = {
     "steps": {"idx", "step_type", "metadata"},
@@ -110,7 +111,7 @@ ANTIGRAVITY_COLUMNS = {
     "runs": {"log", "workspaceDirs", "created"},
     "history": {"timestamp", "workspace", "conversationId", "type"},
 }
-ANTIGRAVITY_FIELDS = {"1", "2", "3", "4", "5", "9", "10", "11", "19"}
+ANTIGRAVITY_FIELDS = {"1", "2", "3", "4", "5", "7", "9", "10", "11", "19"}
 ANTIGRAVITY_KEYS = set().union(*ANTIGRAVITY_COLUMNS.values()) | ANTIGRAVITY_FIELDS
 # Its field names are numbers, reused at every depth, so the allow-list above
 # cannot tell a response id from a prompt kept under the same number. Every
@@ -135,6 +136,13 @@ ANTIGRAVITY_STRINGS = {
     "workspace_uris": re.compile("^file://({}|{})$".format(re.escape(agent_logs.PLACEHOLDER),
                                                          re.escape(agent_logs.ELSEWHERE))),
 }
+# The IDE's trajectory names each workspace folder as a URI: under 1.1 the
+# folder opened (the repository, its sub/, or the directory beside it), under
+# 1.2 its git root, and under 7 the folder again. No string is kept under
+# these numbers anywhere else.
+ANTIGRAVITY_STRINGS.update(dict.fromkeys(("1", "2", "7"), re.compile(
+    "^file://({}(/sub)?|{})$".format(re.escape(agent_logs.PLACEHOLDER), re.escape(agent_logs.ELSEWHERE)))))
+ANTIGRAVITY_AGENTS = ("antigravity", "antigravity-ide")
 KILO_KEYS = {
     "cache", "cost", "created", "data", "directory", "id", "input", "message_id", "model",
     "modelID", "output", "parent_id", "path", "project_id", "providerID", "read", "reasoning",
@@ -209,10 +217,11 @@ def names_a_model(path):
 
 class TestFixturesAreReduced(unittest.TestCase):
     def test_every_agent_has_its_sessions(self):
-        self.assertEqual(tuple(len(agent_logs.files(a)) for a in AGENTS), (24, 13, 4, 3, 5, 3, 17, 4))
+        self.assertEqual(tuple(len(agent_logs.files(a)) for a in AGENTS), (24, 9, 13, 4, 3, 5, 3, 17, 4))
 
     def test_only_allow_listed_keys(self):
-        for agent, allowed in (("antigravity", ANTIGRAVITY_KEYS), ("codex", CODEX_KEYS), ("copilot", COPILOT_KEYS),
+        for agent, allowed in (("antigravity", ANTIGRAVITY_KEYS), ("antigravity-ide", ANTIGRAVITY_KEYS),
+                               ("codex", CODEX_KEYS), ("copilot", COPILOT_KEYS),
                                ("copilot-store", COPILOT_STORE_KEYS), ("qwen", QWEN_KEYS),
                                ("gemini", GEMINI_KEYS), ("kilo", KILO_KEYS),
                                ("opencode", OPENCODE_KEYS)):
@@ -316,9 +325,9 @@ class TestFixturesAreReduced(unittest.TestCase):
         # selects its columns by name, so a stray key would leave the real
         # column empty.
         seen = {}
-        for rel in agent_logs.files("antigravity"):
+        for agent, rel in ((a, rel) for a in ANTIGRAVITY_AGENTS for rel in agent_logs.files(a)):
             table = os.path.splitext(os.path.basename(rel))[0]
-            rows = agent_logs.records("antigravity", rel)
+            rows = agent_logs.records(agent, rel)
             with self.subTest(file=rel):
                 self.assertIn(table, ANTIGRAVITY_COLUMNS)
                 self.assertTrue(rows, "a fixture table with no rows tests nothing")
@@ -328,8 +337,8 @@ class TestFixturesAreReduced(unittest.TestCase):
 
     def test_every_antigravity_string_has_its_field_s_shape(self):
         found = 0
-        for rel in agent_logs.files("antigravity"):
-            for record in agent_logs.records("antigravity", rel):
+        for agent, rel in ((a, rel) for a in ANTIGRAVITY_AGENTS for rel in agent_logs.files(a)):
+            for record in agent_logs.records(agent, rel):
                 for path, value in named_strings(record):
                     if not value and path == ("workspace_uris",):
                         continue  # a print-mode conversation's, as agy stores it
@@ -342,7 +351,8 @@ class TestFixturesAreReduced(unittest.TestCase):
     def test_the_antigravity_string_shapes_reject_free_text(self):
         for field, leak in (("19", "Please refactor the login flow for me"), ("11", "Sure, here is the refactor"),
                             ("11", "AIza" + "x" * 35), ("11", "0123456789abcdef0123456789abcdef01234567"),
-                            ("workspace_uris", "file:///Users/someone/x"), ("log", "cli-x.log")):
+                            ("workspace_uris", "file:///Users/someone/x"), ("log", "cli-x.log"),
+                            ("1", "file:///Users/someone/agent-sample"), ("7", "Add a subtract function")):
             with self.subTest(field=field):
                 self.assertNotRegex(leak, ANTIGRAVITY_STRINGS[field])
 
@@ -431,6 +441,7 @@ class TestFixturesAreReduced(unittest.TestCase):
                        "qwen/", "a local mock",
                        # Antigravity, recorded for this repository.
                        "antigravity/", "agy 1.2.8",
+                       "antigravity-ide/", "Antigravity IDE 2.5.5",
                        # Kilo Code's recorded session.
                        "autonomous-ai/openharness", "a67e082b6e2985e7f226bf5737ebd3b39ce1d60b",
                        # openharness was Apache-2.0 at the commit its rows
