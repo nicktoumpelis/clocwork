@@ -219,7 +219,8 @@ class TestTerminal(unittest.TestCase):
     def test_ascii_glyphs_when_the_stream_is_not_utf8(self):
         text = self.run_terminal(unicode=False)
         text.encode("ascii")
-        self.assertIn("+", text)
+        self.assertIn("\x1b[32m+\x1b[0m \x1b[1mTokens", text)      # the finished line's green mark
+        self.assertIn("\x1b[33m!\x1b[0m 3 commits", text)            # and the warning's
 
     def test_the_summary_and_the_path_close_the_run(self):
         text = self.run_terminal()

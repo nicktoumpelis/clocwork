@@ -449,6 +449,9 @@ class TestInputs(unittest.TestCase):
             merges = sum(1 for c in data["commits"] if c["is_merge"])
             self.assertTrue(text.startswith(f"{total:,} commits on main @ "), text)
             self.assertEqual(more, (f"{total - merges:,} measured, 0 from cache",))
+            # A long history is read before anything is measured: the live line says so.
+            self.assertEqual(rec.of("status"), ["reading the history of main",
+                                                f"measuring {total - merges:,} new commits with cloc, 1 at a time"])
             self.assertEqual([r.label for r in rec.rows][:3], ["Commits", "Tokens", "Tests"])
             title, header, rows = rec.lines
             self.assertEqual((title, header), ("Lines at main", ("", "code", "comment", "blank", "drift")))
@@ -457,7 +460,7 @@ class TestInputs(unittest.TestCase):
             rec = Recorder()
             an.analyse(d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), os.path.join(d, "t.json"), report=rec)
             self.assertEqual(rec.of("done")[0][1], (f"0 measured, {total - merges:,} from cache",))
-            self.assertEqual(rec.of("status"), [])
+            self.assertEqual(rec.of("status"), ["reading the history of main"])
             self.assertFalse([w for w in rec.of("warn") if "drift" in w], rec.of("warn"))
 
     def test_run_summary_reports_the_test_share_at_head(self):

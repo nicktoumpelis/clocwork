@@ -128,7 +128,7 @@ Options (`clocwork run --help`):
 
 ```
   -q, --quiet       print nothing but errors
-  -v, --verbose     also print each step's details
+  -v, --verbose     also print each phase's details and the per-language table
   --config PATH     explicit clocwork.toml
   --locale TAG      region locale for the page (default: $CLOCWORK_LOCALE,
                     else the machine's region)
@@ -150,11 +150,13 @@ The same reference is a manual page: `man clocwork` after a Homebrew install,
 `man ./man/clocwork.1` from a clone.
 
 On a terminal, a run prints one line per phase (tokens, history,
-dashboard), with a live progress bar while `cloc` measures, then a short
-summary and the page's path. `-v` adds each phase's details and the
-per-language table; `-q` prints only errors. Anything else (a pipe, a log
-file, cron) gets plain lines without colour or redraws, one fact per line,
-and so does a terminal when `NO_COLOR` is set or `TERM` is `dumb`.
+dashboard), with a live progress bar while `cloc` measures (only the counts
+on a terminal narrower than 60 columns), then a short summary and the page's
+path. `-v` adds each phase's details and the per-language table; `-q` prints
+only errors. Anything else (a pipe, a log file, cron) gets plain lines
+without colour or redraws, one fact per line and a progress line every 50
+commits, and so does a terminal when `NO_COLOR` is set to anything but the
+empty string, or `TERM` is `dumb`.
 
 The page formats every number, date and unit for a region locale. The
 generator records it, because browsers expose only the language list: the

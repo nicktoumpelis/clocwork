@@ -595,6 +595,10 @@ def analyse(repo_dir, output_path, cache_path, archive_path, *, config=None, bra
     rev = git(repo_dir, "rev-parse", "--verify", "--quiet", f"{branch}^{{commit}}").strip()
     if not rev:
         raise NoCommits(f"{repo_dir} has no commits on {branch}")
+    # git log, the path history and cloc's per-file report of the branch all
+    # run before the first commit is measured, which is minutes on a long
+    # history: say so, or a still live line reads as a hang.
+    report.status(f"reading the history of {branch}")
     commits = parse_log(repo_dir, rev, agents)
     if not commits:
         raise NoCommits(f"{repo_dir} has no commits on {branch}")

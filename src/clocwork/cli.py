@@ -48,7 +48,7 @@ def build_parser():
     quiet = argparse.ArgumentParser(add_help=False)
     loudness = quiet.add_mutually_exclusive_group()
     loudness.add_argument("-q", "--quiet", action="store_true", help="print nothing but errors")
-    loudness.add_argument("-v", "--verbose", action="store_true", help="also print each step's details")
+    loudness.add_argument("-v", "--verbose", action="store_true", help="also print each phase's details and the per-language table")
     page = argparse.ArgumentParser(add_help=False)
     page.add_argument("--config", metavar="PATH", help="explicit clocwork.toml")
     page.add_argument("--locale", metavar="TAG",
