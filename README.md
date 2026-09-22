@@ -489,11 +489,53 @@ by the repository's first commit instead; such a session counts when it also
 ran in the repository, which is what keeps another history cloned to the
 same path out.
 
-**Tokens.** OpenCode has moved its storage four times, and each move copied
-rather than replaced, so a store can hold the same session two or three
-times over. Records are counted once, by the ids the moves preserved. A
-forked session copies its messages under new ids, and those copies are not
-counted again.
+**Tokens.** Each model call writes a step-finish part carrying its own
+tokens, and those parts are what is counted. A message's own tokens are
+overwritten by each step, so they count only where a message has no
+step-finish part.
+
+OpenCode has moved its storage four times, and each move copied rather than
+replaced, so a store can hold the same session two or three times over.
+Records are counted once, by the ids the moves preserved. A forked session
+copies its messages under new ids, and those copies are not counted again.
+
+OpenCode has not always stored its counts the same way, so each record is
+read by the rules of the release its session names. clocwork names five
+counter eras:
+
+| Era | Releases | What the prompt count holds | How clocwork reads reasoning, when `total` cannot say |
+|---|---|---|---|
+| A | before v1.0.62 | the cache reads too, for every provider but Anthropic's | inside the output, or beside it for Google's |
+| B | v1.0.62 to v1.3.3 | uncached input only | inside the output, or beside it for Google's |
+| C | v1.3.4 and v1.3.5 | the cache reads and writes too, for Anthropic's only | inside the output, or beside it for Google's |
+| D | v1.3.6 to v1.3.15 | uncached input only | inside the output, or beside it for Google's |
+| E | v1.3.16 on | uncached input only | beside the output |
+
+Where the prompt count holds the cache, clocwork takes it back out, except
+from an input smaller than the cache, which cannot have held it. Anthropic's
+means the `anthropic`, `amazon-bedrock` and `google-vertex-anthropic`
+providers or any `claude-` model; Google's means the `google` and
+`google-vertex` providers or any `gemini` model. Eras A and C appear in no
+public recording, so their test fixtures are hand-written.
+
+The reasoning column is a default, not a rule every release kept. Where
+reasoning sat was the provider's choice rather than the release's, and a
+v1.3.13 recording, in era D, has a Google model's reasoning inside the
+output; that record carries a `total`, which settles it.
+
+A record's own `total` is the first evidence of where reasoning sits,
+because it does not depend on knowing the release. When `total` equals
+input, output and cache together, the reasoning is already inside the
+output; when it equals that plus the reasoning, the reasoning is beside it,
+and clocwork adds it to the output. Records carry `total` from v1.1.57, though
+not every later one does. A record without it, or one whose input still
+holds the cache so that neither sum matches, falls back to the table.
+
+A record whose session names no version is read as era A only when it also
+has no `total`, since only such a record can predate v1.1.57; one with a
+`total` is read as era B. A record from the
+`session_message` table is read as v1.14.34 at the earliest, the release that
+added the table.
 
 OpenCode calls are priced at the model vendor's list price, like every other
 source. That is an estimate when the call was billed by a reseller, a
@@ -521,16 +563,16 @@ other's projects — or the repository's first commit.
 counter eras cannot read as they stand. So each Kilo release is mapped to the
 OpenCode release it carried — from v1.1.36 at Kilo 1.0.0 onwards, found by
 which OpenCode tags each Kilo tag descends from — and read at that release's
-era. A record's own `total` is still the first evidence, as it is for
-OpenCode.
+era. A record's own `total` still decides where reasoning sits first, as it
+does for OpenCode.
 
 A version the mapping cannot place, such as the `local` a build from source
-records, is read at the second era rather than the first. The first is the
-only rule a record naming no version could reach that takes a cache read
-back out of the prompt, and no Kilo release carried it.
+records, is read as era B rather than era A. Era A is the only rule a record
+naming no version could reach that takes a cache read back out of the
+prompt, and no Kilo release carried it.
 
-That choice has a cost if such a record was in fact written under the first
-era, for every provider but Anthropic: it keeps its cache read in the input
+That choice has a cost if such a record was in fact written under era A,
+for every provider but Anthropic's: it keeps its cache read in the input
 count while the cache-read count reports it too, so the two together count
 it twice. Erring that way keeps the tokens visible in a labelled count
 rather than dropping prompt tokens silently.
