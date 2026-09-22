@@ -70,12 +70,16 @@ SYSTEM_SETTINGS = {"darwin": "/Library/Application Support/QwenCode/settings.jso
                    "win32": "C:\\ProgramData\\qwen-code\\settings.json"}
 LINUX_SETTINGS = "/etc/qwen-code/settings.json"
 # $NAME or ${NAME}, as Qwen expands them in every settings value; a name the
-# environment does not hold is left as written.
+# environment does not hold is left as written, and so are the session ids
+# Qwen keeps for itself. (It also keeps its own internal secrets, which no
+# shell running clocwork holds.)
 VARIABLE = re.compile(r"\$(?:(\w+)|\{([^}]+)\})")
+UNEXPANDED = {"SESSION_ID", "QWEN_CODE_SESSION_ID"}
 # The comments strip-json-comments removes before Qwen parses a settings file:
-# a string is matched first, so a // inside one is left alone, and a block
-# comment left open runs to the end of the file.
-JSONC = re.compile(r'("(?:[^"\\]|\\.)*")|//[^\n]*|/\*.*?(?:\*/|\Z)', re.DOTALL)
+# a string is matched first, so a // inside one is left alone, and a string or
+# a block comment left open runs to the end of the file. An open string that
+# had to close would be tried again at every later quote.
+JSONC = re.compile(r'("(?:[^"\\]|\\.)*"?)|//[^\n]*|/\*.*?(?:\*/|\Z)', re.DOTALL)
 
 
 def settings_files(repo, homes, env):
@@ -102,7 +106,8 @@ def configured_dir(path, repo, env):
     value = advanced.get("runtimeOutputDir") if isinstance(advanced, dict) else None
     if not isinstance(value, str) or not value:
         return None
-    value = VARIABLE.sub(lambda m: env.get(m.group(1) or m.group(2), m.group(0)), value)
+    value = VARIABLE.sub(lambda m: m.group(0) if (m.group(1) or m.group(2)).upper() in UNEXPANDED
+                         else env.get(m.group(1) or m.group(2), m.group(0)), value)
     if value == "~" or value.startswith(("~/", "~\\")):
         # Either separator, on every platform, as Qwen splits it.
         value = os.path.join(os.path.expanduser("~"), *filter(None, re.split(r"[/\\]+", value[2:])))

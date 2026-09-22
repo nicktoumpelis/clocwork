@@ -2,6 +2,7 @@ import json
 import os
 import shutil
 import tempfile
+import time
 import unittest
 
 from clocwork import agents
@@ -403,6 +404,20 @@ class TestSettings(unittest.TestCase):
     def test_an_unknown_variable_is_left_as_written(self):
         self.settings(os.path.join(self.home, "settings.json"), {"advanced": {"runtimeOutputDir": "/$NOT_SET_ANYWHERE/x"}})
         self.assertEqual(qwen.runtime_dirs(self.repo, [self.home], self.env), ["/$NOT_SET_ANYWHERE/x"])
+
+    def test_the_session_ids_qwen_keeps_are_left_as_written(self):
+        self.env.update({"SESSION_ID": "x", "qwen_code_session_id": "y", "OUT": "/o"})
+        self.settings(os.path.join(self.home, "settings.json"),
+                      {"advanced": {"runtimeOutputDir": "$OUT/$SESSION_ID/${qwen_code_session_id}"}})
+        self.assertEqual(qwen.runtime_dirs(self.repo, [self.home], self.env),
+                         ["/o/$SESSION_ID/${qwen_code_session_id}"])
+
+    def test_a_file_of_unclosed_strings_is_read_in_linear_time(self):
+        # 60 KB: milliseconds when linear, many seconds when quadratic.
+        self.settings(os.path.join(self.home, "settings.json"), '"\\' * 30_000)
+        started = time.monotonic()
+        self.assertEqual(qwen.runtime_dirs(self.repo, [self.home], self.env), [])
+        self.assertLess(time.monotonic() - started, 2)
 
     def test_comments_are_allowed_and_a_double_slash_in_a_string_is_not_one(self):
         elsewhere = os.path.join(self.root, "a//b")

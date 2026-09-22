@@ -410,7 +410,7 @@ Gemini CLI's do, by the hash of the root or of a tracked directory. Beside
 `advanced.runtimeOutputDir` setting moved them. That setting is read from
 each file Qwen Code merges: the system defaults and system settings
 (`/Library/Application Support/QwenCode/` on macOS, `/etc/qwen-code/` on
-Linux, or `QWEN_CODE_SYSTEM_DEFAULTS_PATH` and
+Linux, `C:\ProgramData\qwen-code\` on Windows, or `QWEN_CODE_SYSTEM_DEFAULTS_PATH` and
 `QWEN_CODE_SYSTEM_SETTINGS_PATH`), the user's `settings.json` in `~/.qwen`
 (or `QWEN_HOME`), and the repository's own `.qwen/settings.json`. Every file's directory is read,
 not only the one that wins, because sessions stay where they were written
