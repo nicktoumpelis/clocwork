@@ -272,7 +272,7 @@ recognised, whichever agents those are.
 
 The token section appears when the workspace's token archive holds at least
 one day. Each run reads the logs coding agents keep on the machine and
-archives per-day totals, per agent and model, into `token_usage.json`:
+archives per-day totals, per agent and model, into `token_usage.json`.
 
 | Agent | Logs read | Override |
 |---|---|---|
@@ -280,218 +280,322 @@ archives per-day totals, per agent and model, into `token_usage.json`:
 | Codex CLI | `~/.codex/sessions/` and `~/.codex/archived_sessions/` | `CODEX_HOME` replaces `~/.codex` |
 | Copilot CLI | `~/.copilot/session-state/`, one `events.jsonl` per session, and `~/.copilot/session-store.db` beside it | `COPILOT_HOME` replaces `~/.copilot` |
 | Gemini CLI | `~/.gemini/tmp/` and `~/.cache/.gemini/tmp/`, sessions started in the repository or a directory it tracks | `GEMINI_CLI_HOME` replaces `~` |
-| Kilo Code | `~/.local/share/kilo`, on macOS and Windows as well: its `kilo*.db` databases, an `opencode-*.db` left there by the fork's rename, and the file stores its 1.0.x releases wrote | `XDG_DATA_HOME` replaces `~/.local/share`; `KILO_DB` adds the database it names |
-| OpenCode | `~/.local/share/opencode`, on macOS and Windows as well: its `opencode*.db` databases and the file stores older releases wrote | `XDG_DATA_HOME` replaces `~/.local/share`; `OPENCODE_DB` adds the database it names |
-| Antigravity | `~/.gemini/antigravity-cli/conversations/`, one SQLite database per conversation, placed by the CLI logs beside it, then `history.jsonl`, then `conversation_summaries.db`; the IDE's `~/.gemini/antigravity` and its other names are read the same way | none |
 | Qwen Code | `~/.qwen/projects/*/chats/`, one JSONL file per session from 0.4.0 (an archived one moves to `chats/archive/`), and the Gemini-format sessions under `~/.qwen/tmp/` that earlier releases wrote | `QWEN_HOME` replaces `~/.qwen`; `QWEN_RUNTIME_DIR`, and the `advanced.runtimeOutputDir` setting in any of Qwen Code's settings files, add the directory they name |
+| OpenCode | `~/.local/share/opencode`, on macOS and Windows as well: its `opencode*.db` databases and the file stores older releases wrote | `XDG_DATA_HOME` replaces `~/.local/share`; `OPENCODE_DB` adds the database it names |
+| Kilo Code | `~/.local/share/kilo`, on macOS and Windows as well: its `kilo*.db` databases, an `opencode-*.db` left there by the fork's rename, and the file stores its 1.0.x releases wrote | `XDG_DATA_HOME` replaces `~/.local/share`; `KILO_DB` adds the database it names |
+| Antigravity | `~/.gemini/antigravity-cli/conversations/`, one SQLite database per conversation, placed by the CLI logs beside it, then `history.jsonl`, then `conversation_summaries.db`; the IDE's `~/.gemini/antigravity` and its other names are read the same way | none |
 
-A Codex session belongs to the repository when it records the same remote
-as the repository's `origin`, so sessions from any clone or worktree count.
-A session that recorded another remote still belongs when it ran in the
-repository, or a directory inside it, from one of the repository's commits.
-A renamed or transferred repository keeps its sessions that way, and a
-different repository later cloned to the same path gets them only if it
-holds the commit they started from. When the session records no remote, or
-`origin` is missing or not a URL clocwork recognises, the session belongs
-when it ran in the repository or a directory inside it.
-A Copilot CLI session records its repository as `owner/name` beside its
-host, which is the identity clocwork builds from `origin`, so it belongs by
-the same rule as a Codex session: the same remote from any clone, otherwise
-the repository's directory plus one of its commits, otherwise the directory
-alone. Its log records tokens only at shutdown, as a running total per
-model rather than per response; a session resumed and shut down again writes
-a further total, and clocwork archives the increase, so a session recorded
-twice is counted once. Releases from 1.0.69 on also keep a row per model
-call in `session-store.db`, each with its own time, and clocwork reads a
-session whose log names one of those releases at its start from its rows
-alone, so each call lands on its own day rather than on the day of the
-shutdown that reported it. Where the store is there but such a session's
-rows are not — pruned, or the store unreadable for that run — the session
-is held back and the run says so, rather than read from its snapshots: the
-archive keeps the larger record for each day, so a session that moved to
-its shutdown days would be counted on both. What earlier runs archived for
-a held session stays unless that day's record from a later run outgrows it,
-and a session whose rows were gone before any run saw it is not counted at
-all. With no store at all, the snapshots are read.
-A session from an earlier release, or whose log names none at its start, is
-read from whichever of the two holds more tokens: the snapshots for one
-begun before the table existed, the rows for one that never shut down. A
-session whose log is gone is placed by the working directory the store
-records for it. Both report their uncached input directly, and clocwork
-checks every row and snapshot that reports it against the figure it
-derives: one that disagrees is counted in the log as unparseable rather
-than archived, because a format that has changed should be visible instead
-of quietly halving a total.
-Gemini CLI identifies a session's project only by a hash of the directory it
-started in, so its sessions count when that is the repository's current path
-or a directory tracked at `HEAD` below it.
-An OpenCode session names its project by the SHA-1 of `origin`'s host and
-path, so again every clone and worktree counts, as do the sub-agent sessions
-that share the project. Releases before v1.15.11 named it by the
-repository's first commit instead; such a session counts when it also ran in
-the repository, which is what keeps another history cloned to the same path
-out. OpenCode has moved its storage four times, and each move copied rather
-than replaced, so a store can hold the same session two or three times over;
-records are counted once, by the ids the moves preserved. A forked session
-copies its messages under new ids, and those copies are not counted again.
+For any repository not worked on with these agents on this machine, the
+section and the commit table's Tokens column are simply absent. That is the
+normal case, not an error.
+
+#### What is kept, and how it reaches commits
 
 Only dates, model names, and token and turn counts reach the archive;
 prompts and replies are never kept. The archive keeps the larger record for
 each day and agent, because agents delete their logs and a day not archived
 in time is gone.
 
+Tokens land only on the commits of the agent whose logs measured them, split
+across that agent's commits of the day by lines changed. A commit carries no
+token figure when:
+
+- its agent's logs are not read (Cursor, Devin, aider, Gemini Code Assist or
+  any other), or
+- they cover no day on which that agent's commits changed lines.
+
+Such a commit is never priced at another agent's rate. When the repository
+has token data, the run summary counts the AI-credited commits that carry no
+figure and names their agents. Gemini Code Assist is the name for `gemini-code-assist[bot]`,
+which GitHub credits when one of its review suggestions is accepted.
+
 A day the archive does not cover for an agent, but on which that agent's
 commits changed lines, is estimated from the agent's own tokens-per-line
 ratio; a record that holds no tokens covers nothing. The result is priced at
-API list prices, each measured day at the prices in force on it and the
-estimated days at the measured mix, and its electricity is estimated. For
-any repository not worked on with these agents on this machine, the section
-and the commit table's Tokens column are simply absent; that is the normal
-case, not an error.
+API list prices: each measured day at the prices in force on it, and the
+estimated days at the measured mix. Its electricity is estimated too.
 
-Tokens land only on the commits of the agent whose logs measured them,
-split across that agent's commits of the day by lines changed. A commit
-carries no token figure when its agent's logs are not read (Cursor, Devin,
-aider, Gemini Code Assist or any other), or when they
-cover no day on which that agent's commits changed lines, and it is never
-priced at another agent's rate. When the repository has token data, the run
-summary counts those commits and names their agents. Gemini Code Assist is
-the name for `gemini-code-assist[bot]`, which GitHub credits when one of
-its review suggestions is accepted.
+An archive written by an earlier version is read as Claude Code's and
+rewritten in the per-agent shape the next time a scan finds logs. An archive
+of a version this clocwork does not know is refused with an error rather
+than read or overwritten.
 
-Codex asks its model to end commit messages with
+The sections below say, for each agent, which sessions count, how their
+tokens are read, and which commits they land on.
+
+#### Claude Code
+
+**Sessions.** Claude Code keeps a directory of transcripts per working
+directory, named after its absolute path with every character other than an
+ASCII letter or digit replaced by a hyphen. clocwork reads the one named after the
+repository, so a session started in a subdirectory, which Claude Code files
+under that subdirectory's name, is not read.
+
+**Tokens.** A resumed or forked session replays its earlier turns into the
+new transcript, so each assistant turn is counted once, by its message id,
+or its request id or record id where it has none.
+
+**Commits.** Claude Code's tokens land on the commits whose trailers credit
+Claude. Any Claude model is recognised, and a trailer naming none reads as
+`Claude (unknown version)` (see
+[Which commits are AI-assisted](#which-commits-are-ai-assisted)).
+
+#### Codex CLI
+
+**Sessions.** A Codex session belongs to the repository when it records the
+same remote as the repository's `origin`, so sessions from any clone or
+worktree count.
+
+A session that recorded another remote still belongs when it ran in the
+repository, or a directory inside it, from one of the repository's commits.
+A renamed or transferred repository keeps its sessions that way, and a
+different repository later cloned to the same path gets them only if it
+holds the commit they started from.
+
+When the session records no remote, or `origin` is missing or not a URL
+clocwork recognises, the session belongs when it ran in the repository or a
+directory inside it.
+
+**Tokens.** Codex rollouts that Codex has compressed are read on Python 3.14
+and later; earlier versions count them as unreadable and say so in the log.
+
+**Commits.** Codex asks its model to end commit messages with
 `Co-authored-by: Codex <noreply@openai.com>` unless attribution is turned
-off. Gemini CLI adds no trailer, so its tokens reach a commit only when the
-commit credits Gemini by hand, in a trailer such as
-`Co-Authored-By: Gemini CLI <address>`; otherwise the page says its tokens
-land on no commit. Codex rollouts that Codex has compressed are read on
-Python 3.14 and later; earlier versions count them as unreadable and say so
-in the log. Copilot CLI asks its model to end commit messages with
-`Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>` unless
-`includeCoAuthoredBy` is turned off, and its tokens land on the commits whose
-trailers credit Copilot, whether the agent wrote the trailer or its author
-added it. A trailer naming GitHub's cloud Copilot agent
-(`copilot-swe-agent[bot]`) resolves to the same name, so a commit carrying
-one is counted as Copilot's: it takes a share of the CLI's measured tokens
-on the days they cover, and an estimate at the CLI's rate on the days they
-do not.
+off.
 
-Kilo Code adds no trailer of its own either — the one its GitHub agent
+#### Copilot CLI
+
+**Sessions.** A Copilot CLI session records its repository as `owner/name`
+beside its host, which is the identity clocwork builds from `origin`. So it
+belongs by the same rule as a Codex session: the same remote from any clone,
+otherwise the repository's directory plus one of its commits, otherwise the
+directory alone.
+
+**Tokens.** Copilot keeps usage in two places:
+
+- **The session's log** records tokens only at shutdown, as a running total
+  per model rather than per response. A session resumed and shut down again
+  writes a further total, and clocwork archives the increase, so a session
+  recorded twice is counted once.
+- **`session-store.db`**, from release 1.0.69 on, keeps a row per model call,
+  each with its own time.
+
+A session whose log names 1.0.69 or later at its start is read from its rows
+alone, so each call lands on its own day rather than on the day of the
+shutdown that reported it.
+
+Where the store is there but such a session's rows are not — pruned, or the
+store unreadable for that run — the session is held back and the run says
+so, rather than read from its snapshots. The archive keeps the larger record
+for each day, so a session that moved to its shutdown days would be counted
+on both. What earlier runs archived for a held session stays unless that
+day's record from a later run outgrows it, and a session whose rows were
+gone before any run saw it is not counted at all. With no store at all, the
+snapshots are read.
+
+A session from an earlier release, or whose log names none at its start, is
+read from whichever of the two holds more tokens: the snapshots for one
+begun before the table existed, the rows for one that never shut down. A
+session whose log is gone is placed by the working directory the store
+records for it.
+
+Both report their uncached input directly, and clocwork checks every row and
+snapshot that reports it against the figure it derives. One that disagrees
+is counted in the log as unparseable rather than archived, because a format
+that has changed should be visible instead of quietly halving a total.
+
+**Commits.** Copilot CLI asks its model to end commit messages with
+`Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>` unless
+`includeCoAuthoredBy` is turned off. Its tokens land on the commits whose
+trailers credit Copilot, whether the agent wrote the trailer or its author
+added it.
+
+A trailer naming GitHub's cloud Copilot agent (`copilot-swe-agent[bot]`)
+resolves to the same name, so a commit carrying one is counted as Copilot's:
+it takes a share of the CLI's measured tokens on the days they cover, and an
+estimate at the CLI's rate on the days they do not.
+
+#### Gemini CLI
+
+**Sessions.** Gemini CLI identifies a session's project only by a hash of the
+directory it started in, so its sessions count when that is the repository's
+current path or a directory tracked at `HEAD` below it.
+
+**Commits.** Gemini CLI adds no trailer, so its tokens reach a commit only
+when the commit credits Gemini by hand, in a trailer such as
+`Co-Authored-By: Gemini CLI <address>`. Otherwise the page says its tokens
+land on no commit.
+
+#### Qwen Code
+
+**Sessions.** From 0.4.0 a Qwen Code session belongs to the repository when
+the working directory each of its records carries is the repository or a
+directory in it. The earlier releases' sessions belong as Gemini CLI's do, by
+the hash of the root or of a tracked directory.
+
+Beside `~/.qwen`, the sessions are looked for wherever `QWEN_RUNTIME_DIR` or
+the `advanced.runtimeOutputDir` setting moved them. That setting is read from
+each file Qwen Code merges:
+
+- the system defaults and system settings: `/Library/Application Support/QwenCode/`
+  on macOS, `/etc/qwen-code/` on Linux, `C:\ProgramData\qwen-code\` on
+  Windows, or `QWEN_CODE_SYSTEM_DEFAULTS_PATH` and
+  `QWEN_CODE_SYSTEM_SETTINGS_PATH`;
+- the user's `settings.json` in `~/.qwen` (or `QWEN_HOME`);
+- the repository's own `.qwen/settings.json`.
+
+Every file's directory is read, not only the one that wins, because sessions
+stay where they were written when the setting changes. A relative directory
+is taken from the repository's root, so a session started in a subdirectory
+with a relative setting is not found, and neither is a variable that only
+Qwen Code's `.env` files define.
+
+**Tokens.** Usage is read from the telemetry record every API call writes,
+so the side calls Qwen Code makes — the memory extractor's, say — are counted
+beside the main one, each on its own day.
+
+Qwen Code normalises every provider's counts before it logs them: the input
+includes the cache read, and for Anthropic the cache write as well. It
+reports that write nowhere apart from the input, so it is counted, and
+priced, as input.
+
+The record's own total says whether its reasoning is already inside its
+output, and where it has none the provider does. The OpenAI and Anthropic
+readings were checked against a mock of each API; Gemini's is Gemini CLI's
+convention, not yet checked for Qwen Code.
+
+**Commits.** Qwen Code appends
+`Co-authored-by: Qwen-Coder <qwen-coder@alibabacloud.com>` to the commits it
+makes itself, unless `general.gitCoAuthor.commit` is turned off, so its
+tokens land on those commits.
+
+It does so by rewriting the quoted message of a `git commit -m` (or `-am`,
+`--message`) it runs through bash, which is every shell it uses on macOS and
+Linux and only Git Bash on Windows. A commit made in an editor, from a
+message built with `$(…)`, after a `cd` or with a `git -C` that may leave the
+repository, or through another shell carries no trailer, and is not
+credited.
+
+`Qwen` alone is not enough, since it names the model too, and `Qwen-Coder`
+has to stand whole, with no hyphen joining it to another word:
+`Cline (qwen-coder-plus)` names a model Alibaba serves, not Qwen Code.
+
+#### OpenCode
+
+**Sessions.** An OpenCode session names its project by the SHA-1 of
+`origin`'s host and path, so every clone and worktree counts, as do the
+sub-agent sessions that share the project. Releases before v1.15.11 named it
+by the repository's first commit instead; such a session counts when it also
+ran in the repository, which is what keeps another history cloned to the
+same path out.
+
+**Tokens.** OpenCode has moved its storage four times, and each move copied
+rather than replaced, so a store can hold the same session two or three
+times over. Records are counted once, by the ids the moves preserved. A
+forked session copies its messages under new ids, and those copies are not
+counted again.
+
+OpenCode calls are priced at the model vendor's list price, like every other
+source. That is an estimate when the call was billed by a reseller, a
+subscription or a regional endpoint — through OpenCode's own Zen, GitHub
+Copilot or Bedrock, say — and models the price table does not know are
+reported as unpriced.
+
+**Commits.** OpenCode adds no trailer (it did until v0.4.19), so its
+measured tokens land on no commit unless the author credits it, in a trailer
+such as `Co-Authored-By: opencode <noreply@opencode.ai>`. A trailer naming a
+model and OpenCode both (`GLM-5.3 via OpenCode`) is OpenCode's.
+
+One from `opencode-agent[bot]` is the GitHub Actions agent, whose logs stay
+on the runner, so it is named separately and carries no tokens.
+
+#### Kilo Code
+
+**Sessions.** Kilo Code is a fork of OpenCode and keeps the same store, so it
+belongs by the same rule and is read by the same code: the SHA-1 of
+`origin`'s host and path, the id cached in the repository's git directory —
+under `kilo`, where OpenCode writes `opencode`, so the two never claim each
+other's projects — or the repository's first commit.
+
+**Tokens.** Kilo's releases are numbered 1.0.x and then 7.x, which OpenCode's
+counter eras cannot read as they stand. So each Kilo release is mapped to the
+OpenCode release it carried — from v1.1.36 at Kilo 1.0.0 onwards, found by
+which OpenCode tags each Kilo tag descends from — and read at that release's
+era. A record's own `total` is still the first evidence, as it is for
+OpenCode.
+
+A version the mapping cannot place, such as the `local` a build from source
+records, is read at the second era rather than the first. The first is the
+only rule a record naming no version could reach that takes a cache read
+back out of the prompt, and no Kilo release carried it.
+
+That choice has a cost if such a record was in fact written under the first
+era, for every provider but Anthropic: it keeps its cache read in the input
+count while the cache-read count reports it too, so the two together count
+it twice. Erring that way keeps the tokens visible in a labelled count
+rather than dropping prompt tokens silently.
+
+Kilo also stores a per-session roll-up of its own messages' tokens, which
+clocwork does not count: the per-message rows are the ones that carry a day
+and a model.
+
+**Commits.** Kilo Code adds no trailer of its own. The one its GitHub agent
 writes credits the person who dispatched the workflow, and the agent itself
-commits as an author rather than a co-author — so its tokens reach a commit
+commits as an author rather than a co-author. So its tokens reach a commit
 only through a trailer someone wrote by hand, naming it as `Kilo Code`,
 `Kilo` or `kilocode`.
 
-OpenCode adds no trailer either (it did until v0.4.19), so the same holds:
-its measured tokens land on no commit unless the author credits it, in a
-trailer such as `Co-Authored-By: opencode <noreply@opencode.ai>`. A trailer
-naming a model and OpenCode both (`GLM-5.3 via OpenCode`) is OpenCode's, and
-one from `opencode-agent[bot]` is the GitHub Actions agent, whose logs stay
-on the runner, so it is named separately and carries no tokens. OpenCode
-calls are priced at the model vendor's list price, like every other source,
-which is an estimate when the call was billed by a reseller, a subscription
-or a regional endpoint — through OpenCode's own Zen, GitHub Copilot or
-Bedrock, say — and models the price table does not know are reported as
-unpriced.
+#### Antigravity
 
-Qwen Code appends `Co-authored-by: Qwen-Coder <qwen-coder@alibabacloud.com>`
-to the commits it makes itself, unless `general.gitCoAuthor.commit` is
-turned off, so its tokens land on those commits. It does so by rewriting the
-quoted message of a `git commit -m` (or `-am`, `--message`) it runs through
-bash, which is every shell it uses on macOS and Linux and only Git Bash on
-Windows. A commit made in an editor, from a message built with `$(…)`, after
-a `cd` or with a `git -C` that may leave the repository, or through another
-shell carries no trailer, and is not credited. `Qwen` alone is not
-enough, since it names the model too, and `Qwen-Coder` has to stand whole,
-with no hyphen joining it to another word: `Cline (qwen-coder-plus)` names a
-model Alibaba serves, not Qwen Code. From 0.4.0 a Qwen Code session belongs
-to the repository when the working directory each of its records carries is
-the repository or a directory in it; the earlier releases' sessions belong as
-Gemini CLI's do, by the hash of the root or of a tracked directory. Beside
-`~/.qwen`, the sessions are looked for wherever `QWEN_RUNTIME_DIR` or the
-`advanced.runtimeOutputDir` setting moved them. That setting is read from
-each file Qwen Code merges: the system defaults and system settings
-(`/Library/Application Support/QwenCode/` on macOS, `/etc/qwen-code/` on
-Linux, `C:\ProgramData\qwen-code\` on Windows, or `QWEN_CODE_SYSTEM_DEFAULTS_PATH` and
-`QWEN_CODE_SYSTEM_SETTINGS_PATH`), the user's `settings.json` in `~/.qwen`
-(or `QWEN_HOME`), and the repository's own `.qwen/settings.json`. Every file's directory is read,
-not only the one that wins, because sessions stay where they were written
-when the setting changes. A relative directory is taken from the
-repository's root, so a session started in a subdirectory with a relative
-setting is not found, and neither is a variable that only Qwen Code's `.env`
-files define. Its usage is read from the telemetry
-record every API call writes, so the side calls it makes — the memory
-extractor's, say — are counted beside the main one, each on its own day.
-Qwen Code normalises every provider's counts before it logs them: the input
-includes the cache read, and for Anthropic the cache write as well, which it
-reports nowhere apart from the input and which is therefore counted, and
-priced, as input. The record's own total says whether its reasoning is
-already inside its output, and where it has none the provider does; the
-OpenAI and Anthropic readings were checked against a mock of each API, and
-Gemini's is Gemini CLI's convention, not yet checked for Qwen Code.
+**Sessions.** Antigravity's CLI, agy, keeps each conversation in a SQLite
+database of protobuf records. A print-mode conversation's database
+(`agy -p`) names no directory at all, so a conversation is placed by one of
+three files, in this order:
 
-Antigravity's CLI, agy, keeps each conversation in a SQLite database of
-protobuf records, one row per model call in two tables, which are read once
-per call by its response id. The input, the output (with the thinking
-already in it), the cache read and the model are as agy stores them, and
-they match what agy reports itself (`--output-format json`): the cache read
-sits beside the input, not inside it, as a Claude model's calls through
-agy show. No Gemini call recorded a cache read, so for Gemini models that is
-unconfirmed. No recorded call reports a cache write, not even the first Claude
-call, whose cache the next one read, so a write is presumably inside the
-input, where nothing separates it.
+1. **The CLI log** of the run that created it, under `log/`, names the
+   working directory first and any `--add-dir` directories after it. agy
+   kept every log in the runs checked, a year-old one included.
+2. **`history.jsonl`** names an interactive conversation's working directory
+   when it is ended with `/exit`.
+3. **`conversation_summaries.db`** lists the `--add-dir` directories given as
+   absolute paths and then, for an interactive conversation only, the working
+   directory, so its last entry is taken. A print-mode run with `--add-dir`
+   whose log is gone is therefore read as its added directory's, which is why
+   this file is the last resort.
 
-A print-mode conversation's database (`agy -p`) names no directory at all,
-so a conversation is placed by one of three files, in this order. The CLI
-log of the run that created it, under `log/`, names the working directory
-first and any `--add-dir` directories after it; agy kept every log in the
-runs checked, a year-old one included. `history.jsonl` names an interactive
-conversation's working directory when it is ended with `/exit`.
-`conversation_summaries.db` lists the `--add-dir` directories given as
-absolute paths and then, for
-an interactive conversation only, the working directory, so its last entry
-is taken, and a print-mode run with `--add-dir` whose log is gone is read as
-its added directory's; it is the last resort for that reason. A conversation
-belongs when its working directory is the repository or a directory in it.
+A conversation belongs when its working directory is the repository or a
+directory in it.
+
 A log lists a run's directories separated by spaces, so where one of them has
 a space in its name, the longest part of the text that is a directory on disk
-is taken, splitting only before a path (`/…`, `./…`, `../…` or `~/…`, with
-the system's own separator; a Windows drive-letter path, `C:\…`, never starts
-one). Text
-that no split makes a directory of, as a bare relative `--add-dir docs`
-leaves it, falls through to `history.jsonl` alone, since that run's summary
-names only its added directories; without an `/exit` record it is held back.
-One that none of the three places is not guessed at; when the repository has
-Antigravity usage, the run's summary says how many such conversations the
-machine holds, since none of them can be tied to any one repository. Because
-agy writes no trailer, its tokens land only on commits a person credits to
-Antigravity. The IDE's older conversations are encrypted, and are not read.
+is taken. The text is split only before a path (`/…`, `./…`, `../…` or
+`~/…`, with the system's own separator; a Windows drive-letter path, `C:\…`,
+never starts one). Text that no split makes a directory of, as a bare
+relative `--add-dir docs` leaves it, falls through to `history.jsonl` alone,
+since that run's summary names only its added directories; without an
+`/exit` record it is held back.
 
-Kilo Code is a fork of OpenCode and keeps the same store, so it belongs by
-the same rule and is read by the same code: the SHA-1 of `origin`'s host and
-path, the id cached in the repository's git directory — under `kilo`, where
-OpenCode writes `opencode`, so the two never claim each other's projects —
-or the repository's first commit. Its releases are numbered 1.0.x and then
-7.x, which OpenCode's counter eras cannot read as they stand, so each Kilo
-release is mapped to the OpenCode release it carried — from v1.1.36 at
-Kilo 1.0.0 onwards, found by which OpenCode tags each Kilo tag descends
-from — and read at that release's era. A record's own `total` is still the
-first evidence, as it is for OpenCode. A version the mapping cannot place,
-such as the `local` a build from source records, is read at the second era
-rather than the first, because the first is the only rule a record naming
-no version could reach that takes a cache read back out of the prompt, and
-no Kilo release carried it. That choice has a cost if such a record was in
-fact written under the first era, for every provider but Anthropic: it keeps
-its cache read in the input count while the cache-read count reports it too,
-so the two together count it twice. Erring that way keeps the tokens visible
-in a labelled count rather than dropping prompt tokens silently. Kilo also
-stores a per-session roll-up of its own messages' tokens, which clocwork does
-not count: the per-message rows are the ones that carry a day and a model.
+A conversation that none of the three places is not guessed at. When the
+repository has Antigravity usage, the run's summary says how many such
+conversations the machine holds, since none of them can be tied to any one
+repository.
 
-An archive written by an earlier version is read as Claude Code's and
-rewritten in the per-agent shape the next time a scan finds logs; an archive
-of a version this clocwork does not know is refused with an error rather
-than read or overwritten.
+**Tokens.** Each database holds one row per model call in two tables, which
+are read once per call by its response id.
+
+The input, the output (with the thinking already in it), the cache read and
+the model are as agy stores them, and they match what agy reports itself
+(`--output-format json`). The cache read sits beside the input, not inside
+it, as a Claude model's calls through agy show. No Gemini call recorded a
+cache read, so for Gemini models that is unconfirmed.
+
+No recorded call reports a cache write, not even the first Claude call,
+whose cache the next one read, so a write is presumably inside the input,
+where nothing separates it. The IDE's older conversations are encrypted, and
+are not read.
+
+**Commits.** agy writes no trailer, so its tokens land only on commits a
+person credits to Antigravity.
 
 ## Development
 
