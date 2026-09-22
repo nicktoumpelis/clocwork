@@ -6,7 +6,59 @@ All notable changes to clocwork are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-22
+
 ### Added
+
+- A run prints one line per phase with the time it took, each warning under
+  the phase it belongs to, a short summary and the page's path. On a
+  terminal the output is coloured, with a live line saying what the phase is
+  doing and a progress bar while cloc measures; redirected, it is plain
+  lines, one fact per line. `-v`/`--verbose` also prints each phase's
+  details and the per-language table. `NO_COLOR`, or `TERM=dumb`, turns the
+  colour off. Ctrl-C prints `clocwork: interrupted` and exits 130. The
+  `Archive now …` line of `clocwork tokens` and the `Test code at …` line
+  keep their wording, for scripts that read them.
+
+- Token usage from Copilot CLI, read from `~/.copilot` (`COPILOT_HOME`).
+  Where `session-store.db` has a session's per-call rows, each call is
+  archived on its own day; otherwise the cumulative totals each shutdown
+  records are read, and only what a snapshot adds to the largest one before
+  it is archived, so a resumed session is not counted twice. A session
+  started on 1.0.69 or later whose rows are missing from the store is held
+  back, and the archive keeps what earlier runs gave it. Its tokens land on
+  commits with the trailer the CLI asks for by default,
+  `Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>`.
+
+- Token usage from Kilo Code, read from `~/.local/share/kilo` on every
+  system (`$XDG_DATA_HOME/kilo`, plus any database `KILO_DB` names) by the
+  OpenCode reader, since Kilo Code's store is OpenCode's. Each record is read
+  under the rules of the OpenCode release that Kilo release carried.
+  Commits whose trailer names Kilo Code are credited to it.
+
+- Token usage from Qwen Code, read from `~/.qwen` (`QWEN_HOME`,
+  `QWEN_RUNTIME_DIR`, and every directory an `advanced.runtimeOutputDir`
+  setting names): the per-call records releases from 0.4.0 write, and the
+  Gemini CLI format earlier ones wrote. Commits with the
+  `Co-authored-by: Qwen-Coder <qwen-coder@alibabacloud.com>` trailer Qwen
+  Code appends are credited to it; a trailer that only names a Qwen model is
+  not.
+
+- Token usage from Antigravity, from the conversation databases of the CLI
+  (`~/.gemini/antigravity-cli`) and the IDE. A conversation is placed by the
+  CLI log of the run that created it, then `history.jsonl`, then
+  `conversation_summaries.db`, then the workspace the conversation records
+  itself; one that none of them places is held back, and the run says how
+  many were.
+
+- Every token source has a colour of its own on the token chart, whichever
+  other sources a repository has logs from. A source this version does not
+  know takes a colour no known source uses.
+
+- The page's footer names the clocwork build that rendered it
+  (`by clocwork 0.2.0`, plus the commit when run from a clone), and
+  `full_commit_data.json` records the build that analysed it as
+  `summary.analysed_by`.
 
 - The dashboard has a light and a dark theme, Solarized Light and Solarized
   Dark. A switch at the top right picks light, dark or the system's setting,
@@ -33,8 +85,7 @@ All notable changes to clocwork are recorded here. The format follows
   address, by the whole-word rule under Changed, counts as Antigravity —
   before Gemini, since such a trailer often names the Gemini model that ran.
   A trailer that names a Claude model is still read as that model, as
-  `Cursor (Claude Sonnet 4.5)` always has been. Antigravity's token usage is
-  not read yet.
+  `Cursor (Claude Sonnet 4.5)` always has been.
 
 ### Changed
 
@@ -63,6 +114,13 @@ All notable changes to clocwork are recorded here. The format follows
   first-appearance lines and token sources have new hues. An agent's table
   badge now always takes that agent's chart colour. The main chart's line is
   the text colour, which no agent has, so no commit's point hides in it.
+  Every agent has a colour of its own, the same on every chart and in every
+  run: a fixed one for each agent clocwork knows, and one chosen by its name
+  for any other.
+
+- The AI-Assisted tile shows the commit count, with its share of all commits
+  on the line below. A tile's value never wraps; one too long for its tile
+  is set smaller.
 
 - The HEAD snapshot counts every copy of an identical file, as the history
   always has. A repository that keeps copies of a file sees its lines at
@@ -71,6 +129,9 @@ All notable changes to clocwork are recorded here. The format follows
   point, in any of its commits. cloc counted a symlink in the history only
   when it arrived with its target, so HEAD figures could disagree with the
   history.
+- First-appearance labels are opaque, and are stacked in rows so that none
+  covers another. A label with no row left takes its short form (`Opus 4.8`
+  becomes `O4.8`), and is left off if that finds no room either.
 - On a chart too narrow for every first-appearance label, labels are placed
   from the right, so the newest agents keep theirs and a label gives way to
   one that ends further right. A label left off shows while the pointer is
@@ -97,6 +158,22 @@ All notable changes to clocwork are recorded here. The format follows
   followed by "Codex wrote the tests" credited Codex; it now credits no one.
   Reading trailers no longer slows with the square of the message's length
   when blank lines follow the last one.
+- A file with no extension (`Makefile`, `Dockerfile`, a script with a
+  shebang) counts under the language cloc gives it in every commit, where it
+  used to count as `Other` and show as drift.
+- The original Claude Opus 4 is priced at its own list price, $15 and $75
+  per million input and output tokens; it was priced at Opus 4.5's, a third
+  of that. Opus 4.5 to 4.8 each have a row of their own.
+- A model id spelled the way a router or a cloud writes it is priced:
+  `openrouter/openai/gpt-5.5`, Bedrock's `us.anthropic.claude-…-v1:0`,
+  Vertex's `claude-…@version`, and Claude Code's `[1m]` suffix. An id with
+  a router suffix such as `:thinking` names another price and stays
+  unpriced.
+- A `GIT_DIR`, `GIT_WORK_TREE` or other repository-selecting variable
+  inherited from a hook or a wrapper no longer points git or cloc at another
+  repository.
+- The page no longer scrolls sideways at phone widths or after the window
+  is narrowed.
 
 ## [0.1.1] - 2026-09-17
 
@@ -151,6 +228,7 @@ First public release.
 - Every number, date and unit on the page is formatted for a region locale.
 - A `clocwork(1)` manual page.
 
-[Unreleased]: https://github.com/nicktoumpelis/clocwork/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/nicktoumpelis/clocwork/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/nicktoumpelis/clocwork/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/nicktoumpelis/clocwork/releases/tag/v0.1.1
 [0.1.0]: https://github.com/nicktoumpelis/clocwork/releases/tag/v0.1.0
