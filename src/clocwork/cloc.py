@@ -475,13 +475,14 @@ def measure_commits(repo, commits, cache, table, rules, max_commits=None, flush_
         if error is not None:
             failed.append(c["hash"])
             report.warn(f"cloc failed on {c['hash'][:7]}: {error}")
-            return
-        cache.put(c["hash"], rows)
-        measured[c["hash"]] = classify(c["hash"], rows)
-        done += 1
-        if done % flush_every == 0:
-            cache.save()
-        report.progress(done, len(todo), clock() - started)
+        else:
+            cache.put(c["hash"], rows)
+            measured[c["hash"]] = classify(c["hash"], rows)
+            done += 1
+            if done % flush_every == 0:
+                cache.save()
+        # A failure is processed too, or the bar would never reach its end.
+        report.progress(done + len(failed), len(todo), clock() - started)
 
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=jobs)
     futures, outstanding = {}, set()

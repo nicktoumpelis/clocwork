@@ -752,14 +752,18 @@ def analyse(repo_dir, output_path, cache_path, archive_path, *, config=None, bra
         report.warn(f"{s['unmeasured_commits']:,} commits could not be measured by cloc")
     if s["pending_commits"]:
         report.warn(f"{s['pending_commits']:,} commits not yet measured (--max-commits cap); rerun to continue")
-    rows = []
+    rows, drifting = [], 0
     for lang in languages:
         snap = by_lang.get(lang, {t: 0 for t in cl.TYPES})
         drift, mapping = reconciliation[lang], mapping_check[lang]
         if any(mapping.values()):
             report.warn(f"mapping mismatch for {lang}: {mapping}")
+        drifting += any(drift.values())
         rows.append((lang, f"{snap['code']:,}", f"{snap['comment']:,}", f"{snap['blank']:,}",
                      f"{drift['code']:+} / {drift['comment']:+} / {drift['blank']:+}"))
+    if drifting:
+        report.warn(f"running totals drift from {branch}'s snapshot in {drifting} "
+                    f"language{'s' if drifting > 1 else ''} (-v shows the table)")
     new = uncached - len(measured.failed) - len(measured.pending)
     report.done([f"{len(commits):,} commits on {branch} @ {rev[:7]}"],
                 f"{new:,} measured, {nonmerge - uncached:,} from cache")

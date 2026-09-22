@@ -408,7 +408,8 @@ class TestMeasureCommits(unittest.TestCase):
         cl.measure_commits("/nowhere", commits, self.cache, self.TABLE, cf.DEFAULT_RULES,
                            differ=differ, report=rec, jobs=1)
         self.assertEqual(rec.of("warn"), ["cloc failed on c01: cloc exited with 2"])
-        self.assertEqual([e[1:] for e in rec.events if e[0] == "progress"], [(1, 3), (2, 3)])
+        # A failed commit is processed too, so the bar reaches its end.
+        self.assertEqual([e[1:] for e in rec.events if e[0] == "progress"], [(1, 3), (2, 3), (3, 3)])
 
     def test_a_second_interrupt_during_the_join_keeps_what_was_recorded(self):
         # The join waits for in-flight cloc runs; a second Ctrl-C there ends

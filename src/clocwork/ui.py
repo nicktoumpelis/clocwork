@@ -50,11 +50,14 @@ def size(n):
 
 
 def compact(n):
-    """A large count at a glance: 950, 12.3K, 1.2M, 1.2B."""
-    for limit, suffix in ((10 ** 9, "B"), (10 ** 6, "M"), (10 ** 3, "K")):
-        if n >= limit:
+    """A large count at a glance: 950, 12.3K, 1.2M, 1.2B. The unit is chosen
+    after rounding, so 999,950 is 1.0M rather than 1000.0K."""
+    if n < 1000:
+        return f"{n:,}"
+    for limit, suffix in ((10 ** 3, "K"), (10 ** 6, "M")):
+        if round(n / limit, 1) < 1000:
             return f"{n / limit:.1f}{suffix}"
-    return f"{n:,}"
+    return f"{n / 10 ** 9:.1f}B"
 
 
 def short_path(path, home=None):

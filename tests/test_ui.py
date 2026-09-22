@@ -16,6 +16,9 @@ class TestFormatting(unittest.TestCase):
     def test_compact_counts(self):
         self.assertEqual([ui.compact(n) for n in (950, 12_345, 1_234_567, 1_203_456_789)],
                          ["950", "12.3K", "1.2M", "1.2B"])
+        # Rounded before the unit is chosen, so a count just under a unit takes the next one.
+        self.assertEqual([ui.compact(n) for n in (999, 999_949, 999_950, 999_999_999, 5 * 10 ** 12)],
+                         ["999", "999.9K", "1.0M", "1.0B", "5000.0B"])
 
     def test_paths_under_home_are_shortened(self):
         self.assertEqual(ui.short_path("/home/me/code/x", "/home/me"), "~/code/x")
@@ -237,6 +240,17 @@ class TestTerminal(unittest.TestCase):
         report = ui.Terminal(out, verbose=True, width=40, clock=Clock())
         report.detail("saved", "/tmp/a-very-long-directory-name/poly-stats/full_commit_data.json")
         self.assertIn("/tmp/a-very-long-directory-name/poly-stats/full_commit_data.json", out.getvalue())
+
+    def test_a_phase_that_raises_still_prints_the_warnings_it_held(self):
+        out = Stream(tty=True)
+        report = ui.Terminal(out, clock=Clock())
+        with self.assertRaises(KeyboardInterrupt):
+            with report.phase("History", 2, 3):
+                report.warn("3 commits could not be measured by cloc")
+                raise KeyboardInterrupt
+        visible = [l.split("\r\x1b[2K")[-1] for l in out.getvalue().split("\n")]
+        cross = next(i for i, l in enumerate(visible) if "✗" in l)
+        self.assertIn("3 commits could not be measured by cloc", visible[cross + 1])
 
     def test_a_live_line_never_exceeds_the_width(self):
         out, clock = Stream(tty=True), Clock()

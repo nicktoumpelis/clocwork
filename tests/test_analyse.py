@@ -308,7 +308,11 @@ class TestInputs(unittest.TestCase):
             self.assertIn("could not count the renamed files (bad JSON); "
                           "renames that change language will drift", rec.of("warn"))
             self.assertEqual(data["commits"][1]["status"], "ok")
-            self.assertTrue(any(any(v.values()) for v in data["summary"]["reconciliation"].values()))
+            drifting = [l for l, v in data["summary"]["reconciliation"].items() if any(v.values())]
+            self.assertTrue(drifting)
+            # Drift is shown by default, not only in -v's table.
+            self.assertIn(f"running totals drift from main's snapshot in {len(drifting)} "
+                          f"language{'s' if len(drifting) > 1 else ''} (-v shows the table)", rec.of("warn"))
             # The table's guess: the page's old name takes the table's
             # language for its new name.
             self.assertEqual(data["commits"][0]["lines"],
@@ -454,6 +458,7 @@ class TestInputs(unittest.TestCase):
             an.analyse(d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), os.path.join(d, "t.json"), report=rec)
             self.assertEqual(rec.of("done")[0][1], (f"0 measured, {total - merges:,} from cache",))
             self.assertEqual(rec.of("status"), [])
+            self.assertFalse([w for w in rec.of("warn") if "drift" in w], rec.of("warn"))
 
     def test_run_summary_reports_the_test_share_at_head(self):
         with tempfile.TemporaryDirectory() as d:
