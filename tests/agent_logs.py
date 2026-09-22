@@ -10,7 +10,7 @@ blobs. Its rows are committed as JSONL, one directory per conversation, with
 each blob written as its field tree ({"9": {"2": 11874}}); install() encodes
 them back and builds the databases. Its CLI logs are committed as the one
 fact the reader takes from them, and written back in agy's own format; its
-history.jsonl is copied as it is.
+history.jsonl is copied with the placeholders swapped, as the rest are.
 
 OpenCode keeps its sessions in SQLite, which a repository cannot hold as a
 readable, diffable fixture. Its rows are committed as JSONL instead, one
@@ -28,7 +28,7 @@ import sqlite3
 FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
 PLACEHOLDER = "/work/agent-sample"
 # A directory outside the placeholder repository, as a second workspace
-# (Antigravity's --add-dir); install() puts it beside the test repository.
+# (Antigravity's --add-dir); install() creates it beside the test repository.
 ELSEWHERE = "/work/elsewhere"
 REMOTE = "https://github.com/example/agent-sample.git"
 
@@ -167,6 +167,8 @@ def install(agent, home, repo, remote=REMOTE, database="opencode.db"):
              (json.dumps(PLACEHOLDER)[1:-1], json.dumps(repo)[1:-1]),
              (REMOTE, remote))
     if agent == "antigravity":
+        os.makedirs(os.path.join(os.path.dirname(repo), "elsewhere"), exist_ok=True)
+
         def swap(text):
             for old, new in swaps:
                 text = text.replace(old, new)

@@ -117,8 +117,9 @@ ANTIGRAVITY_KEYS = set().union(*ANTIGRAVITY_COLUMNS.values()) | ANTIGRAVITY_FIEL
 # string it holds is judged by its field instead: the shapes below are all
 # the recordings need.
 ANTIGRAVITY_STRINGS = {
-    # Gemini's response ids, and Claude's through Vertex (req_vrtx_...).
-    "11": re.compile(r"^[A-Za-z0-9_-]{16,40}$"),
+    # Gemini's response ids (22 or 23 characters), and Claude's through
+    # Vertex (req_vrtx_ and 24 more).
+    "11": re.compile(r"^([A-Za-z0-9_-]{20,24}|req_vrtx_[A-Za-z0-9]{24})$"),
     "19": MODEL_ID,
     "conversation_id": re.compile(r"^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$"),
     "created": re.compile(r"^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$"),
@@ -340,6 +341,7 @@ class TestFixturesAreReduced(unittest.TestCase):
 
     def test_the_antigravity_string_shapes_reject_free_text(self):
         for field, leak in (("19", "Please refactor the login flow for me"), ("11", "Sure, here is the refactor"),
+                            ("11", "AIza" + "x" * 35), ("11", "0123456789abcdef0123456789abcdef01234567"),
                             ("workspace_uris", "file:///Users/someone/x"), ("log", "cli-x.log")):
             with self.subTest(field=field):
                 self.assertNotRegex(leak, ANTIGRAVITY_STRINGS[field])

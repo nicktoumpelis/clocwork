@@ -14,8 +14,8 @@ input + output). That is confirmed for Claude only: no Gemini call recorded a
 cache read, and Gemini's own API counts one inside the prompt, so a Gemini
 cache read may yet be counted twice here. 4 would be the cache write, which
 no recorded call has: the first Claude call, which must have written the
-cache the next one read, reports none, so a write sits in the input as Qwen
-Code folds it.
+cache the next one read, reports none, so a write presumably sits in the
+input, as Qwen Code folds one.
 The model's name is in the gen_metadata row (field 1.19); a step carries
 only its numeric id (field 1). A step's metadata also holds the time it was
 created (field 1), which dates the call; a gen_metadata row has no time of
@@ -34,13 +34,14 @@ and a conversation belongs by the working directory it was created in:
 - history.jsonl, whose /exit record carries an interactive conversation's
   id and working directory;
 - conversation_summaries.db, whose workspace_uris lists the --add-dir
-  directories and then, for an interactive conversation only, the working
+  directories given as absolute paths and then, for an interactive conversation only, the working
   directory: so its last URI is taken, and a print-mode conversation that
   names an added directory there is read as that directory's. It is the
   last resort for that reason.
 
-A conversation that none of them places is held back rather than guessed at,
-and so is one whose log cannot be read unambiguously (see log_directory).
+A conversation that none of them places is held back rather than guessed at.
+One whose log cannot be read unambiguously (see log_directory) is placed by
+the history alone: its summary would name only its added directories.
 
 The IDE's older conversations are encrypted .pb files, and are not read.
 """
@@ -212,8 +213,9 @@ def read_conversation(path):
 
 
 def summaries(home):
-    """{conversation id: its first workspace path} from the summaries
-    database; a conversation it records without one maps to None."""
+    """{conversation id: its working directory, the last workspace URI} from
+    the summaries database; a conversation it records without one maps to
+    None."""
     path = os.path.join(home, "conversation_summaries.db")
     if not os.path.isfile(path):
         return {}
@@ -242,7 +244,7 @@ def workspace_of(uris):
         parsed = urllib.parse.urlparse(first) if isinstance(first, str) else None
         local = parsed and parsed.scheme == "file" and parsed.netloc in ("", "localhost") and parsed.path
         return urllib.request.url2pathname(parsed.path) if local else None
-    except ValueError:
+    except (ValueError, RecursionError):
         return None
 
 
@@ -282,7 +284,7 @@ def history(home):
             for line in f:
                 try:
                     record = json.loads(line)
-                except ValueError:
+                except (ValueError, RecursionError):
                     continue
                 if isinstance(record, dict):
                     cid, workspace = tokens.text(record.get("conversationId")), tokens.text(record.get("workspace"))
@@ -309,7 +311,8 @@ def log_directory(workspace):
     --add-dir one as typed, so nothing marks where a directory with a space
     in its name ends. The whole text is taken when it is a directory, else
     the longest part of it that is one, cut before a space followed by a
-    path (`/`, `./`, `../` or `~/`). Text with no space is one directory,
+    path (`/`, `./`, `../` or `~/`, with this system's separator: on Windows
+    a drive-letter path never starts one). Text with no space is one directory,
     whether or not it is still there. Text with a space that no cut makes a
     directory of -- a bare relative --add-dir, or directories since deleted --
     cannot be told apart from a directory whose name holds a space, so it is
@@ -346,10 +349,14 @@ def scan(repo, homes):
         log, exits, summary = logged(home), history(home), summaries(home)
         for name in names:
             cid = name[:-3]
-            # The log first, then the history, then the summary; a log whose
-            # text cannot be told falls through to the next.
-            directory = log_directory(log[cid]) if cid in log else None
-            directory = directory or exits.get(cid) or summary.get(cid)
+            # The log first, then the history, then the summary. A log whose
+            # text cannot be told falls through to the history only: it says
+            # the run had added directories, and in print mode the summary
+            # names those alone.
+            if cid in log:
+                directory = log_directory(log[cid]) or exits.get(cid)
+            else:
+                directory = exits.get(cid) or summary.get(cid)
             if not directory:
                 held += 1
                 continue

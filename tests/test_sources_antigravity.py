@@ -101,11 +101,12 @@ class TestRecordings(Home):
         self.assertEqual(self.scan().days, RECORDED)
 
     def test_without_the_logs_the_history_places_the_interactive_ones(self):
-        # The four print-mode conversations with no workspace anywhere else
-        # are held; 7023721e's summary names only its added directory.
+        # Without the summaries too, so that only the history can place
+        # them: the five print-mode conversations are held.
         shutil.rmtree(os.path.join(self.home, "log"))
+        os.remove(os.path.join(self.home, "conversation_summaries.db"))
         result = self.scan()
-        self.assertEqual((result.days["2026-09-22"], result.held), (INTERACTIVE, 4))
+        self.assertEqual((result.days["2026-09-22"], result.held), (INTERACTIVE, 5))
 
     def test_without_the_logs_or_the_history_the_summary_s_last_uri_does(self):
         shutil.rmtree(os.path.join(self.home, "log"))
@@ -115,7 +116,7 @@ class TestRecordings(Home):
 
     def test_an_added_directory_is_not_the_workspace_while_the_log_is_there(self):
         elsewhere = os.path.join(self.root, "elsewhere")
-        os.makedirs(elsewhere)
+        self.assertTrue(os.path.isdir(elsewhere))  # made by install()
         self.assertIsNone(self.scan(elsewhere))
 
     def test_the_claude_calls_report_their_cache_read_beside_the_input(self):
@@ -370,6 +371,17 @@ class TestRules(Home):
         self.conversation(steps=[self.step(usage(100, 1))], logged=f"{self.repo} docs")
         self.exit("c1", self.repo)
         self.assertEqual(self.day()["turns"], 1)
+
+    def test_a_log_that_cannot_be_told_does_not_fall_through_to_the_summary(self):
+        # In print mode the summary names only the added directory, so it
+        # would credit the run to that directory.
+        docs = os.path.join(self.root, "docs")
+        os.makedirs(docs)
+        self.conversation(steps=[self.step(usage(100, 1))], logged=f"{self.repo} docs", workspace=self.uri(docs))
+        self.conversation(cid="c2", steps=[self.step(usage(7, 1, "c2"))], logged=self.repo)
+        self.assertIsNone(self.scan(docs))
+        result = self.scan()
+        self.assertEqual((result.days["2026-08-05"]["models"]["unknown"], result.held), (counts(7, 1), 1))
 
     def test_a_log_that_cannot_be_told_and_nothing_else_is_held(self):
         self.conversation(steps=[self.step(usage(100, 1))], logged=f"{self.repo} docs")

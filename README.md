@@ -447,16 +447,19 @@ log of the run that created it, under `log/`, names the working directory
 first and any `--add-dir` directories after it; agy kept every log in the
 runs checked, a year-old one included. `history.jsonl` names an interactive
 conversation's working directory when it is ended with `/exit`.
-`conversation_summaries.db` lists the `--add-dir` directories and then, for
+`conversation_summaries.db` lists the `--add-dir` directories given as
+absolute paths and then, for
 an interactive conversation only, the working directory, so its last entry
 is taken, and a print-mode run with `--add-dir` whose log is gone is read as
 its added directory's; it is the last resort for that reason. A conversation
 belongs when its working directory is the repository or a directory in it.
 A log lists a run's directories separated by spaces, so where one of them has
 a space in its name, the longest part of the text that is a directory on disk
-is taken, splitting only before a path (`/…`, `./…`, `../…` or `~/…`). Text
+is taken, splitting only before a path (`/…`, `./…`, `../…` or `~/…`; on
+Windows a drive-letter path never splits, and such a run is held back). Text
 that no split makes a directory of, as a bare relative `--add-dir docs`
-leaves it, falls through to `history.jsonl` and the summary.
+leaves it, falls through to `history.jsonl` alone, since that run's summary
+names only its added directories; without an `/exit` record it is held back.
 One that none of the three places is not guessed at; when the repository has
 Antigravity usage, the run's summary says how many such conversations the
 machine holds, since none of them can be tied to any one repository. Because
