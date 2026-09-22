@@ -3,8 +3,7 @@
 From 0.4.0 each session is a JSONL file under
 <runtime>/projects/<path>/chats/<session id>.jsonl, moved to chats/archive/
 when it is archived, where the runtime directory is QWEN_RUNTIME_DIR, else
-QWEN_HOME, else ~/.qwen. A runtime directory set only by the
-advanced.runtimeOutputDir setting is not followed. Every record
+the advanced.runtimeOutputDir setting, else QWEN_HOME, else ~/.qwen. Every record
 carries the working directory it was written in, and every API call -- the
 main one and the side calls, such as the memory extractor's -- writes a
 `ui_telemetry` system record whose uiEvent is a `qwen-code.api_response` with
@@ -32,6 +31,7 @@ not accept the mock's stream, and is Gemini CLI's convention taken on trust.
 import json
 import os
 import re
+import sys
 
 from clocwork import tokens
 from clocwork.sources import gemini
@@ -61,6 +61,67 @@ def default_homes(env):
     runtime = os.path.expanduser(runtime) if runtime else None
     moved = runtime and os.path.realpath(runtime) != os.path.realpath(global_dir)
     return [runtime, global_dir] if moved else [global_dir]
+
+
+# The settings files Qwen Code merges, lowest first: the system defaults, the
+# user's, the workspace's, then the system's. The system files are fixed per
+# platform unless these name them.
+SYSTEM_SETTINGS = {"darwin": "/Library/Application Support/QwenCode/settings.json",
+                   "win32": "C:\\ProgramData\\qwen-code\\settings.json"}
+LINUX_SETTINGS = "/etc/qwen-code/settings.json"
+# $NAME or ${NAME}, as Qwen expands them in every settings value; a name the
+# environment does not hold is left as written, and so are the session ids
+# Qwen keeps for itself. (It also keeps its own internal secrets, which no
+# shell running clocwork holds.)
+VARIABLE = re.compile(r"\$(?:(\w+)|\{([^}]+)\})")
+UNEXPANDED = {"SESSION_ID", "QWEN_CODE_SESSION_ID"}
+# The comments strip-json-comments removes before Qwen parses a settings file:
+# a string is matched first, so a // inside one is left alone, and a string or
+# a block comment left open runs to the end of the file. An open string that
+# had to close would be tried again at every later quote.
+JSONC = re.compile(r'("(?:[^"\\]|\\.)*"?)|//[^\n]*|/\*.*?(?:\*/|\Z)', re.DOTALL)
+
+
+def settings_files(repo, homes, env):
+    """Every settings file that can name a runtime directory for a session in
+    the repository. The user's is looked for in each home, and the
+    workspace's at the repository's root."""
+    system = env.get("QWEN_CODE_SYSTEM_SETTINGS_PATH") or SYSTEM_SETTINGS.get(sys.platform, LINUX_SETTINGS)
+    defaults = env.get("QWEN_CODE_SYSTEM_DEFAULTS_PATH") or os.path.join(os.path.dirname(system),
+                                                                          "system-defaults.json")
+    return ([defaults] + [os.path.join(home, "settings.json") for home in homes]
+            + [os.path.join(repo, ".qwen", "settings.json"), system])
+
+
+def configured_dir(path, repo, env):
+    """The runtime directory a settings file names, resolved as Qwen resolves
+    it, or None. A relative one is taken from the repository's root, the
+    working directory a session in it most often has."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            settings = json.loads(JSONC.sub(lambda m: m.group(1) or " ", f.read()))
+    except (OSError, UnicodeError, ValueError):
+        return None
+    advanced = settings.get("advanced") if isinstance(settings, dict) else None
+    value = advanced.get("runtimeOutputDir") if isinstance(advanced, dict) else None
+    if not isinstance(value, str) or not value:
+        return None
+    value = VARIABLE.sub(lambda m: m.group(0) if (m.group(1) or m.group(2)).upper() in UNEXPANDED
+                         else env.get(m.group(1) or m.group(2), m.group(0)), value)
+    if value == "~" or value.startswith(("~/", "~\\")):
+        # Either separator, on every platform, as Qwen splits it.
+        value = os.path.join(os.path.expanduser("~"), *filter(None, re.split(r"[/\\]+", value[2:])))
+    return os.path.join(repo, value)
+
+
+def runtime_dirs(repo, homes, env):
+    """The directories the settings files name, in their order, each once."""
+    found = []
+    for path in settings_files(repo, homes, env):
+        directory = configured_dir(path, repo, env)
+        if directory and directory not in found:
+            found.append(directory)
+    return found
 
 
 def chat_logs(homes):
@@ -144,10 +205,21 @@ def add_days(days, more):
         days.setdefault(date, {"turns": 0, "models": {}})["turns"] += day["turns"]
 
 
-def scan(repo, homes):
+def scan(repo, homes, env=None):
     """The repository's Qwen Code usage, or None when no session belongs to it
-    and nothing was unreadable."""
+    and nothing was unreadable.
+
+    Beside the homes, every directory a settings file names is read, not only
+    the one Qwen would pick: sessions stay where they were written when the
+    setting changes, and a directory holding other repositories' sessions adds
+    none of them. No homes still means nothing is read."""
     repo_real = os.path.realpath(repo)
+    if homes:
+        seen = {os.path.realpath(home) for home in homes}
+        for directory in runtime_dirs(repo, homes, os.environ if env is None else env):
+            if os.path.realpath(directory) not in seen:
+                seen.add(os.path.realpath(directory))
+                homes = list(homes) + [directory]
     calls, malformed = {}, 0
     files, skipped = chat_logs(homes)
     for path in files:
