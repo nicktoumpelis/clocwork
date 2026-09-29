@@ -26,6 +26,13 @@ All notable changes to clocwork are recorded here. The format follows
   doubled its cost. Claude Sonnet 5.5, Claude Mythos 5.1 and Claude Mythos 5
   have rows of their own too; the Mythos models were reported as unpriced.
 
+- A commit takes its token share from the UTC day it was made on. Every
+  agent's usage is archived by UTC day, but commits were matched to it by
+  their author's local date, so work done near midnight drew on, and
+  estimated from, the wrong day's tokens. The commit table still shows the
+  local date. A log timestamp written with an offset rather than `Z` is
+  moved to UTC too; no agent read so far writes one.
+
 ## [0.2.0] - 2026-09-22
 
 ### Added

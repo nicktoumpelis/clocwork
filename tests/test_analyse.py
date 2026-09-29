@@ -537,6 +537,21 @@ class TestTokenSummary(unittest.TestCase):
         self.assertAlmostEqual(t["lifetime_cost_usd"], t["cost_usd"] * t["lifetime_total"] / t["measured_total"])
         self.assertEqual(t["unpriced_tokens"], 0)
 
+    def test_commits_meet_token_days_in_utc(self):
+        # Token days are UTC days; a commit's date is its author's local one.
+        results = [
+            # 00:30 in UTC+2 is 22:30 UTC the day before: a measured day's lines.
+            {"date": "2026-08-07", "datetime": "2026-08-07T00:30:00+02:00", "agent": "Claude Opus 5",
+             "lines": {"Swift": [40, 10, 0, 0, 0, 0]}},
+            # 23:30 in UTC-2 is 01:30 UTC the day after: an unarchived day's.
+            {"date": "2026-08-06", "datetime": "2026-08-06T23:30:00-02:00", "agent": "Claude Opus 5",
+             "lines": {"Swift": [20, 0, 0, 0, 0, 0]}},
+        ]
+        t = an.token_summary(self.archive(), results)
+        self.assertEqual(t["ratio"], 100.0)             # 5,000 tokens over the 50 lines of UTC 2026-08-06
+        self.assertEqual(t["per_day"], [["2026-08-06", 5000, "m"], ["2026-08-07", 2000, "e"]])
+        self.assertEqual(t["output_per_line"], 10)      # 500 output over those 50 lines
+
     def test_an_empty_archive_yields_zeroes_not_a_crash(self):
         t = an.token_summary({}, self.results())
         self.assertEqual(t["ratio"], 0.0)
@@ -626,6 +641,17 @@ class TestTokensByCommit(unittest.TestCase):
 
     def test_a_day_without_tokens_attributes_nothing(self):
         self.assertNotIn(5, self.split())
+
+    def test_a_commit_draws_from_the_utc_day_it_was_made_on(self):
+        results = [
+            {"index": 0, "date": "2026-08-07", "datetime": "2026-08-07T00:30:00+02:00", "agent": "Claude Opus 5",
+             "lines": {"Swift": [10, 0, 0, 0, 0, 0]}},
+            {"index": 1, "date": "2026-08-06", "datetime": "2026-08-06T23:30:00-02:00", "agent": "Claude Opus 5",
+             "lines": {"Swift": [10, 0, 0, 0, 0, 0]}},
+        ]
+        sources = [{"key": "claude-code", "per_day": [["2026-08-06", 1000, "m"]]}]
+        self.assertEqual(an.tokens_by_commit(sources, results), {0: 1000})
+        self.assertEqual(an.token_kinds(sources, results), {0: "m"})
 
     def test_measured_tokens_on_a_day_without_ai_churn_stay_unattributed(self):
         self.assertNotIn(6, self.split())

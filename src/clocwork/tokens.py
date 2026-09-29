@@ -52,9 +52,25 @@ def text(value):
 
 
 def day(stamp):
-    """The date ('YYYY-MM-DD') an ISO 8601 timestamp starts with, or '' when
-    the value is not one, which puts its usage on no day."""
-    return stamp[:10] if isinstance(stamp, str) and DATE.match(stamp) else ""
+    """The UTC date ('YYYY-MM-DD') of an ISO 8601 timestamp, or '' when the
+    value is not one, which puts its usage on no day.
+
+    Every archived day is a UTC day. The agents read so far write UTC ('Z'),
+    which is taken as written, as is a stamp with no zone; one written with
+    an offset that datetime.fromisoformat reads is moved to UTC first, so it
+    cannot land on its own zone's date. A stamp it cannot read, or cannot
+    move without leaving the calendar, keeps the date it starts with.
+    """
+    if not (isinstance(stamp, str) and DATE.match(stamp)):
+        return ""
+    if len(stamp) > 10 and not stamp.endswith("Z"):
+        try:
+            moment = datetime.fromisoformat(stamp)
+            if moment.tzinfo is not None:
+                return moment.astimezone(timezone.utc).strftime("%Y-%m-%d")
+        except (ValueError, OverflowError):
+            pass
+    return stamp[:10]
 
 
 def day_ms(stamp):

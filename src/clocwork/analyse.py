@@ -139,27 +139,38 @@ def is_ai(result):
     return bool(result["agent"]) and result["agent"] != MISC
 
 
+def token_day(result):
+    """The day a commit meets the token archive on: the UTC date of its
+    timestamp. Every agent's usage is archived by UTC day, while a commit's
+    `date` is its author's local one, which is a different day for work done
+    near midnight. A record without a timestamp falls back to `date`."""
+    return tu.day(result.get("datetime")) or result["date"]
+
+
 def churn_by_date(results):
-    """Lines added plus removed per date, whoever wrote them.
+    """Lines added plus removed per UTC day (token_day), whoever wrote them.
 
     Merge commits carry no line matrices, so they contribute nothing here, as
     everywhere else in this project.
     """
     totals = {}
     for r in results:
-        if r["date"]:
-            totals[r["date"]] = totals.get(r["date"], 0) + churn_of(r)
+        d = token_day(r)
+        if d:
+            totals[d] = totals.get(d, 0) + churn_of(r)
     return totals
 
 
 def source_churn_by_date(results, source):
-    """Lines changed per date by the commits whose tokens `source` measures."""
+    """Lines changed per UTC day (token_day) by the commits whose tokens
+    `source` measures."""
     totals = {}
     if source is None:
         return totals
     for r in results:
-        if r["date"] and is_ai(r) and src.source_for(r["agent"]) is source:
-            totals[r["date"]] = totals.get(r["date"], 0) + churn_of(r)
+        d = token_day(r)
+        if d and is_ai(r) and src.source_for(r["agent"]) is source:
+            totals[d] = totals.get(d, 0) + churn_of(r)
     return totals
 
 
@@ -521,8 +532,8 @@ def commit_shares(sources, results):
 
     The archive knows tokens per day, not per commit, so a source's total for
     a day, measured or estimated alike, is split across the commits its agents
-    made that day in proportion to the lines each one changed: the same churn
-    the source's ratio is built on. Human and merge commits, and commits by
+    made that UTC day (token_day) in proportion to the lines each one changed:
+    the same churn the source's ratio is built on. Human and merge commits, and commits by
     agents the source did not measure, get nothing from it, and a day whose
     tokens have no such commits to land on stays unattributed rather than
     being forced onto someone. The kind is the source's own for that day.
@@ -534,10 +545,11 @@ def commit_shares(sources, results):
         day_tokens = {date: (tokens, kind) for date, tokens, kind in s["per_day"]}
         by_day = {}
         for r in results:
-            if r["date"] in day_tokens and is_ai(r) and src.source_for(r["agent"]) is module:
+            d = token_day(r)
+            if d in day_tokens and is_ai(r) and src.source_for(r["agent"]) is module:
                 churn = churn_of(r)
                 if churn:
-                    by_day.setdefault(r["date"], []).append((r["index"], churn))
+                    by_day.setdefault(d, []).append((r["index"], churn))
         for date, commits in by_day.items():
             total = sum(churn for _index, churn in commits)
             tokens, kind = day_tokens[date]

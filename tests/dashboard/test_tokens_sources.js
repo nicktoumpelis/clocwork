@@ -27,6 +27,6 @@ const mixed = shown.filter(r => { const c = byHash[cells(r)[1]]; return c[8] && 
 check(mixed.length > 0, 'sanity: some shown commits have a measured share of a day whose total is estimated (' + mixed.length + ')');
 const compact = new Intl.NumberFormat('en-US', { notation: 'compact', maximumSignificantDigits: 3 });
 check(mixed.every(r => cells(r)[7] === compact.format(byHash[cells(r)[1]][8])), 'their figures are shown as measured, with no approximation sign');
-check(mixed.every(r => / a measured day /.test(r.children[8].title)), 'and their tooltips say measured');
+check(mixed.every(r => / a measured UTC day /.test(r.children[8].title)), 'and their tooltips say measured');
 
 done();
