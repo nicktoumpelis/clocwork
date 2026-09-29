@@ -292,6 +292,26 @@ that ran it, and such a commit can carry Claude Code's tokens for the day.
 A commit crediting several agents in separate trailers goes to the first one
 recognised, whichever agents those are.
 
+### Activity per month
+
+Below the charts, the page shows the most and the fewest commits in a
+calendar month, each with its month, and the average per month; the same
+three for pull requests when the history has any. The months run from the
+earliest commit's to the latest's, by author date. The most is taken over
+every month. The fewest and the average are taken over full months only,
+counting a month without commits as 0: the first month is left out unless
+the history starts on its 1st, and the last unless it ends on its last day,
+so a history's opening days do not pass for its quietest month. When no
+full month remains, every month counts. A tie goes to the earlier month.
+
+Pull requests are read from the history, not from a host: a commit whose
+subject starts `Merge pull request #N` (GitHub's merge commit) or ends
+`(#N)` (GitHub's squash merge) is pull request N, and each number counts
+once, in the month it first appears. A rebase merge, another host's merge
+commit and a pull request merged outside git leave neither, so they are not
+counted, while a direct commit whose subject ends with an issue reference
+such as `(#42)` is.
+
 ### Token usage
 
 The token section appears when the workspace's token archive holds at least

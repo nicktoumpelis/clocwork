@@ -8,6 +8,14 @@ All notable changes to clocwork are recorded here. The format follows
 
 ### Added
 
+- The page shows commits and pull requests per month: the most and the
+  fewest in a month, each with its month, and the average. The fewest and
+  the average are over full months, a month without commits counting 0,
+  so a history's partial first and last months do not pass for its
+  quietest. Pull requests are counted from GitHub merge commits and from
+  squash-merge subjects ending `(#N)`. The figures come from the commits
+  the page already holds, so a workspace analysed by an earlier release
+  shows them after `clocwork render`.
 - Claude Code sessions started in the repository's linked worktrees, or at
   the path the repository had before it was moved, are read. Claude Code
   files a session under the directory it was started in, so these were
