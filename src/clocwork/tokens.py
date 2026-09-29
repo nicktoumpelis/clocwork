@@ -57,17 +57,19 @@ def day(stamp):
 
     Every archived day is a UTC day. The agents read so far write UTC ('Z'),
     which is taken as written, as is a stamp with no zone; one written with
-    an offset is moved to UTC first, so it cannot land on its own zone's date.
+    an offset that datetime.fromisoformat reads is moved to UTC first, so it
+    cannot land on its own zone's date. A stamp it cannot read, or cannot
+    move without leaving the calendar, keeps the date it starts with.
     """
     if not (isinstance(stamp, str) and DATE.match(stamp)):
         return ""
     if len(stamp) > 10 and not stamp.endswith("Z"):
         try:
             moment = datetime.fromisoformat(stamp)
-        except ValueError:
-            moment = None
-        if moment is not None and moment.tzinfo is not None:
-            return moment.astimezone(timezone.utc).strftime("%Y-%m-%d")
+            if moment.tzinfo is not None:
+                return moment.astimezone(timezone.utc).strftime("%Y-%m-%d")
+        except (ValueError, OverflowError):
+            pass
     return stamp[:10]
 
 

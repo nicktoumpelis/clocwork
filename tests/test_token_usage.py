@@ -300,6 +300,10 @@ class TestCounters(unittest.TestCase):
         self.assertEqual(tu.day("2026-08-06T23:30:00.250+00:00"), "2026-08-06")
         # Without a zone there is nothing to convert from.
         self.assertEqual(tu.day("2026-08-06T23:30:00"), "2026-08-06")
+        # An offset that carries the stamp past the calendar's end cannot be
+        # converted, and must not stop a scan: the date is taken as written.
+        self.assertEqual(tu.day("9999-12-31T23:30:00-02:00"), "9999-12-31")
+        self.assertEqual(tu.day("0001-01-01T00:30:00+02:00"), "0001-01-01")
 
     def test_a_model_that_is_not_a_name_is_recorded_as_unknown(self):
         days = {}
