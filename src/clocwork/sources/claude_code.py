@@ -3,8 +3,9 @@
 
 A sub-agent's turns go to a transcript of its own under the session's
 <session-id>/subagents/ folder, never into the session's transcript: an
-agent the Task tool starts, at any depth, as subagents/agent-<id>.jsonl, and
-an agent a workflow starts as subagents/workflows/wf_<run>/agent-<id>.jsonl.
+agent the Task tool starts, at any spawn depth, as
+subagents/agent-<id>.jsonl, and an agent a workflow starts as
+subagents/workflows/wf_<run>/agent-<id>.jsonl.
 Over one repository's last month they held a quarter of the tokens.
 
 Resumed and forked sessions replay earlier turns verbatim into the new
@@ -109,6 +110,6 @@ def scan_directory(directory):
                         tokens.record(days, date, msg.get("model"), counts)
 
         except OSError:
-            skipped += 1        # deleted by Claude Code after it was listed
+            skipped += 1        # deleted after listing, or not readable
 
     return tokens.ScanResult(days, malformed, skipped)

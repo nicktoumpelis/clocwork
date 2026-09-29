@@ -345,8 +345,8 @@ under that subdirectory's name, is not read.
 **Tokens.** Each session's transcript is read, and so is each of its
 sub-agents', which Claude Code writes under the session's `subagents/`
 folder rather than into the session's own transcript: every
-`agent-*.jsonl` there, including those of the agents a workflow starts, one
-folder further down. A resumed or forked session
+`agent-*.jsonl` there, including those of the agents a workflow starts,
+under `subagents/workflows/<run>/`. A resumed or forked session
 replays its earlier turns into the new transcript, so each assistant turn is
 counted once, by its message id, or its request id or record id where it has
 none.

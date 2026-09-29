@@ -208,7 +208,7 @@ class TestClaudeCodeScan(unittest.TestCase):
     def test_sub_agent_transcripts_are_read(self):
         # A sub-agent's turns live in <session>/subagents/, never in the
         # parent's transcript, so leaving them out under-counts the day. A
-        # workflow's agents are one folder further down, per workflow run.
+        # workflow's agents are two folders down, in workflows/<run>/.
         with tempfile.TemporaryDirectory() as d:
             write_transcripts(d, {"s1.jsonl": [turn("m1", "2026-08-06")],
                                   "s2.jsonl": [turn("m5", "2026-08-06")]})
@@ -261,6 +261,7 @@ class TestClaudeCodeScan(unittest.TestCase):
             finally:
                 cc.transcripts = real
         self.assertEqual((result.skipped, result.days["2026-08-06"]["turns"]), (1, 1))
+
 
 if __name__ == "__main__":
     unittest.main()
