@@ -1684,7 +1684,7 @@ function resetMainZoom() {
         { label: 'Cache Read', value: FMT.pct(T.cache_read_share),
           delta: 'of tokens were context re-read, not newly written' },
         { label: 'Output per Line', value: fmt(T.output_per_line),
-          delta: 'tokens generated per line of code changed' },
+          delta: 'output tokens per line changed in AI commits' },
         // Data regenerated before the footprint estimate existed has no energy
         // fields. Drop those two cards rather than throw: this IIFE runs before
         // the agent cards and the commit table, so an exception here would take

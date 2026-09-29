@@ -147,20 +147,6 @@ def token_day(result):
     return tu.day(result.get("datetime")) or result["date"]
 
 
-def churn_by_date(results):
-    """Lines added plus removed per UTC day (token_day), whoever wrote them.
-
-    Merge commits carry no line matrices, so they contribute nothing here, as
-    everywhere else in this project.
-    """
-    totals = {}
-    for r in results:
-        d = token_day(r)
-        if d:
-            totals[d] = totals.get(d, 0) + churn_of(r)
-    return totals
-
-
 def source_churn_by_date(results, source):
     """Lines changed per UTC day (token_day) by the commits whose tokens
     `source` measures."""
@@ -461,7 +447,6 @@ def token_summary(archive_days, results):
     needs no special case.
     """
     archive_days = records_with_tokens(archive_days)
-    churn = churn_by_date(results)
     keys = source_keys(archive_days)
     entries = {key: {date: day[key] for date, day in archive_days.items() if key in day} for key in keys}
     churns = {key: source_churn_by_date(results, src.by_key(key)) for key in keys}
@@ -480,10 +465,15 @@ def token_summary(archive_days, results):
     # A source with a rate prices every commit of its agents that changed a
     # line; the blended ratio covers only those sources, so it is the rate the
     # estimates were made at, not diluted by tokens that land on no commit.
+    # Output per line is the output part of that same rate: the rated
+    # sources' output over the lines their own agents changed on their own
+    # measured days. Human lines on those days, and the tokens of a source
+    # whose work lands on no commit, would otherwise dilute or inflate it.
     covered = {key: sum(churns[key].get(date, 0) for date in entries[key]) for key in keys}
     rated = [s for s in sources if s["ratio"]]
     covered_ai = sum(covered[s["key"]] for s in rated)
-    covered_all = sum(churn.get(date, 0) for date in archive_days)
+    rated_output = sum(m["output"] for s in rated for d in entries[s["key"]].values()
+                       for m in d["models"].values())
 
     counters = {name: 0 for name in WH_PER_1K}
     energy_kwh = co2_kg = cost_usd = lifetime_cost = 0.0
@@ -518,7 +508,7 @@ def token_summary(archive_days, results):
         "lifetime_cost_usd": lifetime_cost,
         "unpriced_tokens": unpriced,
         "cache_read_share": counters["cache_read"] / measured_total if measured_total else 0.0,
-        "output_per_line": round(counters["output"] / covered_all) if covered_all else 0,
+        "output_per_line": round(rated_output / covered_ai) if covered_ai else 0,
         "coverage_start": min(archive_days) if archive_days else None,
         "per_day": per_day,
         "sources": sources,
