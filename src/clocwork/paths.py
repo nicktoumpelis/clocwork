@@ -279,7 +279,8 @@ def remember_session_paths(workspace, repo, today=None):
     - Any path, the repository's own included, that a run no longer finds
       live gets `until` set to that run's day: sessions filed there later
       add nothing, while those between the move or removal and that run
-      still count.
+      still count. A path that comes back is reopened as above: a worktree
+      from its new creation, the repository's own for every day.
     - A workspace without the list starts it from `repo_path`, the path it
       was made for: when that is not the current path, the repository has
       moved, and the old path counts up to today.
@@ -310,8 +311,11 @@ def remember_session_paths(workspace, repo, today=None):
         if entry is None:
             entries.append({"path": path, "since": since, "until": None})
         elif entry["until"] is not None:
-            # Back in git's list: a new worktree at an old path, or the
-            # repository moved back. The days in between were not its.
+            # Back in git's list. A new worktree at an old path counts from
+            # its creation only. The repository moved back reopens its path
+            # for every day (since is None), the days it was away included:
+            # one window per path cannot leave a gap, and a later start
+            # would drop its own sessions from before the move.
             entry.update(since=since, until=None)
     for entry in entries:
         if entry["path"] not in live and entry["until"] is None:

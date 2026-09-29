@@ -188,12 +188,15 @@ absolute path second, and a mismatch is refused with an error naming both
 repositories, so no ordinary mistake can overwrite one repository's token
 archive with another's. It also keeps `session_paths`: the directories the
 repository's agent sessions can have run in, each with the UTC days it
-belonged to the repository. They are its current path, open-ended, and
-every linked worktree `git worktree list` has shown on any run, from the
-day it was created. A path a run no longer finds, whether the repository's
-own after a move or a removed worktree's, is closed on that run's day:
-sessions there up to that day count, later ones do not, so a path reused by
-something else adds nothing once a run has seen it go. A workspace made
+belonged to the repository. They are its current path, open-ended (run
+from a linked worktree, the main checkout too), and every linked worktree
+`git worktree list` has shown on any run, from the day it was created, or
+first seen when that cannot be told. A path a run no longer finds, whether
+the repository's own after a move or a removed worktree's, is closed on
+that run's day: sessions there up to that day count, later ones do not, so
+a path reused by something else adds nothing once a run has seen it go.
+The exception is the repository moving back to a path it left: the path
+reopens for every day, the days it was away included. A workspace made
 before the list existed starts it with the path recorded when the workspace
 was made, closed on the first run if the repository has moved since.
 Sessions in those directories on those days count (see Claude Code below).
