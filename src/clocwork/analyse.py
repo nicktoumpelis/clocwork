@@ -221,8 +221,8 @@ def energy_estimate(counters, measured_total, lifetime_total):
 # of its own: Opus 5.5 costs less than Opus 5 and reads its cache at 0.05x
 # input, Fable 5.1 and Mythos 5.1 at 0.025x, every other model at 0.1x.
 # Mythos is Fable's limited-availability twin and is priced like it.
-# Opus 4 and 4.1 cost three times what 4.5 and later do, so each Opus 4.x has
-# a row of its own and the bare claude-opus-4 row, which a dated id falls
+# Opus 4 and 4.1 cost three times what 4.5 through 5 do, so each Opus 4.x
+# has a row of its own and the bare claude-opus-4 row, which a dated id falls
 # back to, is the original's.
 # Sonnet 4, 4.5 and 4.6 share one price, and one row.
 # Cache writes are priced at the one-hour rate: Claude Code writes its cache

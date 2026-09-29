@@ -726,7 +726,7 @@ class TestCostEstimate(unittest.TestCase):
         # platform.claude.com/docs/en/about-claude/pricing, read 2026-09-29.
         # Input, one-hour cache write, cache hit, output. Cache hits are 0.1x
         # input except on Fable 5.1 and Mythos 5.1 (0.025x) and Opus 5.5
-        # (0.05x), so no model's row can be derived from its input price.
+        # (0.05x), so no single rule derives every row from its input price.
         fable_5_1, fable_5 = (10, 20, 0.25, 50), (10, 20, 1, 50)
         for model, row in (("claude-fable-5-1", fable_5_1), ("claude-mythos-5-1", fable_5_1),
                            ("claude-fable-5", fable_5), ("claude-mythos-5", fable_5),
