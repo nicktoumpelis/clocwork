@@ -618,6 +618,11 @@ var THEME = (function() {
     </div>
 </div>
 
+<section id="monthlySection">
+<h2 style="margin: 1.5rem 0 1rem;">Activity per Month</h2>
+<div class="stats-grid" id="monthlyStats"></div>
+</section>
+
 <section id="tokenSection">
 <h2 style="margin: 1.5rem 0 1rem;">Token Usage</h2>
 <div class="stats-grid" id="tokenStats"></div>
@@ -1105,6 +1110,7 @@ var FMT = (function() {
         compact: num({ notation: 'compact', maximumSignificantDigits: 3 }),
         compactWhole: num({ notation: 'compact', maximumFractionDigits: 0 }),
         sig2: num({ maximumSignificantDigits: 2 }),
+        oneDecimal: num({ maximumFractionDigits: 1 }),
         kg: kg,
         lb: num({ style: 'unit', unit: 'pound', maximumSignificantDigits: 2 }),
         // API prices are in US dollars whatever the region; the locale still
@@ -1307,6 +1313,80 @@ function statCard(c) {
     }
     SEL.on(render);
     render();
+})();
+
+// --- Activity per Month ---
+// Commits and pull requests per calendar month, from the earliest commit's
+// month to the latest's (by date: the history's order is not the dates').
+// The busiest month is any month. The fewest and the average are over full
+// months only, empty ones counting 0: the first and last months are usually
+// partial, and would otherwise make a history's opening days its quietest
+// month. With no full month, every month counts. Ties go to the earliest.
+var MONTHLY = (function() {
+    // A pull request's number, from a GitHub merge commit's subject ("Merge
+    // pull request #N from ...") or a squash merge's, which ends "(#N)".
+    // Other hosts' merges and rebase merges leave neither, so are not counted.
+    // c is a commit row: [index, hash, date, subject, ...].
+    function prNumber(c) {
+        var m = /^Merge pull request #(\d+)\b/.exec(c[3]) || /\(#(\d+)\)\s*$/.exec(c[3]);
+        return m ? +m[1] : null;
+    }
+    function key(y, m) { return y + '-' + (m < 10 ? '0' : '') + m; }
+    function lastDay(y, m) { return new Date(Date.UTC(y, m, 0)).getUTCDate(); }   // day 0 of the next month
+    function figures(counts, months, from, to) {
+        var most = null, fewest = null, sum = 0;
+        months.forEach(function(k) { if (!most || counts[k] > most.count) most = { month: k, count: counts[k] }; });
+        months.slice(from, to).forEach(function(k) {
+            if (!fewest || counts[k] < fewest.count) fewest = { month: k, count: counts[k] };
+            sum += counts[k];
+        });
+        return { most: most, fewest: fewest, average: sum / (to - from) };
+    }
+    function activity(commits) {
+        var dated = commits.filter(function(c) { return c[2]; });
+        if (!dated.length) return null;
+        var first = dated[0][2], last = first;
+        dated.forEach(function(c) { if (c[2] < first) first = c[2]; if (c[2] > last) last = c[2]; });
+        var months = [], commitCounts = {}, prCounts = {}, y = +first.slice(0, 4), m = +first.slice(5, 7);
+        for (;;) {
+            var k = key(y, m);
+            months.push(k); commitCounts[k] = 0; prCounts[k] = 0;
+            if (k === last.slice(0, 7)) break;
+            if (++m > 12) { m = 1; y++; }
+        }
+        var seen = {}, prs = 0;
+        dated.forEach(function(c) {
+            var k = c[2].slice(0, 7), n = prNumber(c);
+            commitCounts[k]++;
+            if (n !== null && !seen[n]) { seen[n] = true; prCounts[k]++; prs++; }
+        });
+        var from = +first.slice(8, 10) === 1 ? 0 : 1;
+        var to = +last.slice(8, 10) === lastDay(+last.slice(0, 4), +last.slice(5, 7)) ? months.length : months.length - 1;
+        var full = to > from;
+        if (!full) { from = 0; to = months.length; }
+        var p = prs ? figures(prCounts, months, from, to) : null;
+        if (p) p.total = prs;
+        return { months: to - from, full: full, commits: figures(commitCounts, months, from, to), prs: p };
+    }
+    function render(commits) {
+        var grid = document.getElementById('monthlyStats');
+        while (grid.firstChild) grid.removeChild(grid.firstChild);
+        var a = activity(commits);
+        document.getElementById('monthlySection').hidden = !a;
+        if (!a) return;
+        var span = 'average over ' + fmt(a.months) + ' ' + (a.full ? 'full' : 'partial') + ' month' + (a.months === 1 ? '' : 's');
+        function month(k) { return FMT.monthYear(k + '-01'); }
+        function three(what, f) {
+            return [
+                { label: 'Most ' + what, value: fmt(f.most.count), delta: month(f.most.month) },
+                { label: 'Fewest ' + what, value: fmt(f.fewest.count), delta: month(f.fewest.month) },
+                { label: what + ' per Month', value: FMT.oneDecimal(f.average), delta: span },
+            ];
+        }
+        three('Commits', a.commits).concat(a.prs ? three('PRs', a.prs) : []).forEach(function(c) { grid.appendChild(statCard(c)); });
+    }
+    render(ROWS);
+    return { activity: activity, prNumber: prNumber, render: render };
 })();
 
 // --- Main Chart: lines over time for the selected language/type, colored by agent ---
