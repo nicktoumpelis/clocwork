@@ -292,6 +292,15 @@ class TestCounters(unittest.TestCase):
             with self.subTest(value=value):
                 self.assertEqual(tu.day(value), "")
 
+    def test_a_timestamp_with_an_offset_lands_on_its_utc_day(self):
+        # Every archived day is a UTC day; a stamp written in another zone
+        # must not put its usage on that zone's date.
+        self.assertEqual(tu.day("2026-08-07T00:30:00+02:00"), "2026-08-06")
+        self.assertEqual(tu.day("2026-08-06T23:30:00-02:00"), "2026-08-07")
+        self.assertEqual(tu.day("2026-08-06T23:30:00.250+00:00"), "2026-08-06")
+        # Without a zone there is nothing to convert from.
+        self.assertEqual(tu.day("2026-08-06T23:30:00"), "2026-08-06")
+
     def test_a_model_that_is_not_a_name_is_recorded_as_unknown(self):
         days = {}
         for model in (["gpt-5.5"], {"name": "gpt-5.5"}, 5, ""):

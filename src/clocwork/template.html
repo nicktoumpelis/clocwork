@@ -655,7 +655,7 @@ var THEME = (function() {
                 <th class="sortable" data-sort="churn" title="Sorts by lines added plus lines deleted">+/-</th>
                 <th class="sortable" data-sort="net">Net</th>
                 <th class="sortable" data-sort="cumulative">Cumulative</th>
-                <th class="sortable" data-sort="tokens" title="Tokens attributed to the commit: its agent's measured or estimated total for the day, split across that agent's commits by lines changed">Tokens</th>
+                <th class="sortable" data-sort="tokens" title="Tokens attributed to the commit: its agent's measured or estimated total for the UTC day the commit was made on, split across that agent's commits of that day by lines changed">Tokens</th>
             </tr></thead>
             <tbody id="allCommitsBody"></tbody>
         </table>
@@ -2139,7 +2139,7 @@ function resetMainZoom() {
         if (HAVE_TOKENS) {
             var tdTokens = document.createElement('td');
             tdTokens.textContent = tokenText(c);
-            if (c[8]) tdTokens.title = fmt(c[8]) + ' tokens attributed from a' + (tokenKind(c) === 'e' ? 'n estimated' : ' measured') + ' day of its agent\u2019s usage';
+            if (c[8]) tdTokens.title = fmt(c[8]) + ' tokens attributed from a' + (tokenKind(c) === 'e' ? 'n estimated' : ' measured') + ' UTC day of its agent\u2019s usage';
             row.appendChild(tdTokens);
         }
 

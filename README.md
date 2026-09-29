@@ -308,8 +308,11 @@ each day and agent, because agents delete their logs and a day not archived
 in time is gone.
 
 Tokens land only on the commits of the agent whose logs measured them, split
-across that agent's commits of the day by lines changed. A commit carries no
-token figure when:
+across that agent's commits of the day by lines changed. Days here are UTC
+days, because that is how every agent's logs are archived: a commit made
+at 00:30 in UTC+2 takes its share from the previous UTC day, though the page
+lists it under its author's local date. A commit carries no token figure
+when:
 
 - its agent's logs are not read (Cursor, Devin, aider, Gemini Code Assist or
   any other), or
