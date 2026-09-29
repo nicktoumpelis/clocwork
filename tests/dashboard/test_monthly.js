@@ -61,6 +61,13 @@ a = activity([c('2026-02-10', 'a'), c('2026-01-05', 'b'), c('2026-03-03', 'c')])
 check(a.months === 1 && a.commits.fewest.month === '2026-02', 'the span runs from the earliest date to the latest');
 check(a.commits.most.month === '2026-01' && a.commits.most.count === 1, 'the earliest-dated commit is counted in its month');
 
+section('dates the page cannot place');
+// An empty date (a commit git gave none) or a five-digit year (git stores
+// one when asked) is left out; a walk towards it would never end.
+a = activity([c('2026-03-01', 'a'), c('', 'b'), c('29982-11-0', 'far'), c('2026-03-31', 'c')]);
+check(a.months === 1 && a.commits.most.count === 2, 'only the two dated commits, in March');
+check(activity([c('', 'a')]) === null, 'no dated commit: no figures');
+
 section('month ends');
 a = activity([c('2028-02-01', 'a'), c('2028-02-29', 'b')]);
 check(a.full === true && a.months === 1, '1 to 29 February in a leap year is a full month');
@@ -87,5 +94,8 @@ if (RAW.commits.some(x => x[5] && /^Merge pull request #\d/.test(x[3])))
 page.run('MONTHLY.render(' + JSON.stringify([c('2026-03-01', 'a'), c('2026-03-10', 'b')]) + ')');
 check(cards().length === 3 && !card('Most PRs'), 'no PR cards for a history without PRs');
 check(card('Commits per Month').note === 'average over 1 partial month', 'a single partial month says so: ' + card('Commits per Month').note);
+check(byId('monthlySection').hidden === false, 'the section shows with figures');
+page.run('MONTHLY.render(' + JSON.stringify([c('', 'a')]) + ')');
+check(byId('monthlySection').hidden === true && cards().length === 0, 'no dated commit: the section is hidden and empty');
 
 done();

@@ -1343,7 +1343,9 @@ var MONTHLY = (function() {
         return { most: most, fewest: fewest, average: sum / (to - from) };
     }
     function activity(commits) {
-        var dated = commits.filter(function(c) { return c[2]; });
+        // Only 'YYYY-MM-DD' dates: git stores a five-digit year if asked
+        // to, and the month walk below must reach the latest date's month.
+        var dated = commits.filter(function(c) { return /^\d{4}-\d{2}-\d{2}$/.test(c[2]); });
         if (!dated.length) return null;
         var first = dated[0][2], last = first;
         dated.forEach(function(c) { if (c[2] < first) first = c[2]; if (c[2] > last) last = c[2]; });
