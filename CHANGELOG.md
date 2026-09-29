@@ -6,6 +6,14 @@ All notable changes to clocwork are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Claude Opus 5.5 is priced at its own list price. It had no row in the price
+  table and was priced as Claude Opus 5, whose cache reads cost two and a half
+  times as much: for agent work, which is mostly cache reads, that nearly
+  doubled its cost. Claude Sonnet 5.5, Claude Mythos 5.1 and Claude Mythos 5
+  have rows of their own too; the Mythos models were reported as unpriced.
+
 ## [0.2.0] - 2026-09-22
 
 ### Added
