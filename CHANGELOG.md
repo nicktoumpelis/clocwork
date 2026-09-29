@@ -11,10 +11,11 @@ All notable changes to clocwork are recorded here. The format follows
 - The Output per Line card is the output part of the rate the estimate is
   built on: the output tokens of the agents with a tokens-per-line rate,
   over the lines their own commits changed on their measured days. It used
-  to divide every agent's output by every commit's lines on those days, so
-  human commits diluted it and an agent whose tokens reach no commit (Gemini
-  CLI without a trailer) inflated it. Its caption now says "per line changed
-  in AI commits".
+  to divide every agent's output by every commit's lines on any day with
+  token logs, so human commits and commits by agents whose logs are not
+  read diluted it, and an agent whose tokens reach no commit (Gemini CLI,
+  unless a commit credits it by hand) inflated it. Its caption now says
+  "per line changed by agents on their measured days".
 
 - Claude Code's sub-agent transcripts are read. Claude Code writes each
   sub-agent's turns under the session's `subagents/` folder, a workflow's

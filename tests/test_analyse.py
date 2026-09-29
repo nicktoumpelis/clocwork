@@ -877,16 +877,19 @@ class TestPerSource(unittest.TestCase):
         self.assertEqual((t["unmeasured_agent_commits"], t["unmeasured_agents"]), (2, ["Cursor", "Devin"]))
 
     def test_output_per_line_is_built_on_the_same_lines_as_the_ratio(self):
-        # A human commit on a measured day changed lines no agent's tokens
-        # paid for, and Gemini CLI's tokens land on no commit here (no commit
-        # credits Gemini, so it has no rate): neither may move the figure.
+        # On a measured day, a human commit and a Cursor commit (no logs read)
+        # changed lines no measured agent's tokens paid for, and Gemini CLI's
+        # tokens land on no commit here (none credits Gemini, so it has no
+        # rate): none of them may move the figure.
         archive = {"2026-09-01": {"claude-code": self.entry(1000),
                                   "gemini": self.entry(700, model="gemini-2.5-pro")}}
-        results = [self.row(0, "2026-09-01", "Claude Opus 5", 50),
-                   self.row(1, "2026-09-01", None, 50)]
+        results = [self.row(0, "2026-09-01", "Claude Opus 5", 60),
+                   self.row(1, "2026-09-01", None, 50),
+                   self.row(2, "2026-09-01", "Cursor", 40)]
         t = an.token_summary(archive, results)
-        self.assertEqual(t["output_per_line"], 20)     # Claude's 1,000 output over its own 50 lines
-        self.assertEqual(t["ratio"], 20.0)             # the same basis, all counters (output only here)
+        # Claude's 1,000 output over its own 60 lines is 16.7, rounded to 17.
+        # All output over all lines would be 11; either filter alone, 7 or 28.
+        self.assertEqual(t["output_per_line"], 17)
 
     def test_a_known_source_with_no_logs_is_named_once_by_its_label(self):
         results = [self.row(0, "2026-09-01", "Claude Opus 5", 50),
