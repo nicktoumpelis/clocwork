@@ -188,12 +188,15 @@ absolute path second, and a mismatch is refused with an error naming both
 repositories, so no ordinary mistake can overwrite one repository's token
 archive with another's. It also keeps `session_paths`: the directories the
 repository's agent sessions can have run in, each with the UTC days it
-belonged to the repository. They are its current path (any day), the path
-recorded when the workspace was made if the repository has moved since (up
-to the day the move was first seen), and every worktree `git worktree list`
-has shown on any run, from the day it was created to the first run that no
-longer listed it. Sessions in those directories on those days count (see
-Claude Code below); a path reused by something else later adds nothing.
+belonged to the repository. They are its current path, open-ended, and
+every linked worktree `git worktree list` has shown on any run, from the
+day it was created. A path a run no longer finds, whether the repository's
+own after a move or a removed worktree's, is closed on that run's day:
+sessions there up to that day count, later ones do not, so a path reused by
+something else adds nothing once a run has seen it go. A workspace made
+before the list existed starts it with the path recorded when the workspace
+was made, closed on the first run if the repository has moved since.
+Sessions in those directories on those days count (see Claude Code below).
 
 The `cloc` cache lives outside the workspace, in
 `$XDG_CACHE_HOME/clocwork/<name>-<hash>/` or `~/.cache/clocwork/`, keyed by
@@ -294,7 +297,7 @@ archives per-day totals, per agent and model, into `token_usage.json`.
 
 | Agent | Logs read | Override |
 |---|---|---|
-| Claude Code | `~/.claude/projects/`, the directory named after the repository's path | none |
+| Claude Code | `~/.claude/projects/`, the directory named after the repository's path, and those named after its `session_paths` (worktrees, earlier paths) | none |
 | Codex CLI | `~/.codex/sessions/` and `~/.codex/archived_sessions/` | `CODEX_HOME` replaces `~/.codex` |
 | Copilot CLI | `~/.copilot/session-state/`, one `events.jsonl` per session, and `~/.copilot/session-store.db` beside it | `COPILOT_HOME` replaces `~/.copilot` |
 | Gemini CLI | `~/.gemini/tmp/` and `~/.cache/.gemini/tmp/`, sessions started in the repository or a directory it tracks | `GEMINI_CLI_HOME` replaces `~` |
@@ -351,8 +354,8 @@ directory, named after its absolute path with every character other than an
 ASCII letter or digit replaced by a hyphen. clocwork reads the one named after the
 repository and those named after its `session_paths`, each for the days it
 was the repository's: its linked worktrees, including one removed after a
-run saw it, and the path it had before it moved when the workspace was
-made at that path. A worktree removed before any run saw it is not read,
+run saw it, and the paths it had before it moved, where a run saw it there
+or the workspace was made there. A worktree removed before any run saw it is not read,
 and neither is a session started in a subdirectory, which Claude Code files
 under that subdirectory's name.
 

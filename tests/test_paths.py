@@ -76,6 +76,19 @@ class TestSessionPaths(unittest.TestCase):
         self.assertEqual(paths.remember_session_paths(self.ws, self.repo, "2026-09-01")[1],
                          self.entry(wt, "2026-08-07", "2026-08-12"))
 
+    def test_run_from_a_worktree_the_main_checkout_is_unbounded(self):
+        wt = self.add_worktree("repo-feature", "2026-08-07")
+        self.set_ident(session_paths=[])   # no repo_path seed to stand in for the main checkout
+        self.assertEqual(paths.remember_session_paths(self.ws, wt, "2026-08-10"),
+                         [self.entry(wt), self.entry(self.repo)])
+
+    def test_a_worktree_whose_directory_is_gone_keeps_its_creation_day(self):
+        # git still lists it (prunable) until `git worktree prune`.
+        wt = self.add_worktree("repo-feature", "2026-08-07")
+        shutil.rmtree(wt)
+        self.assertEqual(paths.remember_session_paths(self.ws, self.repo, "2026-08-10"),
+                         [self.entry(self.repo), self.entry(wt, "2026-08-07")])
+
     def test_a_worktree_back_at_an_old_path_counts_only_from_its_new_start(self):
         wt = self.add_worktree("repo-feature", "2026-08-07")
         paths.remember_session_paths(self.ws, self.repo, "2026-08-10")

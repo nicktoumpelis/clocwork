@@ -189,7 +189,9 @@ The workspace: a sibling of the repository, overridden with
 .BR \-o .
 .TP
 .I clocwork.json
-Which repository the workspace belongs to. A run against another repository is refused rather than overwriting the workspace.
+Which repository the workspace belongs to. A run against another repository is refused rather than overwriting the workspace. It also keeps
+.BR session_paths :
+the repository's worktrees and earlier paths, each with the days it was the repository's, whose Claude Code sessions are read.
 .TP
 .I clocwork.toml
 Optional configuration: page title, test\-path rules, extra agents. The first found wins:

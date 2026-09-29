@@ -205,16 +205,32 @@ def worktrees(repo):
     return [line[len("worktree "):] for line in out.splitlines() if line.startswith("worktree ")]
 
 
-def worktree_created(path):
-    """The UTC date a linked worktree was added, or None when it cannot be
-    told. git writes the worktree's `commondir` file once, when the worktree
-    is added, so its modification time is the creation time."""
-    code, admin = _git(path, "rev-parse", "--absolute-git-dir")
+def worktree_created(repo, path):
+    """The UTC date the repository's linked worktree at `path` was added, or
+    None when it cannot be told. git writes the worktree's `commondir` file
+    once, when the worktree is added, so its modification time is the
+    creation time. The worktree's admin directory is found from the
+    repository's side, by the `gitdir` file naming `path`, so a worktree
+    whose directory is already gone still has its date."""
+    code, common = _git(repo, "rev-parse", "--git-common-dir")
+    if code != 0:
+        return None
+    admin_root = os.path.join(repo, common, "worktrees")   # join keeps an absolute `common` as it is
+    target = os.path.realpath(path)
     try:
-        mtime = os.stat(os.path.join(admin, "commondir")).st_mtime if code == 0 else None
+        names = os.listdir(admin_root)
     except OSError:
         return None
-    return datetime.fromtimestamp(mtime, timezone.utc).strftime("%Y-%m-%d") if mtime else None
+    for name in names:
+        try:
+            with open(os.path.join(admin_root, name, "gitdir"), encoding="utf-8") as f:
+                listed = os.path.dirname(f.read().strip())
+            if os.path.realpath(listed) == target:
+                mtime = os.stat(os.path.join(admin_root, name, "commondir")).st_mtime
+                return datetime.fromtimestamp(mtime, timezone.utc).strftime("%Y-%m-%d")
+        except OSError:
+            continue
+    return None
 
 
 def _session_entry(value):
@@ -255,12 +271,15 @@ def remember_session_paths(workspace, repo, today=None):
     {"path", "since", "until"}: the first and last UTC day whose sessions
     count, null for no bound.
 
-    - The repository's current path is unbounded.
+    - The repository's current path, and the main checkout when run from a
+      linked worktree, are unbounded.
     - A linked worktree git lists is added from the day it was created
       (worktree_created; the day it was first seen when that cannot be
-      told). On the first run that no longer lists it, `until` is set to
-      that day, so a path later reused by another repository, or holding
-      its sessions from before the worktree existed, adds nothing.
+      told), so its path's sessions from before then add nothing.
+    - Any path, the repository's own included, that a run no longer finds
+      live gets `until` set to that run's day: sessions filed there later
+      add nothing, while those between the move or removal and that run
+      still count.
     - A workspace without the list starts it from `repo_path`, the path it
       was made for: when that is not the current path, the repository has
       moved, and the old path counts up to today.
@@ -280,9 +299,11 @@ def remember_session_paths(workspace, repo, today=None):
         if isinstance(old, str) and os.path.isabs(old) and old != here:
             entries.append({"path": old, "since": None, "until": None})   # closed below: not live
     live = {here: None}
-    for path in worktrees(repo):
-        if path != here and path not in live:
-            live[path] = worktree_created(path) or today
+    for i, path in enumerate(worktrees(repo)):
+        if path not in live:
+            # git lists the main checkout first: run from a linked worktree,
+            # it is the repository itself, not a worktree with a start.
+            live[path] = None if i == 0 else worktree_created(repo, path) or today
     by_path = {e["path"]: e for e in entries}
     for path, since in live.items():
         entry = by_path.get(path)

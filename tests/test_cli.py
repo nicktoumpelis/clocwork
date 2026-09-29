@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from unittest import mock
 
 from clocwork import cli, sources, tokens
 from clocwork.sources import codex, gemini
@@ -126,11 +127,25 @@ class TestWorktreeSessions(unittest.TestCase):
         self.assertEqual(sorted(self.archive()), ["2026-08-06", day(0)])
         subprocess.run(["git", "worktree", "remove", self.wt], cwd=self.repo, check=True, capture_output=True)
         self.transcript(self.wt, "m3", day(0))     # written before the removal, first read now
-        self.transcript(self.wt, "m4", day(1))     # the path is no longer the repository's
+        # Two days on, not one: a run that crosses UTC midnight closes the
+        # path on the next day, which still counts.
+        self.transcript(self.wt, "m4", day(2))     # the path is no longer the repository's
         self.run_tokens()
         archive = self.archive()
         self.assertEqual(sorted(archive), ["2026-08-06", day(0)])
         self.assertEqual(archive[day(0)]["claude-code"]["turns"], 2)
+
+    def test_a_run_without_tokens_still_remembers_the_worktree(self):
+        from datetime import datetime, timezone
+        today = datetime.now(timezone.utc).date().isoformat()
+        with mock.patch.object(cli.cloc, "require_cloc"), \
+                mock.patch.object(cli.analyse, "analyse", side_effect=cli.analyse.NoCommits("stop here")), \
+                redirect_stderr(io.StringIO()):
+            cli.main([self.repo, "--no-tokens", "--no-open", "-q"], homes=self.homes)
+        subprocess.run(["git", "worktree", "remove", self.wt], cwd=self.repo, check=True, capture_output=True)
+        self.transcript(self.wt, "m1", today)     # a session in the worktree, read only after its removal
+        self.run_tokens()
+        self.assertEqual(sorted(self.archive()), [today])
 
 
 @unittest.skipUnless(HAVE_CLOC, "cloc not installed")
