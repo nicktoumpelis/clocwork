@@ -1,10 +1,16 @@
 """Claude Code: one JSONL transcript per session under
 ~/.claude/projects/<encoded-repo-path>/, kept for about 30 days.
 
+A sub-agent's turns go to a transcript of its own,
+<session-id>/subagents/agent-<id>.jsonl beside the session's, flat whatever
+the nesting; none of them is in the parent's. Over one repository's last
+month they held a quarter of the tokens.
+
 Resumed and forked sessions replay earlier turns verbatim into the new
-transcript, so every assistant turn is deduplicated by its message id. On
-one repository's history that replay accounts for 22,069 of 40,398 turns: summing
-without deduplication over-counts by more than 2x.
+transcript, so every assistant turn is deduplicated by its message id, across
+parents and sub-agents alike. On one repository's history that replay accounts
+for 22,069 of 40,398 turns: summing without deduplication over-counts by more
+than 2x.
 """
 
 import json
@@ -39,16 +45,28 @@ def scan(repo, homes):
     return None
 
 
+def transcripts(directory):
+    """Every transcript in a project directory: the sessions' own, then each
+    session's sub-agents'. Only those two places hold transcripts; a session's
+    other folders (tool-results/, workflows/) hold tool output and scripts."""
+    def jsonl(folder):
+        return [os.path.join(folder, n) for n in sorted(os.listdir(folder)) if n.endswith(".jsonl")]
+    found = jsonl(directory)
+    for name in sorted(os.listdir(directory)):
+        sub = os.path.join(directory, name, "subagents")
+        if os.path.isdir(sub):
+            found += jsonl(sub)
+    return found
+
+
 def scan_directory(directory):
     """Per-day, per-model token totals for every transcript in `directory`."""
     days = {}
     seen = set()
     malformed = 0
 
-    for name in sorted(os.listdir(directory)):
-        if not name.endswith(".jsonl"):
-            continue
-        with open(os.path.join(directory, name), errors="replace") as f:
+    for path in transcripts(directory):
+        with open(path, errors="replace") as f:
             for line in f:
                 # Cheap prefilter: most lines are user turns, tool results and
                 # attachments. Parsing only the candidates keeps a full scan of

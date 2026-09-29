@@ -6,6 +6,16 @@ All notable changes to clocwork are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Claude Code's sub-agent transcripts are read. Claude Code writes each
+  sub-agent's turns to the session's `subagents/` folder rather than to the
+  session's transcript, and none of them was counted: over one repository's
+  last month they held a quarter of its tokens. A turn found in both a
+  session's and a sub-agent's transcript counts once. The archive keeps the
+  larger record for each day, so the next run adds them for every day whose
+  transcripts Claude Code still keeps; earlier days cannot be recovered.
+
 ## [0.2.0] - 2026-09-22
 
 ### Added
