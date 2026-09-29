@@ -342,9 +342,14 @@ ASCII letter or digit replaced by a hyphen. clocwork reads the one named after t
 repository, so a session started in a subdirectory, which Claude Code files
 under that subdirectory's name, is not read.
 
-**Tokens.** A resumed or forked session replays its earlier turns into the
-new transcript, so each assistant turn is counted once, by its message id,
-or its request id or record id where it has none.
+**Tokens.** Each session's transcript is read, and so is each of its
+sub-agents', which Claude Code writes under the session's `subagents/`
+folder rather than into the session's own transcript: every
+`agent-*.jsonl` there, including those of the agents a workflow starts,
+under `subagents/workflows/<run>/`. A resumed or forked session
+replays its earlier turns into the new transcript, so each assistant turn is
+counted once, by its message id, or its request id or record id where it has
+none.
 
 **Commits.** Claude Code's tokens land on the commits whose trailers credit
 Claude. Any Claude model is recognised, and a trailer naming none reads as
