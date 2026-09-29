@@ -227,9 +227,14 @@ def energy_estimate(counters, measured_total, lifetime_total):
 # needs a row of its own, or it is priced as the shorter id.
 #
 # Anthropic: platform.claude.com/docs/en/about-claude/pricing, 2026-09-07;
-# the Claude 4 generation rechecked 2026-09-17. Opus 4 and 4.1 cost three
-# times what 4.5 and later do, so each Opus 4.x has a row of its own and the
-# bare claude-opus-4 row, which a dated id falls back to, is the original's.
+# the Claude 4 generation rechecked 2026-09-17, the Claude 5 generation
+# 2026-09-29. A point release whose id extends its predecessor's needs a row
+# of its own: Opus 5.5 costs less than Opus 5 and reads its cache at 0.05x
+# input, Fable 5.1 and Mythos 5.1 at 0.025x, every other model at 0.1x.
+# Mythos is Fable's limited-availability twin and is priced like it.
+# Opus 4 and 4.1 cost three times what 4.5 through 5 do, so each Opus 4.x
+# has a row of its own and the bare claude-opus-4 row, which a dated id falls
+# back to, is the original's.
 # Sonnet 4, 4.5 and 4.6 share one price, and one row.
 # Cache writes are priced at the one-hour rate: Claude Code writes its cache
 # with that TTL (98% of cache-write tokens in the current transcripts) and the
@@ -252,6 +257,9 @@ def energy_estimate(counters, measured_total, lifetime_total):
 PRICE_USD_PER_MTOK = {
     "claude-fable-5-1": {"input": 10.0,  "cache_write": 20.0,   "cache_read": 0.25,   "output": 50.0},
     "claude-fable-5":   {"input": 10.0,  "cache_write": 20.0,   "cache_read": 1.0,    "output": 50.0},
+    "claude-mythos-5-1": {"input": 10.0, "cache_write": 20.0,   "cache_read": 0.25,   "output": 50.0},
+    "claude-mythos-5":  {"input": 10.0,  "cache_write": 20.0,   "cache_read": 1.0,    "output": 50.0},
+    "claude-opus-5-5":  {"input": 4.0,   "cache_write": 8.0,    "cache_read": 0.2,    "output": 20.0},
     "claude-opus-5":    {"input": 5.0,   "cache_write": 10.0,   "cache_read": 0.5,    "output": 25.0},
     "claude-opus-4-8":  {"input": 5.0,   "cache_write": 10.0,   "cache_read": 0.5,    "output": 25.0},
     "claude-opus-4-7":  {"input": 5.0,   "cache_write": 10.0,   "cache_read": 0.5,    "output": 25.0},
@@ -259,6 +267,7 @@ PRICE_USD_PER_MTOK = {
     "claude-opus-4-5":  {"input": 5.0,   "cache_write": 10.0,   "cache_read": 0.5,    "output": 25.0},
     "claude-opus-4-1":  {"input": 15.0,  "cache_write": 30.0,   "cache_read": 1.5,    "output": 75.0},
     "claude-opus-4":    {"input": 15.0,  "cache_write": 30.0,   "cache_read": 1.5,    "output": 75.0},
+    "claude-sonnet-5-5": {"input": 2.0,  "cache_write": 4.0,    "cache_read": 0.2,    "output": 10.0},
     "claude-sonnet-5":  {"input": 2.0,   "cache_write": 4.0,    "cache_read": 0.2,    "output": 10.0},
     "claude-sonnet-4":  {"input": 3.0,   "cache_write": 6.0,    "cache_read": 0.3,    "output": 15.0},
     "claude-haiku-4-5": {"input": 1.0,   "cache_write": 2.0,    "cache_read": 0.1,    "output": 5.0},

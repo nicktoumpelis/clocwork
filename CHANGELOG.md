@@ -8,6 +8,24 @@ All notable changes to clocwork are recorded here. The format follows
 
 ### Fixed
 
+- Claude Code's sub-agent transcripts are read. Claude Code writes each
+  sub-agent's turns under the session's `subagents/` folder, a workflow's
+  agents under `subagents/workflows/<run>/`, rather than to the session's
+  transcript, and none of them was counted: over one repository's last
+  month they held a quarter of its tokens. A turn found in both a session's
+  and a sub-agent's transcript counts once. The archive keeps the larger
+  record for each day, so the next run raises every day whose total grows
+  with them; a day whose transcripts have partly expired may already hold
+  more and gain nothing, and fully expired days cannot be recovered. A
+  transcript deleted while the scan runs is counted as unreadable instead
+  of stopping it.
+
+- Claude Opus 5.5 is priced at its own list price. It had no row in the price
+  table and was priced as Claude Opus 5, whose cache reads cost two and a half
+  times as much: for agent work, which is mostly cache reads, that nearly
+  doubled its cost. Claude Sonnet 5.5, Claude Mythos 5.1 and Claude Mythos 5
+  have rows of their own too; the Mythos models were reported as unpriced.
+
 - A commit takes its token share from the UTC day it was made on. Every
   agent's usage is archived by UTC day, but commits were matched to it by
   their author's local date, so work done near midnight drew on, and

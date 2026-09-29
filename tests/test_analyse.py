@@ -722,6 +722,11 @@ class TestCostEstimate(unittest.TestCase):
         ("claude-opus-4-6", "claude-opus-4-6"), ("claude-opus-4-7", "claude-opus-4-7"),
         ("claude-opus-4-8", "claude-opus-4-8"),
         ("claude-sonnet-4-20250514", "claude-sonnet-4"), ("claude-sonnet-4-6", "claude-sonnet-4"),
+        # A point release whose id extends its predecessor's has a row of its
+        # own: Opus 5.5 costs less than Opus 5, and Sonnet 5.5's price only
+        # happens to match Sonnet 5's.
+        ("claude-opus-5-5", "claude-opus-5-5"), ("claude-sonnet-5-5", "claude-sonnet-5-5"),
+        ("claude-mythos-5-1", "claude-mythos-5-1"), ("claude-mythos-5", "claude-mythos-5"),
         # Claude Code's 1M context alias costs the same as the model.
         ("claude-opus-4-6[1m]", "claude-opus-4-6"), ("claude-opus-5[1M]", "claude-opus-5"),
         # Any other bracketed suffix is not that alias.
@@ -741,6 +746,22 @@ class TestCostEstimate(unittest.TestCase):
                            ("claude-sonnet-4-6", sonnet)):
             with self.subTest(model=model):
                 price = an.price_for(model)
+                self.assertEqual(tuple(price[k] for k in ("input", "cache_write", "cache_read", "output")), row)
+
+    def test_the_claude_5_generation_is_priced_at_its_list_prices(self):
+        # platform.claude.com/docs/en/about-claude/pricing, read 2026-09-29.
+        # Input, one-hour cache write, cache hit, output. Cache hits are 0.1x
+        # input except on Fable 5.1 and Mythos 5.1 (0.025x) and Opus 5.5
+        # (0.05x), so no single rule derives every row from its input price.
+        fable_5_1, fable_5 = (10, 20, 0.25, 50), (10, 20, 1, 50)
+        for model, row in (("claude-fable-5-1", fable_5_1), ("claude-mythos-5-1", fable_5_1),
+                           ("claude-fable-5", fable_5), ("claude-mythos-5", fable_5),
+                           ("claude-opus-5-5", (4, 8, 0.2, 20)), ("claude-opus-5", (5, 10, 0.5, 25)),
+                           ("claude-sonnet-5-5", (2, 4, 0.2, 10)), ("claude-sonnet-5", (2, 4, 0.2, 10)),
+                           ("claude-opus-5-5[1m]", (4, 8, 0.2, 20))):
+            with self.subTest(model=model):
+                price = an.price_for(model)
+                self.assertIsNotNone(price)
                 self.assertEqual(tuple(price[k] for k in ("input", "cache_write", "cache_read", "output")), row)
 
     def test_each_variant_resolves_to_its_own_row(self):
