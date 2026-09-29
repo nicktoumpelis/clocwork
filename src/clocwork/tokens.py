@@ -189,13 +189,15 @@ def save(path, days):
     os.chmod(path, 0o644)
 
 
-def archive(repo_path, archive_path, sources, homes=None, report=None):
+def archive(repo_path, archive_path, sources, homes=None, report=None, session_paths=()):
     """Scan every source's logs for a repository and merge them into its archive.
 
     `homes` maps a source key to the directories to read in place of the
     source's own defaults; that is how the tests point a source at a fixture.
-    The archive is written only when some source found usage for the
-    repository, so a machine without any never creates or touches one.
+    `session_paths` are the other directories the repository's sessions may
+    have run in (paths.remember_session_paths), passed to a source that sets
+    SESSION_PATHS. The archive is written only when some source found usage
+    for the repository, so a machine without any never creates or touches one.
     """
     report = report or ui.Plain(sys.stdout)
     days = load(archive_path)
@@ -207,7 +209,10 @@ def archive(repo_path, archive_path, sources, homes=None, report=None):
         where = (homes or {}).get(source.KEY)
         if where is None:
             where = source.default_homes(os.environ)
-        result = source.scan(repo_path, where)
+        if getattr(source, "SESSION_PATHS", False):
+            result = source.scan(repo_path, where, session_paths)
+        else:
+            result = source.scan(repo_path, where)
         if result is None:
             missing.append(f"{source.LABEL} ({', '.join(where) or 'no directories'})")
             continue

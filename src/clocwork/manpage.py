@@ -154,7 +154,7 @@ def render(parser=None, version=__version__, date=None):
                  ".TP\n.B XDG_DATA_HOME\nWhere OpenCode and Kilo Code keep their sessions, read from\n.I opencode/\nand\n.I kilo/\nbelow it; the default is\n.I ~/.local/share\non every system, neither having a variable of its own.")
     lines.append(".SH FILES\n"
                  ".TP\n.I <repo\\-parent>/<repo\\-name>\\-stats/\nThe workspace: a sibling of the repository, overridden with\n.BR \\-o .\n"
-                 ".TP\n.I clocwork.json\nWhich repository the workspace belongs to. A run against another repository is refused rather than overwriting the workspace.\n"
+                 ".TP\n.I clocwork.json\nWhich repository the workspace belongs to. A run against another repository is refused rather than overwriting the workspace. It also keeps\n.BR session_paths :\nthe repository's current path, worktrees and earlier paths, each with the days it was the repository's, whose Claude Code sessions are read.\n"
                  ".TP\n.I clocwork.toml\nOptional configuration: page title, test\\-path rules, extra agents. The first found wins:\n"
                  ".BR \\-\\-config ,\nthen this file in the workspace, then\n.I .clocwork.toml\nin the repository.\n"
                  ".TP\n.I token_usage.json\nThe per\\-day token archive, kept per agent, read from coding agents' logs. It cannot be regenerated once the logs expire; no run shrinks it.\n"

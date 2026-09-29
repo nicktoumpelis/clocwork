@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from unittest import mock
 
 from clocwork import cli, sources, tokens
 from clocwork.sources import codex, gemini
@@ -76,6 +77,75 @@ class TestParseArgs(unittest.TestCase):
         a = cli.parse_args(["render", "-o", "/ws"])
         self.assertEqual((a.branch, a.max_commits, a.no_tokens, a.cache_dir, a.jobs),
                          (None, None, False, None, None))
+
+
+class TestWorktreeSessions(unittest.TestCase):
+    """`clocwork tokens` reads the sessions of the repository's worktrees,
+    including one removed after a run saw it."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = os.path.realpath(self.tmp.name)
+        self.repo = os.path.join(self.root, "MyApp")
+        os.makedirs(self.repo)
+        for args in (["init", "-q"], ["-c", "user.name=t", "-c", "user.email=t@example.com",
+                                      "commit", "-q", "--allow-empty", "-m", "init"]):
+            subprocess.run(["git"] + args, cwd=self.repo, check=True, capture_output=True)
+        self.wt = os.path.join(self.root, "MyApp-feature")
+        subprocess.run(["git", "worktree", "add", "-q", "-b", "feature", self.wt], cwd=self.repo, check=True, capture_output=True)
+        self.projects = os.path.join(self.root, "projects")
+        self.homes = {s.KEY: [] for s in sources.SOURCES}
+        self.homes["claude-code"] = [self.projects]
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def transcript(self, path, msg_id, date):
+        from clocwork.paths import claude_project_dir
+        folder = os.path.join(self.projects, claude_project_dir(path))
+        os.makedirs(folder, exist_ok=True)
+        with open(os.path.join(folder, msg_id + ".jsonl"), "w") as f:
+            f.write(json.dumps({"type": "assistant", "timestamp": date + "T12:00:00Z", "message": {
+                "id": msg_id, "model": "claude-opus-5",
+                "usage": {"input_tokens": 1, "output_tokens": 10, "cache_read_input_tokens": 0,
+                          "cache_creation_input_tokens": 0}}}) + "\n")
+
+    def archive(self):
+        return tokens.load(os.path.join(self.root, "MyApp-stats", "token_usage.json"))
+
+    def run_tokens(self):
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(cli.main(["tokens", self.repo, "-q"], homes=self.homes), 0)
+
+    def test_a_worktree_s_sessions_count_while_it_is_the_repository_s(self):
+        from datetime import datetime, timedelta, timezone
+        today = datetime.now(timezone.utc).date()
+        day = lambda n: (today + timedelta(days=n)).isoformat()
+        self.transcript(self.repo, "m1", "2026-08-06")      # the repository's own folder: any day
+        self.transcript(self.wt, "m2", day(0))
+        self.run_tokens()
+        self.assertEqual(sorted(self.archive()), ["2026-08-06", day(0)])
+        subprocess.run(["git", "worktree", "remove", self.wt], cwd=self.repo, check=True, capture_output=True)
+        self.transcript(self.wt, "m3", day(0))     # written before the removal, first read now
+        # Two days on, not one: a run that crosses UTC midnight closes the
+        # path on the next day, which still counts.
+        self.transcript(self.wt, "m4", day(2))     # the path is no longer the repository's
+        self.run_tokens()
+        archive = self.archive()
+        self.assertEqual(sorted(archive), ["2026-08-06", day(0)])
+        self.assertEqual(archive[day(0)]["claude-code"]["turns"], 2)
+
+    def test_a_run_without_tokens_still_remembers_the_worktree(self):
+        from datetime import datetime, timezone
+        today = datetime.now(timezone.utc).date().isoformat()
+        with mock.patch.object(cli.cloc, "require_cloc"), \
+                mock.patch.object(cli.analyse, "analyse", side_effect=cli.analyse.NoCommits("stop here")), \
+                redirect_stderr(io.StringIO()):
+            cli.main([self.repo, "--no-tokens", "--no-open", "-q"], homes=self.homes)
+        subprocess.run(["git", "worktree", "remove", self.wt], cwd=self.repo, check=True, capture_output=True)
+        self.transcript(self.wt, "m1", today)     # a session in the worktree, read only after its removal
+        self.run_tokens()
+        self.assertEqual(sorted(self.archive()), [today])
 
 
 @unittest.skipUnless(HAVE_CLOC, "cloc not installed")

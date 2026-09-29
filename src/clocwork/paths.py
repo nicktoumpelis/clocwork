@@ -13,6 +13,7 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 from datetime import datetime, timezone
 
 IDENTITY_FILE = "clocwork.json"
@@ -193,6 +194,136 @@ def _same(existing, current):
     if existing.get("repo_remote") and current["repo_remote"]:
         return _norm_remote(existing["repo_remote"]) == _norm_remote(current["repo_remote"])
     return existing.get("repo_path") == current["repo_path"]
+
+
+def worktrees(repo):
+    """Every working tree git lists for the repository, the main one first,
+    as absolute paths; [] when git cannot list them."""
+    code, out = _git(repo, "worktree", "list", "--porcelain")
+    if code != 0:
+        return []
+    return [line[len("worktree "):] for line in out.splitlines() if line.startswith("worktree ")]
+
+
+def worktree_created(repo, path):
+    """The UTC date the repository's linked worktree at `path` was added, or
+    None when it cannot be told. git writes the worktree's `commondir` file
+    once, when the worktree is added, so its modification time is the
+    creation time. The worktree's admin directory is found from the
+    repository's side, by the `gitdir` file naming `path`, so a worktree
+    whose directory is already gone still has its date."""
+    code, common = _git(repo, "rev-parse", "--git-common-dir")
+    if code != 0:
+        return None
+    admin_root = os.path.join(repo, common, "worktrees")   # join keeps an absolute `common` as it is
+    target = os.path.realpath(path)
+    try:
+        names = os.listdir(admin_root)
+    except OSError:
+        return None
+    for name in names:
+        try:
+            with open(os.path.join(admin_root, name, "gitdir"), encoding="utf-8") as f:
+                listed = os.path.dirname(f.read().strip())
+            if os.path.realpath(listed) == target:
+                mtime = os.stat(os.path.join(admin_root, name, "commondir")).st_mtime
+                return datetime.fromtimestamp(mtime, timezone.utc).strftime("%Y-%m-%d")
+        except OSError:
+            continue
+    return None
+
+
+def _session_entry(value):
+    """A valid session_paths entry, or None: an absolute path with an
+    optional first and last day, each 'YYYY-MM-DD' or null."""
+    if not isinstance(value, dict) or not isinstance(value.get("path"), str) or not os.path.isabs(value["path"]):
+        return None
+    bounds = {k: value.get(k) for k in ("since", "until")}
+    if any(v is not None and not (isinstance(v, str) and re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", v))
+           for v in bounds.values()):
+        return None
+    return {"path": value["path"], **bounds}
+
+
+def _write_identity(workspace, ident):
+    """Replace the identity file whole: a reader never sees half of it."""
+    path = os.path.join(workspace, IDENTITY_FILE)
+    fd, tmp = tempfile.mkstemp(dir=workspace, prefix=".clocwork.", suffix=".json")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(ident, f, indent=2)
+            f.write("\n")
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, path)
+    except BaseException:
+        os.unlink(tmp)
+        raise
+
+
+def remember_session_paths(workspace, repo, today=None):
+    """Every directory the repository's agent sessions may have run in, with
+    the days it belonged to the repository, kept in the workspace's identity
+    file as `session_paths` and returned.
+
+    Claude Code files a session under the path it was started in, so a
+    session in a linked worktree, or one from before the repository moved,
+    is under a path other than the repository's own. Each entry is
+    {"path", "since", "until"}: the first and last UTC day whose sessions
+    count, null for no bound.
+
+    - The repository's current path, and the main checkout when run from a
+      linked worktree, are unbounded.
+    - A linked worktree git lists is added from the day it was created
+      (worktree_created; the day it was first seen when that cannot be
+      told), so its path's sessions from before then add nothing.
+    - Any path, the repository's own included, that a run no longer finds
+      live gets `until` set to that run's day: sessions filed there later
+      add nothing, while those between the move or removal and that run
+      still count. A path that comes back is reopened as above: a worktree
+      from its new creation, the repository's own for every day.
+    - A workspace without the list starts it from `repo_path`, the path it
+      was made for: when that is not the current path, the repository has
+      moved, and the old path counts up to today.
+
+    Only git's own list and the recorded repo_path ever enter it, so a
+    sibling directory that merely shares a name never does. An entry that is
+    not an absolute path with valid days is dropped; the rest are kept. The
+    file is rewritten, whole, only when the list changes.
+    """
+    today = today or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    ident = read_identity(workspace) or {}
+    stored = ident.get("session_paths")
+    entries = [e for e in map(_session_entry, stored) if e] if isinstance(stored, list) else []
+    here = os.path.realpath(repo)
+    if not isinstance(stored, list):
+        old = ident.get("repo_path")
+        if isinstance(old, str) and os.path.isabs(old) and old != here:
+            entries.append({"path": old, "since": None, "until": None})   # closed below: not live
+    live = {here: None}
+    for i, path in enumerate(worktrees(repo)):
+        if path not in live:
+            # git lists the main checkout first: run from a linked worktree,
+            # it is the repository itself, not a worktree with a start.
+            live[path] = None if i == 0 else worktree_created(repo, path) or today
+    by_path = {e["path"]: e for e in entries}
+    for path, since in live.items():
+        entry = by_path.get(path)
+        if entry is None:
+            entries.append({"path": path, "since": since, "until": None})
+        elif entry["until"] is not None:
+            # Back in git's list. A new worktree at an old path counts from
+            # its creation only. The repository moved back reopens its path
+            # for every day (since is None), the days it was away included:
+            # one window per path cannot leave a gap, and a later start
+            # would drop its own sessions from before the move.
+            entry.update(since=since, until=None)
+    for entry in entries:
+        if entry["path"] not in live and entry["until"] is None:
+            entry["until"] = today
+    if entries != stored:
+        ident["session_paths"] = entries
+        _write_identity(workspace, ident)
+    return entries
 
 
 def check_identity(workspace, repo, version):

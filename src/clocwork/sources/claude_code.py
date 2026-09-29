@@ -40,12 +40,29 @@ def transcript_dir(repo, projects_dir):
     return directory if os.path.isdir(directory) else None
 
 
-def scan(repo, homes):
-    """The repository's usage from the first home holding its transcripts."""
+# tokens.archive passes the workspace's session paths (paths.remember_session_paths).
+SESSION_PATHS = True
+
+
+def scan(repo, homes, session_paths=()):
+    """The repository's usage from the first home holding its transcripts.
+
+    Claude Code files a session under the directory it was started in, so
+    the folders read are the repository's own and those of `session_paths`
+    (paths.remember_session_paths): its worktrees, and the paths it had
+    before it moved. Each of those counts only the days its entry gives it,
+    so a path that belonged to something else before or after cannot add
+    that other work. They are read as one, with one set of message ids.
+    """
     for home in homes:
-        directory = transcript_dir(repo, home)
-        if directory is not None:
-            return scan_directory(directory)
+        windows, listed = [], set()
+        for entry in [{"path": repo, "since": None, "until": None}, *session_paths]:
+            directory = transcript_dir(entry["path"], home)
+            if directory is not None and directory not in listed:
+                listed.add(directory)
+                windows.append((directory, entry.get("since"), entry.get("until")))
+        if windows:
+            return scan_directories(windows)
     return None
 
 
@@ -67,11 +84,21 @@ def transcripts(directory):
 
 def scan_directory(directory):
     """Per-day, per-model token totals for every transcript in `directory`."""
+    return scan_directories([directory])
+
+
+def scan_directories(directories):
+    """Per-day, per-model token totals for every transcript in `directories`,
+    each turn counted once across all of them. An item is a directory, or
+    (directory, since, until): only turns on those UTC days, inclusive,
+    count from it, and a bound of None is open."""
     days = {}
     seen = set()
     malformed = skipped = 0
+    windows = [d if isinstance(d, tuple) else (d, None, None) for d in directories]
 
-    for path in transcripts(directory):
+    for path, since, until in ((p, since, until) for directory, since, until in windows
+                               for p in transcripts(directory)):
         try:
             with open(path, errors="replace") as f:
                 for line in f:
@@ -93,14 +120,16 @@ def scan_directory(directory):
                     usage = msg.get("usage") if isinstance(msg, dict) else None
                     if not usage or not isinstance(usage, dict):
                         continue
+                    date = tokens.day(rec.get("timestamp"))
+                    # Outside its folder's days, a turn is someone else's; it
+                    # is left unseen so an in-window copy still counts.
+                    if not date or (since and date < since) or (until and date > until):
+                        continue
                     key = tokens.text(msg.get("id")) or tokens.text(rec.get("requestId")) or tokens.text(rec.get("uuid"))
                     if key is not None:
                         if key in seen:
                             continue            # a replayed turn from a resumed session
                         seen.add(key)
-                    date = tokens.day(rec.get("timestamp"))
-                    if not date:
-                        continue
                     counts = tokens.additive(
                         usage.get("input_tokens"), usage.get("output_tokens"),
                         usage.get("cache_read_input_tokens"), usage.get("cache_creation_input_tokens"))

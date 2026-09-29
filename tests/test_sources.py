@@ -109,6 +109,53 @@ class TestClaudeCodeScan(unittest.TestCase):
             self.assertEqual(result.days["2026-08-06"]["turns"], 1)
             self.assertEqual(result.skipped, 0)
 
+    @staticmethod
+    def entry(path, since=None, until=None):
+        return {"path": path, "since": since, "until": until}
+
+    def test_the_folders_of_every_session_path_are_read_as_one(self):
+        # A worktree's sessions are filed under the worktree's own path. Its
+        # folder and the repository's are read with one set of message ids;
+        # a folder no entry names (a sibling project) is not read.
+        with tempfile.TemporaryDirectory() as d:
+            write_transcripts(os.path.join(d, paths.claude_project_dir("/tmp/Repo")),
+                              {"a.jsonl": [turn("m1", "2026-08-06")]})
+            write_transcripts(os.path.join(d, paths.claude_project_dir("/tmp/Repo-feature")),
+                              {"b.jsonl": [turn("m1", "2026-08-06"), turn("m2", "2026-08-07")]})
+            write_transcripts(os.path.join(d, paths.claude_project_dir("/tmp/Repo-site")),
+                              {"c.jsonl": [turn("m3", "2026-08-08")]})
+            result = cc.scan("/tmp/Repo", [d], [self.entry("/tmp/Repo"), self.entry("/tmp/Repo-feature"),
+                                                self.entry("/tmp/Repo-gone")])
+        self.assertEqual(sorted(result.days), ["2026-08-06", "2026-08-07"])
+        self.assertEqual(result.days["2026-08-06"]["turns"], 1)
+
+    def test_a_worktree_folder_alone_is_enough(self):
+        with tempfile.TemporaryDirectory() as d:
+            write_transcripts(os.path.join(d, paths.claude_project_dir("/tmp/Repo-feature")),
+                              {"b.jsonl": [turn("m2", "2026-08-07")]})
+            self.assertEqual(list(cc.scan("/tmp/Repo", [d], [self.entry("/tmp/Repo-feature")]).days), ["2026-08-07"])
+            self.assertIsNone(cc.scan("/tmp/Repo", [d]))
+
+    def test_a_session_path_counts_only_its_own_days(self):
+        # The path was this repository's worktree from 08-06 to 08-08. A
+        # session there before or after was someone else's, and must not
+        # enter an archive that can never shrink.
+        with tempfile.TemporaryDirectory() as d:
+            write_transcripts(os.path.join(d, paths.claude_project_dir("/tmp/Repo-review")), {"a.jsonl": [
+                turn("m1", "2026-08-05"), turn("m2", "2026-08-06"), turn("m3", "2026-08-08"),
+                turn("m4", "2026-08-09")]})
+            days = cc.scan("/tmp/Repo", [d], [self.entry("/tmp/Repo-review", "2026-08-06", "2026-08-08")]).days
+        self.assertEqual(sorted(days), ["2026-08-06", "2026-08-08"])
+
+    def test_a_turn_outside_one_folder_s_days_still_counts_from_another(self):
+        # Read first, the out-of-window copy must not mark the turn as seen.
+        with tempfile.TemporaryDirectory() as d:
+            old, own = os.path.join(d, "old"), os.path.join(d, "own")
+            write_transcripts(old, {"a.jsonl": [turn("m1", "2026-08-09")]})
+            write_transcripts(own, {"b.jsonl": [turn("m1", "2026-08-09")]})
+            days = cc.scan_directories([(old, None, "2026-08-08"), (own, None, None)]).days
+        self.assertEqual(days["2026-08-09"]["turns"], 1)
+
     def test_buckets_by_date_and_model(self):
         with tempfile.TemporaryDirectory() as d:
             write_transcripts(d, {"a.jsonl": [
