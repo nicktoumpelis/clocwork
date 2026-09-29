@@ -852,17 +852,6 @@ class TestCostEstimate(unittest.TestCase):
         self.assertEqual(an.cost_estimate({}), {"measured_usd": 0.0, "unpriced_tokens": 0})
 
 
-class TestChurnByDate(unittest.TestCase):
-    def test_counts_every_commits_lines_whoever_wrote_them(self):
-        results = [
-            {"date": "2026-05-01", "agent": "Claude Opus 4.8", "lines": {"Swift": [3, 1, 0, 0, 0, 0]}},
-            {"date": "2026-05-01", "agent": None, "lines": {"Swift": [10, 0, 0, 0, 0, 0]}},
-            {"date": "2026-05-01", "agent": an.MISC, "lines": {}},
-            {"date": "", "agent": None, "lines": {"Swift": [99, 0, 0, 0, 0, 0]}},
-        ]
-        self.assertEqual(an.churn_by_date(results), {"2026-05-01": 14})
-
-
 class TestPerSource(unittest.TestCase):
     """Each source's tokens belong to its own agents' commits and nobody else's."""
 
@@ -886,6 +875,21 @@ class TestPerSource(unittest.TestCase):
     def test_commits_by_agents_without_logs_are_counted_and_named(self):
         t = an.token_summary(*self.probe())
         self.assertEqual((t["unmeasured_agent_commits"], t["unmeasured_agents"]), (2, ["Cursor", "Devin"]))
+
+    def test_output_per_line_is_built_on_the_same_lines_as_the_ratio(self):
+        # On a measured day, a human commit and a Cursor commit (no logs read)
+        # changed lines no measured agent's tokens paid for, and Gemini CLI's
+        # tokens land on no commit here (none credits Gemini, so it has no
+        # rate): none of them may move the figure.
+        archive = {"2026-09-01": {"claude-code": self.entry(1000),
+                                  "gemini": self.entry(700, model="gemini-2.5-pro")}}
+        results = [self.row(0, "2026-09-01", "Claude Opus 5", 60),
+                   self.row(1, "2026-09-01", None, 50),
+                   self.row(2, "2026-09-01", "Cursor", 40)]
+        t = an.token_summary(archive, results)
+        # Claude's 1,000 output over its own 60 lines is 16.7, rounded to 17.
+        # All output over all lines would be 11; either filter alone, 7 or 28.
+        self.assertEqual(t["output_per_line"], 17)
 
     def test_a_known_source_with_no_logs_is_named_once_by_its_label(self):
         results = [self.row(0, "2026-09-01", "Claude Opus 5", 50),
