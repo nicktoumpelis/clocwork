@@ -6,16 +6,9 @@ All notable changes to clocwork are recorded here. The format follows
 
 ## [Unreleased]
 
-### Fixed
+## [0.2.1] - 2026-09-29
 
-- The Output per Line card is the output part of the rate the estimate is
-  built on: the output tokens of the agents with a tokens-per-line rate,
-  over the lines their own commits changed on their measured days. It used
-  to divide every agent's output by every commit's lines on any day with
-  token logs, so human commits and commits by agents whose logs are not
-  read diluted it, and an agent whose tokens reach no commit (Gemini CLI,
-  unless a commit credits it by hand) inflated it. Its caption now says
-  "per line changed by agents on their measured days".
+### Fixed
 
 - Claude Code's sub-agent transcripts are read. Claude Code writes each
   sub-agent's turns under the session's `subagents/` folder, a workflow's
@@ -41,6 +34,15 @@ All notable changes to clocwork are recorded here. The format follows
   estimated from, the wrong day's tokens. The commit table still shows the
   local date. A log timestamp written with an offset rather than `Z` is
   moved to UTC too; no agent read so far writes one.
+
+- The Output per Line card is the output part of the rate the estimate is
+  built on: the output tokens of the agents with a tokens-per-line rate,
+  over the lines their own commits changed on their measured days. It used
+  to divide every agent's output by every commit's lines on any day with
+  token logs, so human commits and commits by agents whose logs are not
+  read diluted it, and an agent whose tokens reach no commit (Gemini CLI,
+  unless a commit credits it by hand) inflated it. Its caption now says
+  "per line changed by agents on their measured days".
 
 ## [0.2.0] - 2026-09-22
 
@@ -279,7 +281,8 @@ First public release.
 - Every number, date and unit on the page is formatted for a region locale.
 - A `clocwork(1)` manual page.
 
-[Unreleased]: https://github.com/nicktoumpelis/clocwork/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/nicktoumpelis/clocwork/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/nicktoumpelis/clocwork/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/nicktoumpelis/clocwork/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/nicktoumpelis/clocwork/releases/tag/v0.1.1
 [0.1.0]: https://github.com/nicktoumpelis/clocwork/releases/tag/v0.1.0
