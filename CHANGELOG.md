@@ -18,8 +18,10 @@ All notable changes to clocwork are recorded here. The format follows
   shown on any run, so a worktree removed after a run saw it is still read,
   and every path a run has seen the repository at. A workspace from before
   this release also gets the path it was made for, when the repository has
-  moved since. Each carries the UTC days it was the repository's: a
-  worktree from its creation, and any path up to the first run that no
+  moved since. Each carries the UTC days it was the repository's: the
+  checkout a run is made from, and the main checkout, from any day; a
+  worktree from its creation, or from the first run that saw it when its
+  creation day cannot be read; and any path up to the first run that no
   longer finds it. Only sessions on those days count, so a path reused by
   another repository after that run adds nothing, unless the repository
   later moves back to it, which reopens it for every day. Only git's own
