@@ -109,22 +109,28 @@ class TestWorktreeSessions(unittest.TestCase):
                 "usage": {"input_tokens": 1, "output_tokens": 10, "cache_read_input_tokens": 0,
                           "cache_creation_input_tokens": 0}}}) + "\n")
 
-    def archived_days(self):
-        return sorted(tokens.load(os.path.join(self.root, "MyApp-stats", "token_usage.json")))
+    def archive(self):
+        return tokens.load(os.path.join(self.root, "MyApp-stats", "token_usage.json"))
 
     def run_tokens(self):
         with redirect_stdout(io.StringIO()):
             self.assertEqual(cli.main(["tokens", self.repo, "-q"], homes=self.homes), 0)
 
-    def test_a_worktree_session_is_archived_and_still_read_after_removal(self):
-        self.transcript(self.repo, "m1", "2026-08-06")
-        self.transcript(self.wt, "m2", "2026-08-07")
+    def test_a_worktree_s_sessions_count_while_it_is_the_repository_s(self):
+        from datetime import datetime, timedelta, timezone
+        today = datetime.now(timezone.utc).date()
+        day = lambda n: (today + timedelta(days=n)).isoformat()
+        self.transcript(self.repo, "m1", "2026-08-06")      # the repository's own folder: any day
+        self.transcript(self.wt, "m2", day(0))
         self.run_tokens()
-        self.assertEqual(self.archived_days(), ["2026-08-06", "2026-08-07"])
+        self.assertEqual(sorted(self.archive()), ["2026-08-06", day(0)])
         subprocess.run(["git", "worktree", "remove", self.wt], cwd=self.repo, check=True, capture_output=True)
-        self.transcript(self.wt, "m3", "2026-08-08")     # written before removal, first read now
+        self.transcript(self.wt, "m3", day(0))     # written before the removal, first read now
+        self.transcript(self.wt, "m4", day(1))     # the path is no longer the repository's
         self.run_tokens()
-        self.assertEqual(self.archived_days(), ["2026-08-06", "2026-08-07", "2026-08-08"])
+        archive = self.archive()
+        self.assertEqual(sorted(archive), ["2026-08-06", day(0)])
+        self.assertEqual(archive[day(0)]["claude-code"]["turns"], 2)
 
 
 @unittest.skipUnless(HAVE_CLOC, "cloc not installed")

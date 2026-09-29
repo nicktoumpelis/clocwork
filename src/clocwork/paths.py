@@ -13,6 +13,7 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 from datetime import datetime, timezone
 
 IDENTITY_FILE = "clocwork.json"
@@ -204,34 +205,100 @@ def worktrees(repo):
     return [line[len("worktree "):] for line in out.splitlines() if line.startswith("worktree ")]
 
 
-def remember_session_paths(workspace, repo):
-    """Every directory the repository's agent sessions may have run in, kept
-    in the workspace's identity file as `session_paths`, and returned.
+def worktree_created(path):
+    """The UTC date a linked worktree was added, or None when it cannot be
+    told. git writes the worktree's `commondir` file once, when the worktree
+    is added, so its modification time is the creation time."""
+    code, admin = _git(path, "rev-parse", "--absolute-git-dir")
+    try:
+        mtime = os.stat(os.path.join(admin, "commondir")).st_mtime if code == 0 else None
+    except OSError:
+        return None
+    return datetime.fromtimestamp(mtime, timezone.utc).strftime("%Y-%m-%d") if mtime else None
+
+
+def _session_entry(value):
+    """A valid session_paths entry, or None: an absolute path with an
+    optional first and last day, each 'YYYY-MM-DD' or null."""
+    if not isinstance(value, dict) or not isinstance(value.get("path"), str) or not os.path.isabs(value["path"]):
+        return None
+    bounds = {k: value.get(k) for k in ("since", "until")}
+    if any(v is not None and not (isinstance(v, str) and re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", v))
+           for v in bounds.values()):
+        return None
+    return {"path": value["path"], **bounds}
+
+
+def _write_identity(workspace, ident):
+    """Replace the identity file whole: a reader never sees half of it."""
+    path = os.path.join(workspace, IDENTITY_FILE)
+    fd, tmp = tempfile.mkstemp(dir=workspace, prefix=".clocwork.", suffix=".json")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(ident, f, indent=2)
+            f.write("\n")
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, path)
+    except BaseException:
+        os.unlink(tmp)
+        raise
+
+
+def remember_session_paths(workspace, repo, today=None):
+    """Every directory the repository's agent sessions may have run in, with
+    the days it belonged to the repository, kept in the workspace's identity
+    file as `session_paths` and returned.
 
     Claude Code files a session under the path it was started in, so a
     session in a linked worktree, or one from before the repository moved,
-    is under a path other than the repository's own. The list starts from
-    the path the workspace was created for (`repo_path`), gains the
-    repository's current path and every worktree git lists on each run, and
-    never loses one: a worktree removed after a run saw it keeps its
-    sessions readable until the agent expires them. Only git's own list
-    enters it, so a sibling directory that merely shares a name never does.
-    The file is rewritten only when the list grows.
+    is under a path other than the repository's own. Each entry is
+    {"path", "since", "until"}: the first and last UTC day whose sessions
+    count, null for no bound.
+
+    - The repository's current path is unbounded.
+    - A linked worktree git lists is added from the day it was created
+      (worktree_created; the day it was first seen when that cannot be
+      told). On the first run that no longer lists it, `until` is set to
+      that day, so a path later reused by another repository, or holding
+      its sessions from before the worktree existed, adds nothing.
+    - A workspace without the list starts it from `repo_path`, the path it
+      was made for: when that is not the current path, the repository has
+      moved, and the old path counts up to today.
+
+    Only git's own list and the recorded repo_path ever enter it, so a
+    sibling directory that merely shares a name never does. An entry that is
+    not an absolute path with valid days is dropped; the rest are kept. The
+    file is rewritten, whole, only when the list changes.
     """
+    today = today or datetime.now(timezone.utc).strftime("%Y-%m-%d")
     ident = read_identity(workspace) or {}
-    known = ident.get("session_paths")
-    if not (isinstance(known, list) and all(isinstance(p, str) for p in known)):
-        known = [ident["repo_path"]] if isinstance(ident.get("repo_path"), str) else []
-    found = list(known)
-    for path in [os.path.realpath(repo)] + worktrees(repo):
-        if path not in found:
-            found.append(path)
-    if found != ident.get("session_paths"):
-        ident["session_paths"] = found
-        with open(os.path.join(workspace, IDENTITY_FILE), "w", encoding="utf-8") as f:
-            json.dump(ident, f, indent=2)
-            f.write("\n")
-    return found
+    stored = ident.get("session_paths")
+    entries = [e for e in map(_session_entry, stored) if e] if isinstance(stored, list) else []
+    here = os.path.realpath(repo)
+    if not isinstance(stored, list):
+        old = ident.get("repo_path")
+        if isinstance(old, str) and os.path.isabs(old) and old != here:
+            entries.append({"path": old, "since": None, "until": None})   # closed below: not live
+    live = {here: None}
+    for path in worktrees(repo):
+        if path != here and path not in live:
+            live[path] = worktree_created(path) or today
+    by_path = {e["path"]: e for e in entries}
+    for path, since in live.items():
+        entry = by_path.get(path)
+        if entry is None:
+            entries.append({"path": path, "since": since, "until": None})
+        elif entry["until"] is not None:
+            # Back in git's list: a new worktree at an old path, or the
+            # repository moved back. The days in between were not its.
+            entry.update(since=since, until=None)
+    for entry in entries:
+        if entry["path"] not in live and entry["until"] is None:
+            entry["until"] = today
+    if entries != stored:
+        ident["session_paths"] = entries
+        _write_identity(workspace, ident)
+    return entries
 
 
 def check_identity(workspace, repo, version):

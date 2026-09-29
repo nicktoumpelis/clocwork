@@ -186,10 +186,14 @@ backup for `token_usage.json`. `clocwork.json` is an identity guard. On every
 run the target repository is compared against it, by remote URL first and
 absolute path second, and a mismatch is refused with an error naming both
 repositories, so no ordinary mistake can overwrite one repository's token
-archive with another's. It also keeps `session_paths`: the repository's
-path when the workspace was made, its current path, and every worktree
-`git worktree list` has shown on any run. The list only grows, and agent
-sessions started in any of them count (see Claude Code below).
+archive with another's. It also keeps `session_paths`: the directories the
+repository's agent sessions can have run in, each with the UTC days it
+belonged to the repository. They are its current path (any day), the path
+recorded when the workspace was made if the repository has moved since (up
+to the day the move was first seen), and every worktree `git worktree list`
+has shown on any run, from the day it was created to the first run that no
+longer listed it. Sessions in those directories on those days count (see
+Claude Code below); a path reused by something else later adds nothing.
 
 The `cloc` cache lives outside the workspace, in
 `$XDG_CACHE_HOME/clocwork/<name>-<hash>/` or `~/.cache/clocwork/`, keyed by
@@ -345,11 +349,12 @@ tokens are read, and which commits they land on.
 **Sessions.** Claude Code keeps a directory of transcripts per working
 directory, named after its absolute path with every character other than an
 ASCII letter or digit replaced by a hyphen. clocwork reads the one named after the
-repository and those named after its `session_paths`: its linked worktrees,
-including one removed after a run saw it, and the paths it had before it was
-moved. A worktree removed before any run saw it is not read, and neither is
-a session started in a subdirectory, which Claude Code files under that
-subdirectory's name.
+repository and those named after its `session_paths`, each for the days it
+was the repository's: its linked worktrees, including one removed after a
+run saw it, and the path it had before it moved when the workspace was
+made at that path. A worktree removed before any run saw it is not read,
+and neither is a session started in a subdirectory, which Claude Code files
+under that subdirectory's name.
 
 **Tokens.** Each session's transcript is read, and so is each of its
 sub-agents', which Claude Code writes under the session's `subagents/`

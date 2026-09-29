@@ -12,10 +12,14 @@ All notable changes to clocwork are recorded here. The format follows
   the path the repository had before it was moved, are read. Claude Code
   files a session under the directory it was started in, so these were
   never counted. The workspace's `clocwork.json` now keeps `session_paths`:
-  the path it was made for, the repository's current path and every
-  worktree `git worktree list` has shown on any run, so a worktree removed
-  after a run saw it is still read. Only git's own list enters it, so a
-  sibling directory that merely shares the repository's name never does.
+  the repository's current path, the path the workspace was made for when
+  the repository has moved since, and every worktree `git worktree list`
+  has shown on any run, so a worktree removed after a run saw it is still
+  read. Each carries the UTC days it was the repository's (a worktree from
+  its creation to the first run without it), and only sessions on those
+  days count, so a path reused by another repository adds nothing. Only
+  git's own list and the recorded path enter it, never a directory that
+  merely shares the repository's name.
 
 ## [0.2.1] - 2026-09-29
 

@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 import os
 import shutil
 import subprocess
@@ -19,8 +20,9 @@ def git(cwd, *args):
 
 
 class TestSessionPaths(unittest.TestCase):
-    """Every directory the repository's agent sessions can have run in: its
-    own path, the paths it had before a move, and every worktree a run saw."""
+    """Every directory the repository's agent sessions can have run in, with
+    the days it was the repository's: its own path, the path it had before a
+    move, and every worktree a run saw."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -31,48 +33,92 @@ class TestSessionPaths(unittest.TestCase):
         git(self.repo, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "init")
         self.ws = os.path.join(self.root, "repo-stats")
         paths.check_identity(self.ws, self.repo, "0.1.0")
+        self.ident_path = os.path.join(self.ws, paths.IDENTITY_FILE)
 
     def tearDown(self):
         self.tmp.cleanup()
 
     def stored(self):
-        with open(os.path.join(self.ws, paths.IDENTITY_FILE)) as f:
+        with open(self.ident_path) as f:
             return json.load(f).get("session_paths")
 
-    def test_the_repository_itself_is_the_first_path(self):
-        self.assertEqual(paths.remember_session_paths(self.ws, self.repo), [self.repo])
-        self.assertEqual(self.stored(), [self.repo])
+    def set_ident(self, **fields):
+        with open(self.ident_path) as f:
+            ident = json.load(f)
+        ident.update(fields)
+        with open(self.ident_path, "w") as f:
+            json.dump(ident, f)
 
-    def test_a_worktree_is_added_and_kept_after_it_is_removed(self):
-        wt = os.path.join(self.root, "repo-feature")
-        git(self.repo, "worktree", "add", "-q", "-b", "feature", wt)
-        self.assertEqual(paths.remember_session_paths(self.ws, self.repo), [self.repo, wt])
+    def add_worktree(self, name, created):
+        wt = os.path.join(self.root, name)
+        git(self.repo, "worktree", "add", "-q", "-b", name, wt)
+        # git writes commondir once, when the worktree is added.
+        stamp = datetime.fromisoformat(created + "T12:00:00+00:00").timestamp()
+        os.utime(os.path.join(git(wt, "rev-parse", "--absolute-git-dir"), "commondir"), (stamp, stamp))
+        return wt
+
+    @staticmethod
+    def entry(path, since=None, until=None):
+        return {"path": path, "since": since, "until": until}
+
+    def test_the_repository_itself_is_unbounded(self):
+        self.assertEqual(paths.remember_session_paths(self.ws, self.repo, "2026-08-10"), [self.entry(self.repo)])
+        self.assertEqual(self.stored(), [self.entry(self.repo)])
+
+    def test_a_worktree_counts_from_its_creation_to_the_first_run_without_it(self):
+        wt = self.add_worktree("repo-feature", "2026-08-07")
+        self.assertEqual(paths.remember_session_paths(self.ws, self.repo, "2026-08-10"),
+                         [self.entry(self.repo), self.entry(wt, "2026-08-07")])
         git(self.repo, "worktree", "remove", wt)
-        self.assertEqual(paths.remember_session_paths(self.ws, self.repo), [self.repo, wt])
+        self.assertEqual(paths.remember_session_paths(self.ws, self.repo, "2026-08-12"),
+                         [self.entry(self.repo), self.entry(wt, "2026-08-07", "2026-08-12")])
+        # Later runs keep the closed window as it is.
+        self.assertEqual(paths.remember_session_paths(self.ws, self.repo, "2026-09-01")[1],
+                         self.entry(wt, "2026-08-07", "2026-08-12"))
 
-    def test_a_workspace_from_before_the_list_starts_from_its_recorded_path(self):
+    def test_a_worktree_back_at_an_old_path_counts_only_from_its_new_start(self):
+        wt = self.add_worktree("repo-feature", "2026-08-07")
+        paths.remember_session_paths(self.ws, self.repo, "2026-08-10")
+        git(self.repo, "worktree", "remove", wt)
+        paths.remember_session_paths(self.ws, self.repo, "2026-08-12")
+        git(self.repo, "worktree", "add", "-q", wt, "repo-feature")
+        stamp = datetime.fromisoformat("2026-08-20T12:00:00+00:00").timestamp()
+        os.utime(os.path.join(git(wt, "rev-parse", "--absolute-git-dir"), "commondir"), (stamp, stamp))
+        self.assertEqual(paths.remember_session_paths(self.ws, self.repo, "2026-08-21")[1],
+                         self.entry(wt, "2026-08-20"))
+
+    def test_a_workspace_from_before_the_list_counts_its_old_path_up_to_today(self):
         # clocwork.json records the path of the workspace's first run; after
         # a move, that is where the earlier sessions were filed.
-        ident_path = os.path.join(self.ws, paths.IDENTITY_FILE)
-        with open(ident_path) as f:
-            ident = json.load(f)
-        ident["repo_path"] = "/old/place/repo"
-        with open(ident_path, "w") as f:
-            json.dump(ident, f)
-        self.assertEqual(paths.remember_session_paths(self.ws, self.repo), ["/old/place/repo", self.repo])
+        self.set_ident(repo_path="/old/place/repo")
+        self.assertEqual(paths.remember_session_paths(self.ws, self.repo, "2026-08-10"),
+                         [self.entry("/old/place/repo", until="2026-08-10"), self.entry(self.repo)])
+
+    def test_a_moved_repository_closes_its_old_path(self):
+        paths.remember_session_paths(self.ws, self.repo, "2026-08-10")
+        moved = os.path.join(self.root, "elsewhere", "repo")
+        os.makedirs(os.path.dirname(moved))
+        shutil.move(self.repo, moved)
+        self.assertEqual(paths.remember_session_paths(self.ws, moved, "2026-08-11"),
+                         [self.entry(self.repo, until="2026-08-11"), self.entry(moved)])
+
+    def test_invalid_entries_are_dropped_and_the_valid_ones_kept(self):
+        self.set_ident(session_paths=[self.entry("/kept"), None, "/a string", {"path": "relative"},
+                                      self.entry("/bad-day", since="yesterday")])
+        self.assertEqual(paths.remember_session_paths(self.ws, self.repo, "2026-08-10"),
+                         [self.entry("/kept", until="2026-08-10"), self.entry(self.repo)])
 
     def test_an_unchanged_list_is_not_rewritten(self):
-        paths.remember_session_paths(self.ws, self.repo)
-        ident_path = os.path.join(self.ws, paths.IDENTITY_FILE)
-        os.utime(ident_path, (1, 1))
-        paths.remember_session_paths(self.ws, self.repo)
-        self.assertEqual(os.stat(ident_path).st_mtime, 1)
+        paths.remember_session_paths(self.ws, self.repo, "2026-08-10")
+        os.utime(self.ident_path, (1, 1))
+        paths.remember_session_paths(self.ws, self.repo, "2026-08-11")
+        self.assertEqual(os.stat(self.ident_path).st_mtime, 1)
 
     def test_a_sibling_directory_that_is_not_a_worktree_is_never_added(self):
         sibling = os.path.join(self.root, "repo-site")
         os.makedirs(sibling)
         git(sibling, "init", "-q")
-        self.assertNotIn(sibling, paths.remember_session_paths(self.ws, self.repo))
+        self.assertNotIn(sibling, [e["path"] for e in paths.remember_session_paths(self.ws, self.repo)])
 
 
 class TestFindRepo(unittest.TestCase):
