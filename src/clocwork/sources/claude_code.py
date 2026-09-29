@@ -40,12 +40,26 @@ def transcript_dir(repo, projects_dir):
     return directory if os.path.isdir(directory) else None
 
 
-def scan(repo, homes):
-    """The repository's usage from the first home holding its transcripts."""
+# tokens.archive passes the workspace's session paths (paths.remember_session_paths).
+SESSION_PATHS = True
+
+
+def scan(repo, homes, session_paths=()):
+    """The repository's usage from the first home holding its transcripts.
+
+    Claude Code files a session under the directory it was started in, so
+    the folders read are the repository's own and those of `session_paths`:
+    its worktrees, and the paths it had before it moved. They are read as
+    one, with one set of message ids.
+    """
     for home in homes:
-        directory = transcript_dir(repo, home)
-        if directory is not None:
-            return scan_directory(directory)
+        directories = []
+        for path in [repo, *session_paths]:
+            directory = transcript_dir(path, home)
+            if directory is not None and directory not in directories:
+                directories.append(directory)
+        if directories:
+            return scan_directories(directories)
     return None
 
 
@@ -67,11 +81,17 @@ def transcripts(directory):
 
 def scan_directory(directory):
     """Per-day, per-model token totals for every transcript in `directory`."""
+    return scan_directories([directory])
+
+
+def scan_directories(directories):
+    """Per-day, per-model token totals for every transcript in `directories`,
+    each turn counted once across all of them."""
     days = {}
     seen = set()
     malformed = skipped = 0
 
-    for path in transcripts(directory):
+    for path in (p for directory in directories for p in transcripts(directory)):
         try:
             with open(path, errors="replace") as f:
                 for line in f:

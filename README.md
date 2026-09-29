@@ -173,7 +173,7 @@ the repository it reports on. Pass `-o DIR` to put it elsewhere.
 
 ```
 foo-stats/
-  clocwork.json           which repository this workspace belongs to
+  clocwork.json           which repository this workspace belongs to, and where its sessions ran
   clocwork.toml           optional configuration (see below)
   token_usage.json        the per-day, per-agent token archive; cannot be regenerated
   full_commit_data.json   the analysis, with the clocwork build that made it
@@ -186,7 +186,10 @@ backup for `token_usage.json`. `clocwork.json` is an identity guard. On every
 run the target repository is compared against it, by remote URL first and
 absolute path second, and a mismatch is refused with an error naming both
 repositories, so no ordinary mistake can overwrite one repository's token
-archive with another's.
+archive with another's. It also keeps `session_paths`: the repository's
+path when the workspace was made, its current path, and every worktree
+`git worktree list` has shown on any run. The list only grows, and agent
+sessions started in any of them count (see Claude Code below).
 
 The `cloc` cache lives outside the workspace, in
 `$XDG_CACHE_HOME/clocwork/<name>-<hash>/` or `~/.cache/clocwork/`, keyed by
@@ -342,8 +345,11 @@ tokens are read, and which commits they land on.
 **Sessions.** Claude Code keeps a directory of transcripts per working
 directory, named after its absolute path with every character other than an
 ASCII letter or digit replaced by a hyphen. clocwork reads the one named after the
-repository, so a session started in a subdirectory, which Claude Code files
-under that subdirectory's name, is not read.
+repository and those named after its `session_paths`: its linked worktrees,
+including one removed after a run saw it, and the paths it had before it was
+moved. A worktree removed before any run saw it is not read, and neither is
+a session started in a subdirectory, which Claude Code files under that
+subdirectory's name.
 
 **Tokens.** Each session's transcript is read, and so is each of its
 sub-agents', which Claude Code writes under the session's `subagents/`

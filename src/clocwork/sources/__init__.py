@@ -15,6 +15,9 @@ A source module provides:
                         in the log
     MALFORMED_UNIT      optional: what scan() counts as malformed, when it is
                         not the default "lines"
+    SESSION_PATHS       optional: when true, scan() takes a third argument,
+                        the other directories the repository's sessions may
+                        have run in (paths.remember_session_paths)
 
 An agent name must match at most one source, or one commit's lines would be
 counted against two sources' tokens. source_for() takes the first match.

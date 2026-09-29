@@ -6,6 +6,17 @@ All notable changes to clocwork are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Claude Code sessions started in the repository's linked worktrees, or at
+  the path the repository had before it was moved, are read. Claude Code
+  files a session under the directory it was started in, so these were
+  never counted. The workspace's `clocwork.json` now keeps `session_paths`:
+  the path it was made for, the repository's current path and every
+  worktree `git worktree list` has shown on any run, so a worktree removed
+  after a run saw it is still read. Only git's own list enters it, so a
+  sibling directory that merely shares the repository's name never does.
+
 ## [0.2.1] - 2026-09-29
 
 ### Fixed

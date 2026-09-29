@@ -78,6 +78,55 @@ class TestParseArgs(unittest.TestCase):
                          (None, None, False, None, None))
 
 
+class TestWorktreeSessions(unittest.TestCase):
+    """`clocwork tokens` reads the sessions of the repository's worktrees,
+    including one removed after a run saw it."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = os.path.realpath(self.tmp.name)
+        self.repo = os.path.join(self.root, "MyApp")
+        os.makedirs(self.repo)
+        for args in (["init", "-q"], ["-c", "user.name=t", "-c", "user.email=t@example.com",
+                                      "commit", "-q", "--allow-empty", "-m", "init"]):
+            subprocess.run(["git"] + args, cwd=self.repo, check=True, capture_output=True)
+        self.wt = os.path.join(self.root, "MyApp-feature")
+        subprocess.run(["git", "worktree", "add", "-q", "-b", "feature", self.wt], cwd=self.repo, check=True, capture_output=True)
+        self.projects = os.path.join(self.root, "projects")
+        self.homes = {s.KEY: [] for s in sources.SOURCES}
+        self.homes["claude-code"] = [self.projects]
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def transcript(self, path, msg_id, date):
+        from clocwork.paths import claude_project_dir
+        folder = os.path.join(self.projects, claude_project_dir(path))
+        os.makedirs(folder, exist_ok=True)
+        with open(os.path.join(folder, msg_id + ".jsonl"), "w") as f:
+            f.write(json.dumps({"type": "assistant", "timestamp": date + "T12:00:00Z", "message": {
+                "id": msg_id, "model": "claude-opus-5",
+                "usage": {"input_tokens": 1, "output_tokens": 10, "cache_read_input_tokens": 0,
+                          "cache_creation_input_tokens": 0}}}) + "\n")
+
+    def archived_days(self):
+        return sorted(tokens.load(os.path.join(self.root, "MyApp-stats", "token_usage.json")))
+
+    def run_tokens(self):
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(cli.main(["tokens", self.repo, "-q"], homes=self.homes), 0)
+
+    def test_a_worktree_session_is_archived_and_still_read_after_removal(self):
+        self.transcript(self.repo, "m1", "2026-08-06")
+        self.transcript(self.wt, "m2", "2026-08-07")
+        self.run_tokens()
+        self.assertEqual(self.archived_days(), ["2026-08-06", "2026-08-07"])
+        subprocess.run(["git", "worktree", "remove", self.wt], cwd=self.repo, check=True, capture_output=True)
+        self.transcript(self.wt, "m3", "2026-08-08")     # written before removal, first read now
+        self.run_tokens()
+        self.assertEqual(self.archived_days(), ["2026-08-06", "2026-08-07", "2026-08-08"])
+
+
 @unittest.skipUnless(HAVE_CLOC, "cloc not installed")
 class TestEndToEnd(unittest.TestCase):
     def setUp(self):

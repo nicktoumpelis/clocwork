@@ -18,6 +18,63 @@ def git(cwd, *args):
     return subprocess.run(["git"] + list(args), cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
 
 
+class TestSessionPaths(unittest.TestCase):
+    """Every directory the repository's agent sessions can have run in: its
+    own path, the paths it had before a move, and every worktree a run saw."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = os.path.realpath(self.tmp.name)
+        self.repo = os.path.join(self.root, "repo")
+        os.makedirs(self.repo)
+        git(self.repo, "init", "-q")
+        git(self.repo, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "init")
+        self.ws = os.path.join(self.root, "repo-stats")
+        paths.check_identity(self.ws, self.repo, "0.1.0")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def stored(self):
+        with open(os.path.join(self.ws, paths.IDENTITY_FILE)) as f:
+            return json.load(f).get("session_paths")
+
+    def test_the_repository_itself_is_the_first_path(self):
+        self.assertEqual(paths.remember_session_paths(self.ws, self.repo), [self.repo])
+        self.assertEqual(self.stored(), [self.repo])
+
+    def test_a_worktree_is_added_and_kept_after_it_is_removed(self):
+        wt = os.path.join(self.root, "repo-feature")
+        git(self.repo, "worktree", "add", "-q", "-b", "feature", wt)
+        self.assertEqual(paths.remember_session_paths(self.ws, self.repo), [self.repo, wt])
+        git(self.repo, "worktree", "remove", wt)
+        self.assertEqual(paths.remember_session_paths(self.ws, self.repo), [self.repo, wt])
+
+    def test_a_workspace_from_before_the_list_starts_from_its_recorded_path(self):
+        # clocwork.json records the path of the workspace's first run; after
+        # a move, that is where the earlier sessions were filed.
+        ident_path = os.path.join(self.ws, paths.IDENTITY_FILE)
+        with open(ident_path) as f:
+            ident = json.load(f)
+        ident["repo_path"] = "/old/place/repo"
+        with open(ident_path, "w") as f:
+            json.dump(ident, f)
+        self.assertEqual(paths.remember_session_paths(self.ws, self.repo), ["/old/place/repo", self.repo])
+
+    def test_an_unchanged_list_is_not_rewritten(self):
+        paths.remember_session_paths(self.ws, self.repo)
+        ident_path = os.path.join(self.ws, paths.IDENTITY_FILE)
+        os.utime(ident_path, (1, 1))
+        paths.remember_session_paths(self.ws, self.repo)
+        self.assertEqual(os.stat(ident_path).st_mtime, 1)
+
+    def test_a_sibling_directory_that_is_not_a_worktree_is_never_added(self):
+        sibling = os.path.join(self.root, "repo-site")
+        os.makedirs(sibling)
+        git(sibling, "init", "-q")
+        self.assertNotIn(sibling, paths.remember_session_paths(self.ws, self.repo))
+
+
 class TestFindRepo(unittest.TestCase):
     def test_from_subdirectory(self):
         with tempfile.TemporaryDirectory() as d:

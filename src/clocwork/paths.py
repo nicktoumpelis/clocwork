@@ -195,6 +195,45 @@ def _same(existing, current):
     return existing.get("repo_path") == current["repo_path"]
 
 
+def worktrees(repo):
+    """Every working tree git lists for the repository, the main one first,
+    as absolute paths; [] when git cannot list them."""
+    code, out = _git(repo, "worktree", "list", "--porcelain")
+    if code != 0:
+        return []
+    return [line[len("worktree "):] for line in out.splitlines() if line.startswith("worktree ")]
+
+
+def remember_session_paths(workspace, repo):
+    """Every directory the repository's agent sessions may have run in, kept
+    in the workspace's identity file as `session_paths`, and returned.
+
+    Claude Code files a session under the path it was started in, so a
+    session in a linked worktree, or one from before the repository moved,
+    is under a path other than the repository's own. The list starts from
+    the path the workspace was created for (`repo_path`), gains the
+    repository's current path and every worktree git lists on each run, and
+    never loses one: a worktree removed after a run saw it keeps its
+    sessions readable until the agent expires them. Only git's own list
+    enters it, so a sibling directory that merely shares a name never does.
+    The file is rewritten only when the list grows.
+    """
+    ident = read_identity(workspace) or {}
+    known = ident.get("session_paths")
+    if not (isinstance(known, list) and all(isinstance(p, str) for p in known)):
+        known = [ident["repo_path"]] if isinstance(ident.get("repo_path"), str) else []
+    found = list(known)
+    for path in [os.path.realpath(repo)] + worktrees(repo):
+        if path not in found:
+            found.append(path)
+    if found != ident.get("session_paths"):
+        ident["session_paths"] = found
+        with open(os.path.join(workspace, IDENTITY_FILE), "w", encoding="utf-8") as f:
+            json.dump(ident, f, indent=2)
+            f.write("\n")
+    return found
+
+
 def check_identity(workspace, repo, version):
     """Refuse to run a workspace against a repository other than its own.
 

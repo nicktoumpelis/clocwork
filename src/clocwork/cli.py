@@ -116,9 +116,11 @@ def cmd_tokens(args, report, homes):
     repo = paths.find_repo(args.repo or os.getcwd())
     ws = _workspace_for(args, repo)
     ident = paths.check_identity(ws, repo, __version__)
+    session_paths = paths.remember_session_paths(ws, repo)
     report.header(ident["repo_name"], ws)
     with report.phase("Tokens", 1, 1):
-        tokens.archive(repo, os.path.join(ws, "token_usage.json"), sources.SOURCES, homes=homes, report=report)
+        tokens.archive(repo, os.path.join(ws, "token_usage.json"), sources.SOURCES, homes=homes, report=report,
+                       session_paths=session_paths)
     report.finish()
 
 
@@ -127,6 +129,9 @@ def cmd_run(args, report, homes):
     repo = paths.find_repo(args.repo or os.getcwd())
     ws = _workspace_for(args, repo)
     ident = paths.check_identity(ws, repo, __version__)
+    # Recorded on every run, --no-tokens included, so a worktree a run saw
+    # is remembered even if the next token scan comes after it is removed.
+    session_paths = paths.remember_session_paths(ws, repo)
     conf = config.load(args.config, ws, repo)
     report.header(ident["repo_name"], ws, conf.source)
     archive = os.path.join(ws, "token_usage.json")
@@ -134,7 +139,7 @@ def cmd_run(args, report, homes):
         if args.no_tokens:
             report.done("skipped (--no-tokens)")
         else:
-            tokens.archive(repo, archive, sources.SOURCES, homes=homes, report=report)
+            tokens.archive(repo, archive, sources.SOURCES, homes=homes, report=report, session_paths=session_paths)
     with report.phase("History", 2, 3):
         analyse.analyse(repo, os.path.join(ws, "full_commit_data.json"), paths.cache_path(repo, args.cache_dir),
                         archive, config=conf, branch=args.branch, max_commits=args.max_commits,

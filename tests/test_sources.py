@@ -109,6 +109,27 @@ class TestClaudeCodeScan(unittest.TestCase):
             self.assertEqual(result.days["2026-08-06"]["turns"], 1)
             self.assertEqual(result.skipped, 0)
 
+    def test_the_folders_of_every_session_path_are_read_as_one(self):
+        # A worktree's sessions are filed under the worktree's own path. Its
+        # folder and the repository's are read with one set of message ids.
+        with tempfile.TemporaryDirectory() as d:
+            write_transcripts(os.path.join(d, paths.claude_project_dir("/tmp/Repo")),
+                              {"a.jsonl": [turn("m1", "2026-08-06")]})
+            write_transcripts(os.path.join(d, paths.claude_project_dir("/tmp/Repo-feature")),
+                              {"b.jsonl": [turn("m1", "2026-08-06"), turn("m2", "2026-08-07")]})
+            write_transcripts(os.path.join(d, paths.claude_project_dir("/tmp/Repo-site")),
+                              {"c.jsonl": [turn("m3", "2026-08-08")]})
+            result = cc.scan("/tmp/Repo", [d], ["/tmp/Repo", "/tmp/Repo-feature", "/tmp/Repo-gone"])
+        self.assertEqual(sorted(result.days), ["2026-08-06", "2026-08-07"])
+        self.assertEqual(result.days["2026-08-06"]["turns"], 1)
+
+    def test_a_worktree_folder_alone_is_enough(self):
+        with tempfile.TemporaryDirectory() as d:
+            write_transcripts(os.path.join(d, paths.claude_project_dir("/tmp/Repo-feature")),
+                              {"b.jsonl": [turn("m2", "2026-08-07")]})
+            self.assertEqual(list(cc.scan("/tmp/Repo", [d], ["/tmp/Repo-feature"]).days), ["2026-08-07"])
+            self.assertIsNone(cc.scan("/tmp/Repo", [d]))
+
     def test_buckets_by_date_and_model(self):
         with tempfile.TemporaryDirectory() as d:
             write_transcripts(d, {"a.jsonl": [
