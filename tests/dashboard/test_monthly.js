@@ -62,11 +62,19 @@ check(a.months === 1 && a.commits.fewest.month === '2026-02', 'the span runs fro
 check(a.commits.most.month === '2026-01' && a.commits.most.count === 1, 'the earliest-dated commit is counted in its month');
 
 section('dates the page cannot place');
-// An empty date (a commit git gave none) or a five-digit year (git stores
-// one when asked) is left out; a walk towards it would never end.
+// An empty date (a commit git gave none) is left out, and so is a
+// five-digit year (git stores one when asked): the month walk would never
+// reach one that sorts after every real date.
 a = activity([c('2026-03-01', 'a'), c('', 'b'), c('29982-11-0', 'far'), c('2026-03-31', 'c')]);
 check(a.months === 1 && a.commits.most.count === 2, 'only the two dated commits, in March');
 check(activity([c('', 'a')]) === null, 'no dated commit: no figures');
+// Git never writes a month 13, but the walk must still stop past it.
+check(activity([c('2026-01-05', 'a'), c('2026-13-01', 'b')]).commits.most.month === '2026-01', 'a month the walk cannot name still ends it');
+
+section('ties for the fewest');
+// Jan 1 .. Apr 30, all full: Jan 1, Feb 0, Mar 0, Apr 1.
+a = activity([c('2026-01-01', 'a'), c('2026-04-30', 'b')]);
+check(a.commits.fewest.month === '2026-02' && a.commits.most.month === '2026-01', 'ties go to the earlier month, for the fewest and the most');
 
 section('month ends');
 a = activity([c('2028-02-01', 'a'), c('2028-02-29', 'b')]);
@@ -84,7 +92,8 @@ const one = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 });
 const int = new Intl.NumberFormat('en-US');
 check(card('Most Commits') && card('Most Commits').value === int.format(S.commits.most.count) && card('Most Commits').note === month(S.commits.most.month),
       'Most Commits shows the count and the month: ' + JSON.stringify(card('Most Commits')));
-check(card('Fewest Commits') && card('Fewest Commits').note === month(S.commits.fewest.month), 'Fewest Commits names its month');
+check(card('Fewest Commits') && card('Fewest Commits').value === int.format(S.commits.fewest.count) && card('Fewest Commits').note === month(S.commits.fewest.month),
+      'Fewest Commits shows its count and month');
 check(card('Commits per Month') && card('Commits per Month').value === one.format(S.commits.average) &&
       card('Commits per Month').note === 'average over ' + int.format(S.months) + (S.full ? ' full' : ' partial') + ' month' + (S.months === 1 ? '' : 's'),
       'the average with its months: ' + JSON.stringify(card('Commits per Month')));
@@ -95,6 +104,10 @@ page.run('MONTHLY.render(' + JSON.stringify([c('2026-03-01', 'a'), c('2026-03-10
 check(cards().length === 3 && !card('Most PRs'), 'no PR cards for a history without PRs');
 check(card('Commits per Month').note === 'average over 1 partial month', 'a single partial month says so: ' + card('Commits per Month').note);
 check(byId('monthlySection').hidden === false, 'the section shows with figures');
+// One PR over the 24 full months of 2024 and 2025: 1/24 would round to 0.
+page.run('MONTHLY.render(' + JSON.stringify([c('2024-01-01', 'a (#1)'), c('2025-12-31', 'b')]) + ')');
+check(card('PRs per Month').value === '0.042', 'a small average keeps two significant digits: ' + card('PRs per Month').value);
+check(card('Commits per Month').value === '0.1', 'an average of 2/24 keeps one decimal: ' + card('Commits per Month').value);
 page.run('MONTHLY.render(' + JSON.stringify([c('', 'a')]) + ')');
 check(byId('monthlySection').hidden === true && cards().length === 0, 'no dated commit: the section is hidden and empty');
 

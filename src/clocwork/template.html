@@ -1353,7 +1353,7 @@ var MONTHLY = (function() {
         for (;;) {
             var k = key(y, m);
             months.push(k); commitCounts[k] = 0; prCounts[k] = 0;
-            if (k === last.slice(0, 7)) break;
+            if (k >= last.slice(0, 7)) break;   // >=, not ===: stop even past a month the walk cannot name
             if (++m > 12) { m = 1; y++; }
         }
         var seen = {}, prs = 0;
@@ -1382,7 +1382,8 @@ var MONTHLY = (function() {
             return [
                 { label: 'Most ' + what, value: fmt(f.most.count), delta: month(f.most.month) },
                 { label: 'Fewest ' + what, value: fmt(f.fewest.count), delta: month(f.fewest.month) },
-                { label: what + ' per Month', value: FMT.oneDecimal(f.average), delta: span },
+                // Under 0.05 a rounded average would read 0 beside a month that had one.
+                { label: what + ' per Month', value: (f.average > 0 && f.average < 0.05 ? FMT.sig2 : FMT.oneDecimal)(f.average), delta: span },
             ];
         }
         three('Commits', a.commits).concat(a.prs ? three('PRs', a.prs) : []).forEach(function(c) { grid.appendChild(statCard(c)); });
