@@ -9,12 +9,16 @@ All notable changes to clocwork are recorded here. The format follows
 ### Fixed
 
 - Claude Code's sub-agent transcripts are read. Claude Code writes each
-  sub-agent's turns to the session's `subagents/` folder rather than to the
-  session's transcript, and none of them was counted: over one repository's
-  last month they held a quarter of its tokens. A turn found in both a
-  session's and a sub-agent's transcript counts once. The archive keeps the
-  larger record for each day, so the next run adds them for every day whose
-  transcripts Claude Code still keeps; earlier days cannot be recovered.
+  sub-agent's turns under the session's `subagents/` folder, a workflow's
+  agents one folder further down, rather than to the session's transcript,
+  and none of them was counted: over one repository's last month they held
+  a quarter of its tokens. A turn found in both a session's and a
+  sub-agent's transcript counts once. The archive keeps the larger record
+  for each day, so the next run raises every day whose total grows with
+  them; a day whose transcripts have partly expired may already hold more
+  and gain nothing, and fully expired days cannot be recovered. A transcript
+  deleted while the scan runs is counted as unreadable instead of stopping
+  it.
 
 ## [0.2.0] - 2026-09-22
 

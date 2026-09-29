@@ -207,16 +207,24 @@ class TestClaudeCodeScan(unittest.TestCase):
 
     def test_sub_agent_transcripts_are_read(self):
         # A sub-agent's turns live in <session>/subagents/, never in the
-        # parent's transcript, so leaving them out under-counts the day.
+        # parent's transcript, so leaving them out under-counts the day. A
+        # workflow's agents are one folder further down, per workflow run.
         with tempfile.TemporaryDirectory() as d:
-            write_transcripts(d, {"s1.jsonl": [turn("m1", "2026-08-06")]})
+            write_transcripts(d, {"s1.jsonl": [turn("m1", "2026-08-06")],
+                                  "s2.jsonl": [turn("m5", "2026-08-06")]})
             write_transcripts(os.path.join(d, "s1", "subagents"), {
                 "agent-a1.jsonl": [turn("m2", "2026-08-06", model="claude-sonnet-5", output=7)],
                 "agent-a2.jsonl": [turn("m3", "2026-08-07")],
             })
+            write_transcripts(os.path.join(d, "s1", "subagents", "workflows", "wf_1"), {
+                "agent-w1.jsonl": [turn("m4", "2026-08-08")],
+            })
+            write_transcripts(os.path.join(d, "s2", "subagents"), {
+                "agent-b1.jsonl": [turn("m6", "2026-08-09")],
+            })
             days = cc.scan_directory(d).days
-        self.assertEqual(sorted(days), ["2026-08-06", "2026-08-07"])
-        self.assertEqual(days["2026-08-06"]["turns"], 2)
+        self.assertEqual(sorted(days), ["2026-08-06", "2026-08-07", "2026-08-08", "2026-08-09"])
+        self.assertEqual(days["2026-08-06"]["turns"], 3)
         self.assertEqual(days["2026-08-06"]["models"]["claude-sonnet-5"]["output"], 7)
 
     def test_a_turn_in_a_parent_and_a_sub_agent_transcript_counts_once(self):
@@ -228,17 +236,31 @@ class TestClaudeCodeScan(unittest.TestCase):
             day = cc.scan_directory(d).days["2026-08-06"]
         self.assertEqual((day["turns"], day["models"]["claude-opus-5"]["output"]), (2, 20))
 
-    def test_only_sub_agent_folders_are_read_below_the_top(self):
-        # Sessions also keep tool-results/ and workflows/; a .jsonl there, one
-        # beside them, or one deeper than subagents/ is not a transcript.
+    def test_below_the_top_only_sub_agent_transcripts_are_read(self):
+        # A session also keeps tool-results/ and workflows/ (scripts), and a
+        # workflow run keeps a journal.jsonl of its steps beside its agents'
+        # transcripts. Only agent-*.jsonl under subagents/ is a transcript.
         with tempfile.TemporaryDirectory() as d:
             write_transcripts(d, {"s1.jsonl": [turn("m1", "2026-08-06")]})
             write_transcripts(os.path.join(d, "s1"), {"loose.jsonl": [turn("m2", "2026-08-06")]})
-            write_transcripts(os.path.join(d, "s1", "tool-results"), {"t.jsonl": [turn("m3", "2026-08-06")]})
-            write_transcripts(os.path.join(d, "s1", "subagents", "deeper"), {"x.jsonl": [turn("m4", "2026-08-06")]})
-            write_transcripts(os.path.join(d, "s1", "subagents"), {"notes.txt": [turn("m5", "2026-08-06")]})
+            write_transcripts(os.path.join(d, "s1", "tool-results"), {"agent-t.jsonl": [turn("m3", "2026-08-06")]})
+            write_transcripts(os.path.join(d, "s1", "subagents"), {"notes.jsonl": [turn("m4", "2026-08-06")],
+                                                                   "agent-a1.txt": [turn("m5", "2026-08-06")]})
+            write_transcripts(os.path.join(d, "s1", "subagents", "workflows", "wf_1"),
+                              {"journal.jsonl": [turn("m6", "2026-08-06")]})
             self.assertEqual(cc.scan_directory(d).days["2026-08-06"]["turns"], 1)
 
+    def test_a_transcript_gone_before_it_is_read_is_skipped_not_fatal(self):
+        # Claude Code deletes old sessions while a scan may be running.
+        with tempfile.TemporaryDirectory() as d:
+            write_transcripts(d, {"s1.jsonl": [turn("m1", "2026-08-06")]})
+            listed = cc.transcripts(d) + [os.path.join(d, "s0", "subagents", "agent-gone.jsonl")]
+            real, cc.transcripts = cc.transcripts, lambda directory: listed
+            try:
+                result = cc.scan_directory(d)
+            finally:
+                cc.transcripts = real
+        self.assertEqual((result.skipped, result.days["2026-08-06"]["turns"]), (1, 1))
 
 if __name__ == "__main__":
     unittest.main()
