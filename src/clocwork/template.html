@@ -1443,6 +1443,11 @@ var MONTHLY = (function() {
     return { activity: activity, prNumber: prNumber, render: render };
 })();
 
+// The lifetime token figure extrapolates one model era across the months
+// before the logs, so it is shown coarsely on purpose: a precise-looking
+// 37,255,401,150 would imply an accuracy the estimator does not have.
+function coarseTokens(n) { return n >= 1e9 ? FMT.compactWhole.approx(n) : FMT.compact.approx(n); }
+
 // --- Hero: the answer first ---
 // How much of this repository is AI. The share of its code at HEAD from
 // AI-assisted commits, when the analysis blamed the files (lines_at_head),
@@ -1567,15 +1572,28 @@ var HERO = (function() {
                          title: 'Pull requests read from GitHub merge and squash-merge subjects, each with the commits its merge brought in.' });
         }
         if (HAVE_TOKENS) {
-            var T = SUMMARY.tokens, measuredCommits = 0;
+            // The measured tokens from the logs plus, for the days the logs
+            // do not cover, the estimate from lines changed: the same
+            // ceiling the Token Usage section reports, since the sparkline
+            // beneath already holds both kinds. With every day measured the
+            // estimate is nil and the figure is exact.
+            var T = SUMMARY.tokens, measuredCommits = 0, estimatedDays = 0;
             rows.forEach(function(c) { if (c[8] && c[9] === 'm') measuredCommits++; });
-            var delta = 'over ' + fmt(T.measured_days) + ' measured day' + (T.measured_days === 1 ? '' : 's');
-            if (measuredCommits) delta += ' \u00b7 ' + FMT.compact.approx(T.measured_total / measuredCommits) + ' per AI-assisted commit';
-            if (T.cost_usd) delta += ' \u00b7 ' + FMT.usdExact(T.cost_usd) + ' at API list prices';
-            cards.push({ label: 'Tokens', value: FMT.compact(T.measured_total), unit: 'measured', delta: delta,
+            T.per_day.forEach(function(r) { if (r[2] === 'e') estimatedDays++; });
+            var estimated = T.estimated_total > 0;
+            var delta = FMT.compact(T.measured_total) + ' measured over ' + fmt(T.measured_days) + ' day' + (T.measured_days === 1 ? '' : 's');
+            if (estimated) delta += ', the rest estimated from lines changed on ' + fmt(estimatedDays) + ' other day' + (estimatedDays === 1 ? '' : 's');
+            if (measuredCommits) delta += ' \u00b7 ' + FMT.compact.approx(T.measured_total / measuredCommits) + ' per AI-assisted commit on measured days';
+            var cost = estimated && T.lifetime_cost_usd != null ? T.lifetime_cost_usd : T.cost_usd;
+            if (cost) delta += ' \u00b7 ' + (estimated ? FMT.usd.approx(cost) : FMT.usdExact(cost)) + ' at API list prices';
+            cards.push({ label: 'Tokens', value: estimated ? coarseTokens(T.lifetime_total) : FMT.compact(T.measured_total),
+                         unit: estimated ? 'at most' : 'measured', delta: delta,
                          spark: a.months.map(function(m) { return m.tokens; }),
-                         sparkTitle: 'Tokens landing on commits, per month',
-                         title: 'Tokens read from the agents\u2019 own logs on this machine; the Token Usage section below has the estimate for the days before the logs.' });
+                         sparkTitle: 'Tokens landing on commits, per month, measured or estimated',
+                         title: estimated
+                             ? 'The tokens the agents\u2019 own logs hold, plus an estimate for the days they do not cover, at each agent\u2019s own tokens per line changed on its measured days. ' +
+                               'The estimate is a ceiling: it prices bulk deletions like written code, so the true total is plausibly nearer half. The Token Usage section below has the detail.'
+                             : 'Tokens read from the agents\u2019 own logs on this machine, which cover every day their commits changed lines.' });
         }
         cards.forEach(function(c) { grid.appendChild(card(c)); });
         document.getElementById('headline').textContent = '\u00b7 ' + headline;
@@ -1934,10 +1952,7 @@ function resetMainZoom() {
     // for a US viewer, 6,51 Mrd. for a German one.
     var big = FMT.compact;
 
-    // The lifetime figure extrapolates one model era across seven earlier
-    // months, so it is shown coarsely on purpose: a precise-looking
-    // 37,255,401,150 would imply an accuracy the estimator does not have.
-    function coarse(n) { return n >= 1e9 ? FMT.compactWhole.approx(n) : big.approx(n); }
+    var coarse = coarseTokens;
 
     // Energy and carbon derive from the token ceiling and rest on published
     // per-token figures that vary by an order of magnitude between sources, so

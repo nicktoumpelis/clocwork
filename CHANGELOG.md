@@ -11,8 +11,9 @@ All notable changes to clocwork are recorded here. The format follows
 - The page opens with how much of the repository is AI: the share of the
   code at HEAD that came from AI-assisted commits, the share of commits
   that are AI-assisted, the share of pull requests that hold one, and the
-  tokens measured, each with its count and a sparkline of the share per
-  month, and the first as the page's headline. The code share comes from a
+  tokens, measured plus the estimate for the days the logs do not cover,
+  each with its count and a sparkline of the share per month, and the
+  first as the page's headline. The code share comes from a
   new blame pass: one `git blame` per file cloc counted at HEAD, run in
   parallel and cached by blob and path beside the cloc cache. A workspace
   analysed by an earlier release, or a run whose blame pass failed, shows

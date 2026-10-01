@@ -327,9 +327,13 @@ request is AI-assisted when any commit in it is. A merge off that chain
 before that one landed) belongs to the pull request that brought it and
 has no commits of its own.
 
-**Tokens.** The measured total from the agents' logs, with the rate per
-AI-assisted commit on the measured days and what the measured days cost at
-API list prices; the Token Usage section below has the rest.
+**Tokens.** The tokens the agents' logs hold plus, for the days they do
+not cover, the estimate from lines changed described under
+[Token usage](#token-usage): the same ceiling that section reports, shown
+coarsely and marked "at most". The line beneath splits the two, gives the
+rate per AI-assisted commit on the measured days alone, and prices the
+whole at API list prices. With every day measured there is no estimate and
+the figure is exact.
 
 ### Activity per month
 

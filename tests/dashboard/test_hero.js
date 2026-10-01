@@ -83,9 +83,26 @@ check(prCount > 0 && aiPrs < prCount, 'sanity: the fixture has pull requests, no
 check(card(page, 'AI-assisted pull requests').value === pct(aiPrs / prCount) && card(page, 'AI-assisted pull requests').note.indexOf(int(aiPrs) + ' of ' + int(prCount) + ' pull requests') === 0,
       'pull request share: ' + card(page, 'AI-assisted pull requests').value);
 const T = S.tokens, measured = RAW.commits.filter(x => x[8] && x[9] === 'm').length;
-check(card(page, 'Tokens').value === new Intl.NumberFormat('en-US', { notation: 'compact', maximumSignificantDigits: 3 }).format(T.measured_total), 'tokens measured, compact');
-check(card(page, 'Tokens').note.indexOf('over ' + int(T.measured_days) + ' measured days') === 0 && card(page, 'Tokens').note.indexOf('per AI-assisted commit') > 0 && measured > 0,
-      'tokens note names the days and the rate per commit: ' + card(page, 'Tokens').note);
+const compact = new Intl.NumberFormat('en-US', { notation: 'compact', maximumSignificantDigits: 3 });
+const whole = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 0 });
+check(T.estimated_total > 0 && T.lifetime_total === T.measured_total + T.estimated_total, 'sanity: the fixture has estimated days');
+check(card(page, 'Tokens').value === whole.formatRange(T.lifetime_total, T.lifetime_total),
+      'measured plus estimated, coarse like the token section: ' + card(page, 'Tokens').value);
+check(byId('heroGrid').children[3].children[1].children[0].textContent === 'at most', 'marked as a ceiling');
+const estimatedDays = T.per_day.filter(r => r[2] === 'e').length;
+const note = card(page, 'Tokens').note;
+check(note.indexOf(compact.format(T.measured_total) + ' measured over ' + int(T.measured_days) + ' days, the rest estimated from lines changed on ' + int(estimatedDays) + ' other days') === 0,
+      'the note splits measured from estimated: ' + note);
+check(note.indexOf(compact.formatRange(T.measured_total / measured, T.measured_total / measured) + ' per AI-assisted commit on measured days') > 0 && measured > 0,
+      'the rate per commit rests on measured days alone');
+check(note.indexOf(new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumSignificantDigits: 2 }).formatRange(T.lifetime_cost_usd, T.lifetime_cost_usd) + ' at API list prices') > 0,
+      'the cost follows the ceiling, coarse: ' + note);
+const exact = load({ raw: r => { const t = r.summary.tokens; t.estimated_total = 0; t.lifetime_total = t.measured_total; t.lifetime_cost_usd = t.cost_usd;
+                                 t.per_day = t.per_day.map(x => [x[0], x[1], 'm']); } });
+check(card(exact, 'Tokens').value === compact.format(T.measured_total) && exact.byId('heroGrid').children[3].children[1].children[0].textContent === 'measured',
+      'with every day measured the figure is exact and says so: ' + card(exact, 'Tokens').value);
+check(card(exact, 'Tokens').note.indexOf('estimated') < 0 && card(exact, 'Tokens').note.indexOf('$' + Math.round(T.cost_usd).toLocaleString('en-US')) > 0,
+      'and its note names neither an estimate nor an approximate cost: ' + card(exact, 'Tokens').note);
 check(cards(page).every(x => /^<svg /.test(x.spark)), 'every card has a sparkline');
 check(cards(page).every(x => x.title.length > 40), 'every card explains itself on hover');
 check(byId('headline').textContent === '· ' + pct(aiAt / L.total) + ' of its code from AI-assisted commits', 'the headline is the hero figure: ' + byId('headline').textContent);
