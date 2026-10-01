@@ -99,7 +99,8 @@ run over a long history measures every commit with `cloc`, running one
 `cloc` process per CPU core (`--jobs N` chooses the number). On a 10-core
 machine the 289 commits of [spf13/cast](https://github.com/spf13/cast) take
 14 seconds (113 seconds with `--jobs 1`), and a repository of 3,800 commits,
-2,700 of them non-merge, takes about four minutes. Results are cached, so
+2,700 of them non-merge, takes about four minutes, plus one `git blame` per
+file at HEAD for the page's opening figure. Results are cached, so
 later runs take seconds. `--max-commits N` caps one run and a later run
 continues from where it stopped.
 
@@ -291,6 +292,48 @@ read as `Claude Sonnet 4.5`: the page charts the model rather than the tool
 that ran it, and such a commit can carry Claude Code's tokens for the day.
 A commit crediting several agents in separate trailers goes to the first one
 recognised, whichever agents those are.
+
+### How much of the code is AI
+
+The page opens with four figures: the share of the code at HEAD that came
+from AI-assisted commits, the share of commits that are AI-assisted, the
+share of pull requests that hold one, and the tokens measured. Each carries
+its count and a sparkline of the same share per month. They are code lines
+over every language, and do not move with the Language and Line type
+selectors.
+
+**Code at HEAD.** Every line, code, comment or blank, of every file cloc
+counted at HEAD is credited to the commit that last touched it, with one
+`git blame` per file, run in parallel and cached by blob and path in
+`blame_cache.json` beside the cloc cache, so a later run blames only the
+files that changed. The commit's agent, by the rules above, is the line's.
+Blame credits the last commit to touch a line, so a human reformat takes an
+agent's lines and vice versa, and lines edited while resolving a merge are
+the merge's; a line from a commit outside the analysed history (a shallow
+clone's boundary) is counted but credited to no one. When the blame pass
+fails the run says so and the page shows the share of code lines *added* in
+AI-assisted commits instead, labelled as such, as it does for a workspace
+analysed by an earlier release.
+
+**Commits.** AI-assisted commits over non-merge commits, so merges inflate
+neither side.
+
+**Pull requests.** A pull request is read from the history as below, and
+holds the commits its merge brought in: those reachable from the merge's
+other parents but not from its first, found in one walk down the branch's
+first-parent chain. A squash merge is one commit and holds itself. A pull
+request is AI-assisted when any commit in it is. A merge off that chain
+(main merged into a feature branch, or a pull request merged into another
+before that one landed) belongs to the pull request that brought it and
+has no commits of its own.
+
+**Tokens.** The tokens the agents' logs hold plus, for the days they do
+not cover, the estimate from lines changed described under
+[Token usage](#token-usage): the same ceiling that section reports, shown
+coarsely and marked "at most". The line beneath splits the two, gives the
+rate per AI-assisted commit on the measured days alone, and prices the
+whole at API list prices. With every day measured there is no estimate and
+the figure is exact.
 
 ### Activity per month
 

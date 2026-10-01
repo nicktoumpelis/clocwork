@@ -44,10 +44,12 @@ check(page.run('return Chart.defaults.locale') === LOCALE, 'Chart.js is told the
 
 section('summary cards');
 check(value('statsGrid', 'Total Commits') === int.format(S.total_commits), 'commit count grouped the German way: ' + value('statsGrid', 'Total Commits'));
-// The count alone is the value, so it never wraps; the share is the line beneath.
-check(value('statsGrid', 'AI-Assisted') === int.format(S.ai_assisted_commits), 'AI-assisted count alone: ' + value('statsGrid', 'AI-Assisted'));
-check(note('statsGrid', 'AI-Assisted') === pct.format(S.ai_assisted_commits / S.total_commits) + ' of all commits',
-      'AI-assisted share as a German percentage on its own line: ' + note('statsGrid', 'AI-Assisted'));
+// The hero's share is a whole percentage; its counts are on the line beneath.
+const nonMerge = RAW.commits.filter(c => !c[5]), aiNonMerge = nonMerge.filter(c => c[4] && c[4] !== 'Misc');
+check(value('heroGrid', 'AI-assisted commits') === new Intl.NumberFormat('de-DE', { style: 'percent', maximumFractionDigits: 0 }).format(aiNonMerge.length / nonMerge.length),
+      'AI-assisted share as a German whole percentage: ' + value('heroGrid', 'AI-assisted commits'));
+check(note('heroGrid', 'AI-assisted commits').indexOf(int.format(aiNonMerge.length) + ' of ' + int.format(nonMerge.length)) === 0,
+      'its counts grouped the German way: ' + note('heroGrid', 'AI-assisted commits'));
 check(!note('statsGrid', 'Total Commits'), 'a tile without a note has no second line');
 check(value('statsGrid', 'Peak') === int.format(st.peak.value), 'peak lines');
 check(value('statsGrid', 'Peak Date') === date(st.peak.date), 'peak date in the numeric region format: ' + value('statsGrid', 'Peak Date'));

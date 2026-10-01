@@ -14,6 +14,7 @@ are written here, next to the code they describe.
 """
 
 import argparse
+import re
 import sys
 from datetime import date as _date
 
@@ -35,9 +36,14 @@ def _subcommands(parser):
     return action.choices
 
 
+# argparse colours its usage line on a terminal from Python 3.14, and a
+# manual page carries no colour.
+ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
 def _synopsis(name, sub):
     """The usage line of one subcommand, as a bold command with its arguments."""
-    usage = sub.format_usage().split(":", 1)[1].split()   # drop "usage:"
+    usage = ANSI.sub("", sub.format_usage()).split(":", 1)[1].split()   # drop "usage:"
     words = [escape(w) for w in usage[2:] if w != "[-h]"]   # drop "clocwork", the command, and -h
     return f".B clocwork {name}\n" + (" ".join(words) + "\n" if words else "")
 

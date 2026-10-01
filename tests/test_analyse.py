@@ -451,7 +451,19 @@ class TestInputs(unittest.TestCase):
             self.assertEqual(more, (f"{total - merges:,} measured, 0 from cache",))
             # A long history is read before anything is measured: the live line says so.
             self.assertEqual(rec.of("status"), ["reading the history of main",
-                                                f"measuring {total - merges:,} new commits with cloc, 1 at a time"])
+                                                f"measuring {total - merges:,} new commits with cloc, 1 at a time",
+                                                "blaming 4 files at main, 1 at a time"])
+            blame = [v for k, v in rec.of("detail") if k == "blame"]
+            self.assertRegex(blame[0], r"^4 files, 4 blamed afresh, 0 from cache, \d[\d.]*(s|m\d\ds|h\d\dm)$")
+            # Every line at main credited: the Claude commit's, the merge's member's, the rest human.
+            at_head = data["summary"]["lines_at_head"]
+            self.assertEqual(set(at_head), {"total", "human", "by_agent", "unattributed"})
+            self.assertEqual(at_head["by_agent"], {"Claude Opus 4.6": at_head["by_agent"]["Claude Opus 4.6"]})
+            self.assertGreater(at_head["by_agent"]["Claude Opus 4.6"], 0)
+            self.assertEqual(at_head["total"], at_head["human"] + at_head["by_agent"]["Claude Opus 4.6"])
+            self.assertEqual(at_head["unattributed"], 0)
+            # The merge is pull request 1 and so is the Notes commit it brought in.
+            self.assertEqual([c["pr"] for c in data["commits"]], [None, None, 1, 1])
             self.assertEqual([r.label for r in rec.rows][:3], ["Commits", "Tokens", "Tests"])
             title, header, rows = rec.lines
             self.assertEqual((title, header), ("Lines at main", ("", "code", "comment", "blank", "drift")))
@@ -461,6 +473,8 @@ class TestInputs(unittest.TestCase):
             an.analyse(d, os.path.join(d, "o.json"), os.path.join(d, "c.json"), os.path.join(d, "t.json"), report=rec)
             self.assertEqual(rec.of("done")[0][1], (f"0 measured, {total - merges:,} from cache",))
             self.assertEqual(rec.of("status"), ["reading the history of main"])
+            blame = [v for k, v in rec.of("detail") if k == "blame"]
+            self.assertRegex(blame[0], r"^4 files, 0 blamed afresh, 4 from cache, \d[\d.]*(s|m\d\ds|h\d\dm)$")
             self.assertFalse([w for w in rec.of("warn") if "drift" in w], rec.of("warn"))
 
     def test_run_summary_reports_the_test_share_at_head(self):

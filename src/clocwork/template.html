@@ -86,6 +86,44 @@
         .stat-card .value { font-size: min(1.6rem, calc(100cqi / (var(--chars, 10) * 0.62))); font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
         .stat-card .delta { font-size: 0.8rem; margin-top: 0.15rem; color: var(--text-muted); }
 
+        /* The answer first: four hero tiles, each a share, its count and a
+           monthly sparkline; the figures that only qualify them sit under
+           them in smaller tiles. */
+        .hero-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+        .hero-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.25rem 1.25rem 1rem;
+            border-top: 3px solid var(--accent);
+            display: flex; flex-direction: column; gap: 0.2rem;
+            transition: border-color 0.2s;
+        }
+        .hero-card:hover { border-color: var(--accent); border-top-color: var(--accent); }
+        .hero-card .label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+        .hero-card .value { font-size: 2.4rem; line-height: 1.1; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.5px; }
+        .hero-card .value small { font-size: 1rem; font-weight: 500; color: var(--text-muted); margin-left: 0.4rem; letter-spacing: 0; }
+        .hero-card .delta { font-size: 0.8rem; color: var(--text-muted); line-height: 1.4; }
+        .hero-card .delta strong { color: var(--text); font-weight: 600; }
+        /* The sparkline is the share per month; its last point is the value. */
+        .hero-card .spark { margin-top: auto; padding-top: 0.5rem; height: 2.2rem; }
+        .hero-card .spark svg { width: 100%; height: 100%; overflow: visible; }
+        .hero-card .spark path { fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
+        .hero-card .spark .fill { fill: color-mix(in srgb, var(--accent) 12%, transparent); stroke: none; }
+        .hero-card .spark circle { fill: var(--accent); }
+        .hero-card .spark text { font-size: 9px; fill: var(--text-muted); }
+        /* The qualifying tiles: smaller, quieter, more per row. */
+        .stats-grid.secondary { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.75rem; }
+        .stats-grid.secondary .stat-card { padding: 0.75rem 0.9rem; border-radius: 8px; }
+        .stats-grid.secondary .stat-card .label { font-size: 0.68rem; }
+        .stats-grid.secondary .stat-card .value { font-size: min(1.15rem, calc(100cqi / (var(--chars, 10) * 0.62))); }
+        .stats-grid.secondary .stat-card .delta { font-size: 0.72rem; }
+
         .section { margin-bottom: 1.5rem; }
 
         .chart-header {
@@ -563,11 +601,12 @@ var THEME = (function() {
 
 <header>
     <div class="theme-switch" id="themeSwitch" role="radiogroup" aria-label="Colour theme"></div>
-    <h1><span>__REPO_NAME__</span> Full Commit History</h1>
+    <h1><span>__REPO_NAME__</span> <span id="headline">Full Commit History</span></h1>
     <p>Every commit analysed &middot; <span id="headerCommits"></span> commits from <span id="headerFrom"></span> to <span id="headerTo"></span></p>
 </header>
 
-<div class="stats-grid" id="statsGrid"></div>
+<div class="hero-grid" id="heroGrid"></div>
+<div class="stats-grid secondary" id="statsGrid"></div>
 
 <div class="selector-bar" id="selectorBar">
     <div class="selector-group">
@@ -1107,6 +1146,19 @@ var FMT = (function() {
         num: num({}),
         signed: num({ signDisplay: 'always' }),
         pct: num({ style: 'percent', minimumFractionDigits: 1, maximumFractionDigits: 1 }),
+        // The hero figures: a share to the whole percent, as a headline is
+        // read, unless that would call a part the whole (99.6% as 100%) or
+        // nothing (0.4% as 0%), when as many decimals as it takes to say
+        // which, up to three.
+        share: (function() {
+            var levels = [0, 1, 2, 3].map(function(d) { return num({ style: 'percent', maximumFractionDigits: d }); });
+            return function(n) {
+                for (var i = 0; i < levels.length; i++) {
+                    var text = levels[i](n);
+                    if (n === 0 || n === 1 || i === levels.length - 1 || (text !== levels[i](1) && text !== levels[i](0))) return text;
+                }
+            };
+        })(),
         compact: num({ notation: 'compact', maximumSignificantDigits: 3 }),
         compactWhole: num({ notation: 'compact', maximumFractionDigits: 0 }),
         sig2: num({ maximumSignificantDigits: 2 }),
@@ -1295,10 +1347,9 @@ function statCard(c) {
     function render() {
         while (grid.firstChild) grid.removeChild(grid.firstChild);
         var s = SEL.stats();
-        var aiShare = FMT.pct(SUMMARY.ai_assisted_commits / SUMMARY.total_commits);
         var cards = [
+            // The AI-assisted count is the hero row's; here are the rest.
             { label: 'Total Commits', value: fmt(SUMMARY.total_commits) },
-            { label: 'AI-Assisted', value: fmt(SUMMARY.ai_assisted_commits), delta: aiShare + ' of all commits' },
             { label: 'Human Only', value: fmt(SUMMARY.human_only_commits) },
             { label: 'Misc (merges)', value: fmt(SUMMARY.misc_commits || 0) },
             { label: 'Lines at HEAD', value: fmt(SEL.headTotal(false)) },
@@ -1390,6 +1441,165 @@ var MONTHLY = (function() {
     }
     render(ROWS);
     return { activity: activity, prNumber: prNumber, render: render };
+})();
+
+// The lifetime token figure extrapolates one model era across the months
+// before the logs, so it is shown coarsely on purpose: a precise-looking
+// 37,255,401,150 would imply an accuracy the estimator does not have.
+function coarseTokens(n) { return n >= 1e9 ? FMT.compactWhole.approx(n) : FMT.compact.approx(n); }
+
+// --- Hero: the answer first ---
+// How much of this repository is AI. The share of its code at HEAD from
+// AI-assisted commits, when the analysis blamed the files (lines_at_head),
+// else the share of the lines added in them; then the share of its commits
+// and of its pull requests, and its tokens. Each figure carries its count and
+// a monthly sparkline of the same share. Independent of SEL: a headline must
+// not move with a chart filter, so these are code lines over every language.
+var HERO = (function() {
+    function isAi(c) { return !!c[4] && c[4] !== MISC; }
+    // Code lines added by a commit, every language.
+    function codeAdded(c) { var n = 0; for (var i = 0; i < c[6].length; i++) n += c[6][i][1][0]; return n; }
+    function top(counts) {
+        var best = null;
+        Object.keys(counts).forEach(function(a) { if (a !== MISC && (best === null || counts[a] > counts[best])) best = a; });
+        return best;
+    }
+    // Per month, oldest first: non-merge commits and the AI-assisted ones,
+    // code lines added and those in AI-assisted commits, pull requests and
+    // those with an AI-assisted commit in them, and tokens; with the totals,
+    // and the commits and lines added per AI agent.
+    function compute(rows) {
+        var months = {}, keys = [], prs = {}, agentCommits = {}, agentLines = {};
+        function at(k) {
+            if (!months[k]) { months[k] = { commits: 0, aiCommits: 0, lines: 0, aiLines: 0, prs: 0, aiPrs: 0, tokens: 0 }; keys.push(k); }
+            return months[k];
+        }
+        rows.forEach(function(c) {
+            if (!/^\d{4}-\d{2}/.test(c[2])) return;
+            var k = c[2].slice(0, 7), m = at(k), ai = isAi(c);
+            if (!c[5]) {
+                var lines = codeAdded(c);
+                m.commits++; m.lines += lines;
+                if (ai) {
+                    m.aiCommits++; m.aiLines += lines;
+                    agentCommits[c[4]] = (agentCommits[c[4]] || 0) + 1;
+                    agentLines[c[4]] = (agentLines[c[4]] || 0) + lines;
+                }
+            }
+            m.tokens += c[8] || 0;
+            var n = c[10];
+            if (n) {
+                var p = prs[n] || (prs[n] = { month: k, ai: false });
+                if (ai) p.ai = true;
+                // A pull request's month is that of the row whose subject
+                // names it, as the monthly cards count it.
+                if (MONTHLY.prNumber(c) === n) p.month = k;
+            }
+        });
+        Object.keys(prs).forEach(function(n) { var m = at(prs[n].month); m.prs++; if (prs[n].ai) m.aiPrs++; });
+        keys.sort();
+        var totals = { commits: 0, aiCommits: 0, lines: 0, aiLines: 0, prs: 0, aiPrs: 0, tokens: 0 };
+        keys.forEach(function(k) { Object.keys(totals).forEach(function(f) { totals[f] += months[k][f]; }); });
+        return { keys: keys, months: keys.map(function(k) { return months[k]; }), totals: totals,
+                 agentCommits: agentCommits, agentLines: agentLines };
+    }
+    function share(a, b) { return b ? a / b : 0; }
+    // A small line of the values, with a dot on the last; empty with fewer
+    // than two points. The stroke keeps its width however the box is scaled.
+    function sparkline(values) {
+        var w = 100, h = 24, n = values.length;
+        if (n < 2) return '';
+        var max = Math.max.apply(null, values);
+        var pts = values.map(function(v, i) { return [(i * w / (n - 1)).toFixed(1), (h - 1 - (max ? v / max * (h - 3) : 0)).toFixed(1)]; });
+        var d = 'M' + pts.map(function(p) { return p[0] + ' ' + p[1]; }).join(' L');
+        var last = pts[n - 1];
+        return '<svg viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" aria-hidden="true">' +
+            '<path class="fill" d="' + d + ' L' + w + ' ' + h + ' L0 ' + h + ' Z"/>' +
+            '<path d="' + d + '" vector-effect="non-scaling-stroke"/>' +
+            '<circle cx="' + last[0] + '" cy="' + last[1] + '" r="2"/></svg>';
+    }
+    function card(c) {
+        var el = document.createElement('div');
+        el.className = 'hero-card';
+        if (c.title) el.title = c.title;
+        var l = document.createElement('div'); l.className = 'label'; l.textContent = c.label;
+        var v = document.createElement('div'); v.className = 'value'; v.textContent = c.value;
+        if (c.unit) { var u = document.createElement('small'); u.textContent = c.unit; v.appendChild(u); }
+        var d = document.createElement('div'); d.className = 'delta'; d.textContent = c.delta;
+        var sp = document.createElement('div'); sp.className = 'spark'; sp.innerHTML = sparkline(c.spark || []);
+        if (c.sparkTitle) sp.title = c.sparkTitle;
+        el.appendChild(l); el.appendChild(v); el.appendChild(d); el.appendChild(sp);
+        return el;
+    }
+    function render(rows) {
+        var grid = document.getElementById('heroGrid');
+        while (grid.firstChild) grid.removeChild(grid.firstChild);
+        var a = compute(rows), t = a.totals, cards = [], headline;
+        var L = SUMMARY.lines_at_head;
+        if (L && L.total) {
+            var aiAt = 0;
+            Object.keys(L.by_agent).forEach(function(agent) { if (agent !== MISC) aiAt += L.by_agent[agent]; });
+            var most = top(L.by_agent);
+            cards.push({ label: 'Code from AI-assisted commits', value: FMT.share(aiAt / L.total),
+                         delta: fmt(aiAt) + ' of ' + fmt(L.total) + ' lines at HEAD' + (most ? ' \u00b7 most by ' + most : ''),
+                         spark: a.months.map(function(m) { return share(m.aiLines, m.lines); }),
+                         sparkTitle: 'Share of code lines added in AI-assisted commits, per month',
+                         title: 'Every line, code, comment or blank, of every file counted at HEAD, credited to the commit that last touched it. ' +
+                                'Blame credits the last commit to touch a line, so a human reformat takes an agent\u2019s lines and vice versa, ' +
+                                'and a line last touched by a merge counts as neither. ' +
+                                (L.unattributed ? fmt(L.unattributed) + ' lines come from commits outside the analysed history.' : '') });
+            headline = FMT.share(aiAt / L.total) + ' of its code from AI-assisted commits';
+        } else {
+            var mostAdded = top(a.agentLines);
+            cards.push({ label: 'Lines added in AI-assisted commits', value: FMT.share(share(t.aiLines, t.lines)),
+                         delta: fmt(t.aiLines) + ' of ' + fmt(t.lines) + ' code lines added' + (mostAdded ? ' \u00b7 most by ' + mostAdded : ''),
+                         spark: a.months.map(function(m) { return share(m.aiLines, m.lines); }),
+                         sparkTitle: 'Share of code lines added in AI-assisted commits, per month',
+                         title: 'Code lines added over the history, every language. This workspace was analysed without blaming the files at HEAD, so what survives of them is not known.' });
+            headline = FMT.share(share(t.aiCommits, t.commits)) + ' of its commits AI-assisted';
+        }
+        var mostCommits = top(a.agentCommits);
+        cards.push({ label: 'AI-assisted commits', value: FMT.share(share(t.aiCommits, t.commits)),
+                     delta: fmt(t.aiCommits) + ' of ' + fmt(t.commits) + ' commits, merges aside' + (mostCommits ? ' \u00b7 most by ' + mostCommits : ''),
+                     spark: a.months.map(function(m) { return share(m.aiCommits, m.commits); }),
+                     sparkTitle: 'Share of commits AI-assisted, per month',
+                     title: 'A commit is AI-assisted when a Co-Authored-By trailer names an agent.' });
+        if (t.prs) {
+            cards.push({ label: 'AI-assisted pull requests', value: FMT.share(share(t.aiPrs, t.prs)),
+                         delta: fmt(t.aiPrs) + ' of ' + fmt(t.prs) + ' pull requests hold an AI-assisted commit',
+                         spark: a.months.map(function(m) { return share(m.aiPrs, m.prs); }),
+                         sparkTitle: 'Share of pull requests with an AI-assisted commit, per month',
+                         title: 'Pull requests read from GitHub merge and squash-merge subjects, each with the commits its merge brought in.' });
+        }
+        if (HAVE_TOKENS) {
+            // The measured tokens from the logs plus, for the days the logs
+            // do not cover, the estimate from lines changed: the same
+            // ceiling the Token Usage section reports, since the sparkline
+            // beneath already holds both kinds. With every day measured the
+            // estimate is nil and the figure is exact.
+            var T = SUMMARY.tokens, measuredCommits = 0, estimatedDays = 0;
+            rows.forEach(function(c) { if (c[8] && c[9] === 'm') measuredCommits++; });
+            T.per_day.forEach(function(r) { if (r[2] === 'e') estimatedDays++; });
+            var estimated = T.estimated_total > 0;
+            var delta = FMT.compact(T.measured_total) + ' measured over ' + fmt(T.measured_days) + ' day' + (T.measured_days === 1 ? '' : 's');
+            if (estimated) delta += ', the rest estimated from lines changed on ' + fmt(estimatedDays) + ' other day' + (estimatedDays === 1 ? '' : 's');
+            if (measuredCommits) delta += ' \u00b7 ' + FMT.compact.approx(T.measured_total / measuredCommits) + ' per AI-assisted commit on measured days';
+            var cost = estimated && T.lifetime_cost_usd != null ? T.lifetime_cost_usd : T.cost_usd;
+            if (cost) delta += ' \u00b7 ' + (estimated ? FMT.usd.approx(cost) : FMT.usdExact(cost)) + ' at API list prices';
+            cards.push({ label: 'Tokens', value: estimated ? coarseTokens(T.lifetime_total) : FMT.compact(T.measured_total),
+                         unit: estimated ? 'at most' : 'measured', delta: delta,
+                         spark: a.months.map(function(m) { return m.tokens; }),
+                         sparkTitle: 'Tokens landing on commits, per month, measured or estimated',
+                         title: estimated
+                             ? 'The tokens the agents\u2019 own logs hold, plus an estimate for the days they do not cover, at each agent\u2019s own tokens per line changed on its measured days. ' +
+                               'The estimate is a ceiling: it prices bulk deletions like written code, so the true total is plausibly nearer half. The Token Usage section below has the detail.'
+                             : 'Tokens read from the agents\u2019 own logs on this machine, which cover every day their commits changed lines.' });
+        }
+        cards.forEach(function(c) { grid.appendChild(card(c)); });
+        document.getElementById('headline').textContent = '\u00b7 ' + headline;
+    }
+    render(ROWS);
+    return { compute: compute, sparkline: sparkline, render: render };
 })();
 
 // --- Main Chart: lines over time for the selected language/type, colored by agent ---
@@ -1742,10 +1952,7 @@ function resetMainZoom() {
     // for a US viewer, 6,51 Mrd. for a German one.
     var big = FMT.compact;
 
-    // The lifetime figure extrapolates one model era across seven earlier
-    // months, so it is shown coarsely on purpose: a precise-looking
-    // 37,255,401,150 would imply an accuracy the estimator does not have.
-    function coarse(n) { return n >= 1e9 ? FMT.compactWhole.approx(n) : big.approx(n); }
+    var coarse = coarseTokens;
 
     // Energy and carbon derive from the token ceiling and rest on published
     // per-token figures that vary by an order of magnitude between sources, so
