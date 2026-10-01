@@ -98,8 +98,10 @@ class TestLinesAt(unittest.TestCase):
         files = ["App/main.swift", "README.md", "Tests/AppTests.swift", "Notes.md", "Gone.md"]
         cache = bl.Cache(os.path.join(self.tmp.name, "blame_cache.json"))
         totals, fresh = bl.lines_at(self.tmp.name, "main", files, cache, jobs=2)
-        expected = sum(len(fx.NOTES.splitlines()) if f == "Notes.md" else len(text.splitlines())
-                       for f in files[:4] for text in [open(os.path.join(self.tmp.name, f)).read()])
+        def lines(f):
+            with open(os.path.join(self.tmp.name, f)) as fh:
+                return len(fh.read().splitlines())
+        expected = sum(lines(f) for f in files[:4])
         self.assertEqual(sum(totals.values()), expected)
         self.assertEqual(fresh, 4)       # Gone.md is not at main, so it is skipped, not blamed
         initial, tests, notes, merge = self.hashes
