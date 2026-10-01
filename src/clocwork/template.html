@@ -1146,8 +1146,19 @@ var FMT = (function() {
         num: num({}),
         signed: num({ signDisplay: 'always' }),
         pct: num({ style: 'percent', minimumFractionDigits: 1, maximumFractionDigits: 1 }),
-        // The hero figures: a share to the whole percent, as a headline is read.
-        pct0: num({ style: 'percent', maximumFractionDigits: 0 }),
+        // The hero figures: a share to the whole percent, as a headline is
+        // read, unless that would call a part the whole (99.6% as 100%) or
+        // nothing (0.4% as 0%), when as many decimals as it takes to say
+        // which, up to three.
+        share: (function() {
+            var levels = [0, 1, 2, 3].map(function(d) { return num({ style: 'percent', maximumFractionDigits: d }); });
+            return function(n) {
+                for (var i = 0; i < levels.length; i++) {
+                    var text = levels[i](n);
+                    if (n === 0 || n === 1 || i === levels.length - 1 || (text !== levels[i](1) && text !== levels[i](0))) return text;
+                }
+            };
+        })(),
         compact: num({ notation: 'compact', maximumSignificantDigits: 3 }),
         compactWhole: num({ notation: 'compact', maximumFractionDigits: 0 }),
         sig2: num({ maximumSignificantDigits: 2 }),
@@ -1524,7 +1535,7 @@ var HERO = (function() {
             var aiAt = 0;
             Object.keys(L.by_agent).forEach(function(agent) { if (agent !== MISC) aiAt += L.by_agent[agent]; });
             var most = top(L.by_agent);
-            cards.push({ label: 'Code from AI-assisted commits', value: FMT.pct0(aiAt / L.total),
+            cards.push({ label: 'Code from AI-assisted commits', value: FMT.share(aiAt / L.total),
                          delta: fmt(aiAt) + ' of ' + fmt(L.total) + ' lines at HEAD' + (most ? ' \u00b7 most by ' + most : ''),
                          spark: a.months.map(function(m) { return share(m.aiLines, m.lines); }),
                          sparkTitle: 'Share of code lines added in AI-assisted commits, per month',
@@ -1532,24 +1543,24 @@ var HERO = (function() {
                                 'Blame credits the last commit to touch a line, so a human reformat takes an agent\u2019s lines and vice versa, ' +
                                 'and a line last touched by a merge counts as neither. ' +
                                 (L.unattributed ? fmt(L.unattributed) + ' lines come from commits outside the analysed history.' : '') });
-            headline = FMT.pct0(aiAt / L.total) + ' of its code from AI-assisted commits';
+            headline = FMT.share(aiAt / L.total) + ' of its code from AI-assisted commits';
         } else {
             var mostAdded = top(a.agentLines);
-            cards.push({ label: 'Lines added in AI-assisted commits', value: FMT.pct0(share(t.aiLines, t.lines)),
+            cards.push({ label: 'Lines added in AI-assisted commits', value: FMT.share(share(t.aiLines, t.lines)),
                          delta: fmt(t.aiLines) + ' of ' + fmt(t.lines) + ' code lines added' + (mostAdded ? ' \u00b7 most by ' + mostAdded : ''),
                          spark: a.months.map(function(m) { return share(m.aiLines, m.lines); }),
                          sparkTitle: 'Share of code lines added in AI-assisted commits, per month',
                          title: 'Code lines added over the history, every language. This workspace was analysed without blaming the files at HEAD, so what survives of them is not known.' });
-            headline = FMT.pct0(share(t.aiCommits, t.commits)) + ' of its commits AI-assisted';
+            headline = FMT.share(share(t.aiCommits, t.commits)) + ' of its commits AI-assisted';
         }
         var mostCommits = top(a.agentCommits);
-        cards.push({ label: 'AI-assisted commits', value: FMT.pct0(share(t.aiCommits, t.commits)),
+        cards.push({ label: 'AI-assisted commits', value: FMT.share(share(t.aiCommits, t.commits)),
                      delta: fmt(t.aiCommits) + ' of ' + fmt(t.commits) + ' commits, merges aside' + (mostCommits ? ' \u00b7 most by ' + mostCommits : ''),
                      spark: a.months.map(function(m) { return share(m.aiCommits, m.commits); }),
                      sparkTitle: 'Share of commits AI-assisted, per month',
                      title: 'A commit is AI-assisted when a Co-Authored-By trailer names an agent.' });
         if (t.prs) {
-            cards.push({ label: 'AI-assisted pull requests', value: FMT.pct0(share(t.aiPrs, t.prs)),
+            cards.push({ label: 'AI-assisted pull requests', value: FMT.share(share(t.aiPrs, t.prs)),
                          delta: fmt(t.aiPrs) + ' of ' + fmt(t.prs) + ' pull requests hold an AI-assisted commit',
                          spark: a.months.map(function(m) { return share(m.aiPrs, m.prs); }),
                          sparkTitle: 'Share of pull requests with an AI-assisted commit, per month',

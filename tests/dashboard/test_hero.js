@@ -46,6 +46,18 @@ check(a.agentCommits['Claude Opus 4.6'] === 2 && a.agentLines['Claude Opus 4.6']
 check(compute([]).keys.length === 0 && compute([]).totals.commits === 0, 'no rows: nothing, no error');
 check(compute([c('undated', '', 3)]).totals.commits === 0, 'a row without a dated month is left out');
 
+section('a share as a headline reads it');
+const share = n => page.run('return FMT.share(' + n + ')');
+check(share(0.5) === '50%' && share(0.524) === '52%', 'a whole percent');
+check(share(1) === '100%' && share(0) === '0%', 'the whole and nothing, when they are exactly that');
+check(share(23756 / 23855) === '99.6%', '99 human lines in 23,855 do not round away: ' + share(23756 / 23855));
+check(share(0.004) === '0.4%', 'nor does a sliver round to nothing: ' + share(0.004));
+check(share(0.9996) === '99.96%' && share(0.99996) === '99.996%', 'as many decimals as it takes, up to three');
+check(share(0.999999) === '100%', 'past three decimals it gives up');
+const se = load({ region: 'sv-SE' });
+check(se.run('return FMT.share(23756 / 23855)') === new Intl.NumberFormat('sv-SE', { style: 'percent', maximumFractionDigits: 1 }).format(23756 / 23855),
+      'in the region format: ' + se.run('return FMT.share(23756 / 23855)'));
+
 section('sparkline');
 check(page.run('return HERO.sparkline([1])') === '' && page.run('return HERO.sparkline([])') === '', 'fewer than two points draw nothing');
 const svg = page.run('return HERO.sparkline([0, 0.5, 1])');
