@@ -122,6 +122,30 @@ def build(tokens=True, sources=False, crowded=False):
             "agent": agent, "is_merge": is_merge, "status": "merge" if is_merge else "ok",
             "lines": lines, "test_lines": tests, "tokens": 0, "token_kind": "",
         })
+    # Each merge is pull request #i and brought in the ten commits before it,
+    # so some commits sit in no pull request and most pull requests hold both
+    # human and agent commits; every tenth squash-merge subject names its own.
+    for c in commits:
+        c["pr"] = None
+    for c in commits:
+        if c["is_merge"]:
+            for member in commits[max(0, c["index"] - 10):c["index"] + 1]:
+                if member["pr"] is None:
+                    member["pr"] = c["index"]
+    for c in commits:
+        if not c["is_merge"] and c["index"] % 50 == 25:
+            c["message"] += f" (#{c['index']})"
+            c["pr"] = c["index"]
+    # Who wrote what exists at HEAD: each author's net lines of every type,
+    # as if nothing anyone wrote was later rewritten by someone else, plus a
+    # few lines from before the history (a shallow clone's boundary).
+    at_head = {}
+    for c in commits:
+        who = c["agent"] or "human"
+        at_head[who] = at_head.get(who, 0) + sum(v[2 * k] - v[2 * k + 1] for v in c["lines"].values() for k in range(3))
+    lines_at_head = {"human": at_head.pop("human", 0), "unattributed": 7,
+                     "by_agent": {a: n for a, n in sorted(at_head.items()) if n}}
+    lines_at_head["total"] = lines_at_head["human"] + sum(lines_at_head["by_agent"].values()) + 7
     first = {}
     for c in commits:
         if c["agent"] and c["agent"] != MISC and c["agent"] not in first:
@@ -180,6 +204,7 @@ def build(tokens=True, sources=False, crowded=False):
             "repo_url": REMOTE,
             "analysed_by": {"version": "0.0.0", "commit": None},
             "head_snapshot": {"all": head, "tests": running_tests},
+            "lines_at_head": lines_at_head,
             "running_totals": {"all": running, "tests": running_tests},
             "reconciliation": reconciliation, "mapping_check": zero,
             "unmeasured_commits": 0, "pending_commits": 0,

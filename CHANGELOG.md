@@ -6,6 +6,25 @@ All notable changes to clocwork are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- The page opens with how much of the repository is AI: the share of the
+  code at HEAD that came from AI-assisted commits, the share of commits
+  that are AI-assisted, the share of pull requests that hold one, and the
+  tokens measured, each with its count and a sparkline of the share per
+  month, and the first as the page's headline. The code share comes from a
+  new blame pass: one `git blame` per file cloc counted at HEAD, run in
+  parallel and cached by blob and path beside the cloc cache. A workspace
+  analysed by an earlier release, or a run whose blame pass failed, shows
+  the share of code lines added in AI-assisted commits instead, labelled
+  as such. Pull requests now hold the commits their merge brought in,
+  recorded per commit in `full_commit_data.json` as `pr`.
+
+### Changed
+
+- The summary tiles under the opening figures are smaller, and the
+  AI-assisted tile among them is gone, its figure being the headline.
+
 ## [0.3.0] - 2026-09-29
 
 ### Added

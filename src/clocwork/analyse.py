@@ -7,11 +7,13 @@ rules are all inputs; nothing here knows which repository it is measuring.
 """
 
 import json
+import os
 import re
 import subprocess
 import sys
 from collections import namedtuple
 
+from clocwork import blame as bl
 from clocwork import classify as cf
 from clocwork import cloc as cl
 from clocwork import paths
@@ -38,6 +40,75 @@ def is_merge_commit(commit):
 def git(repo, *args):
     result = subprocess.run(["git"] + list(args), capture_output=True, text=True, cwd=repo, env=paths.git_env())
     return result.stdout
+
+
+# A pull request's number: a GitHub merge commit's subject ("Merge pull
+# request #N from ...") or a squash merge's, which ends "(#N)". Other hosts'
+# merges and rebase merges leave neither. The page reads subjects the same
+# way (MONTHLY.prNumber in template.html).
+PR_MERGE = re.compile(r"^Merge pull request #(\d+)\b")
+PR_SQUASH = re.compile(r"\(#(\d+)\)\s*$")
+
+
+def pr_number(subject):
+    m = PR_MERGE.match(subject) or PR_SQUASH.search(subject)
+    return int(m.group(1)) if m else None
+
+
+def pr_members(commits):
+    """{merge hash: [member hashes]}: the commits each merge on the branch's
+    first-parent chain brought in, in history order.
+
+    `commits` are parse_log's, oldest first, the last being the branch tip.
+    The chain is walked from the root; each merge's members are what its
+    other parents reach that no earlier chain commit did, so the walk is one
+    pass over the history. A merge off the chain (main merged into a feature
+    branch, a pull request merged into another before that one landed) is a
+    member of the chain merge that brought it, and has no members of its own.
+    """
+    if not commits:
+        return {}
+    index = {c["hash"]: i for i, c in enumerate(commits)}
+    parents = [[index[p] for p in c["parents"] if p in index] for c in commits]
+    chain, i = [], len(commits) - 1
+    while True:
+        chain.append(i)
+        if not parents[i]:
+            break
+        i = parents[i][0]
+    seen, members = set(), {}
+    for m in reversed(chain):
+        found, stack = [], list(parents[m][1:])
+        while stack:
+            j = stack.pop()
+            if j in seen:
+                continue
+            seen.add(j)
+            found.append(j)
+            stack.extend(parents[j])
+        seen.add(m)
+        if len(parents[m]) > 1:
+            members[commits[m]["hash"]] = [commits[j]["hash"] for j in sorted(found)]
+    return members
+
+
+def assign_prs(commits, results):
+    """Set each result row's "pr": the pull request it belongs to, or None.
+
+    A merge commit's subject names its pull request, and the commits it
+    brought in (pr_members) belong to it; a squash merge's subject names its
+    own. A member whose own subject names a pull request keeps that one.
+    """
+    by_hash = {r["full_hash"]: r for r in results}
+    for r in results:
+        r["pr"] = pr_number(r["message"])
+    for merge, members in pr_members(commits).items():
+        number = by_hash[merge]["pr"]
+        if number is None:
+            continue
+        for member in members:
+            if by_hash[member]["pr"] is None:
+                by_hash[member]["pr"] = number
 
 
 Rename = namedtuple("Rename", "commit old new old_blob new_blob")
@@ -710,6 +781,21 @@ def analyse(repo_dir, output_path, cache_path, archive_path, *, config=None, bra
             "test_lines": test_lines,
         })
 
+    assign_prs(commits, results)
+
+    # Who wrote the lines that exist at rev: one blame per file cloc counted,
+    # credited through the commits above. A failure costs the figure, not
+    # the run, and the page then falls back to lines added.
+    lines_at_head = None
+    try:
+        blame_cache = bl.Cache(os.path.join(os.path.dirname(cache_path) or ".", "blame_cache.json"))
+        totals, fresh = bl.lines_at(repo_dir, rev, present, blame_cache, jobs=jobs,
+                                    on_start=lambda n: report.status(f"blaming {n:,} files at {branch}, {jobs} at a time"))
+        lines_at_head = bl.by_agent(totals, results)
+        report.detail("blame", f"{len(present):,} files, {fresh:,} blamed afresh, {len(present) - fresh:,} from cache")
+    except (bl.BlameError, OSError) as e:
+        report.warn(f"could not blame the files at {branch} ({e}); the page shows lines added instead")
+
     seen = set()
     for r in results:
         seen.update(r["lines"])
@@ -750,6 +836,7 @@ def analyse(repo_dir, output_path, cache_path, archive_path, *, config=None, bra
             "repo_url": paths.remote_url(repo_dir),
             "analysed_by": paths.build(),
             "head_snapshot": {"all": by_file_all, "tests": by_file_tests},
+            "lines_at_head": lines_at_head,
             "running_totals": {"all": running_all, "tests": running_tests},
             "reconciliation": reconciliation,
             "mapping_check": mapping_check,

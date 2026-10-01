@@ -22,8 +22,12 @@ section('embedded region locale wins over the browser language');
 check(int.format(3744) !== new Intl.NumberFormat('en-US').format(3744), 'sanity: en-SE groups digits differently from en-US');
 check(page.run('return FMT.locale') === REGION && page.run('return Chart.defaults.locale') === REGION, 'page and Chart.js use the embedded locale');
 check(value('Total Commits') === int.format(S.total_commits), 'commit count in the region format: ' + value('Total Commits'));
-check(value('AI-Assisted') === int.format(S.ai_assisted_commits), 'AI-assisted count in the region format: ' + value('AI-Assisted'));
-check(note('AI-Assisted') === pct.format(S.ai_assisted_commits / S.total_commits) + ' of all commits', 'percentage in the region format: ' + note('AI-Assisted'));
+const hero = byId('heroGrid').children.find(x => x.children[0].textContent === 'AI-assisted commits');
+const nonMerge = RAW.commits.filter(c => !c[5]), aiNonMerge = nonMerge.filter(c => c[4] && c[4] !== 'Misc');
+check(hero.children[1].textContent === new Intl.NumberFormat(REGION, { style: 'percent', maximumFractionDigits: 0 }).format(aiNonMerge.length / nonMerge.length),
+      'hero percentage in the region format: ' + hero.children[1].textContent);
+check(hero.children[2].textContent.indexOf(int.format(aiNonMerge.length) + ' of ' + int.format(nonMerge.length)) === 0,
+      'hero counts in the region format: ' + hero.children[2].textContent);
 const top = byId('allCommitsBody').children[0];
 check(cells(top)[0] === date(RAW.commits[RAW.commits.length - 1][2]), 'table date in the region format: ' + cells(top)[0]);
 const T = S.tokens;
