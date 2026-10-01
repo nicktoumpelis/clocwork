@@ -11,6 +11,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from collections import namedtuple
 
 from clocwork import blame as bl
@@ -789,10 +790,12 @@ def analyse(repo_dir, output_path, cache_path, archive_path, *, config=None, bra
     lines_at_head = None
     try:
         blame_cache = bl.Cache(os.path.join(os.path.dirname(cache_path) or ".", "blame_cache.json"))
+        started = time.monotonic()
         totals, fresh = bl.lines_at(repo_dir, rev, present, blame_cache, jobs=jobs,
                                     on_start=lambda n: report.status(f"blaming {n:,} files at {branch}, {jobs} at a time"))
         lines_at_head = bl.by_agent(totals, results)
-        report.detail("blame", f"{len(present):,} files, {fresh:,} blamed afresh, {len(present) - fresh:,} from cache")
+        report.detail("blame", f"{len(present):,} files, {fresh:,} blamed afresh, {len(present) - fresh:,} from cache, "
+                               f"{ui.duration(time.monotonic() - started)}")
     except (bl.BlameError, OSError) as e:
         report.warn(f"could not blame the files at {branch} ({e}); the page shows lines added instead")
 
