@@ -6,6 +6,8 @@ All notable changes to clocwork are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-01
+
 ### Added
 
 - The page opens with how much of the repository is AI: the share of the
@@ -331,7 +333,8 @@ First public release.
 - Every number, date and unit on the page is formatted for a region locale.
 - A `clocwork(1)` manual page.
 
-[Unreleased]: https://github.com/nicktoumpelis/clocwork/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/nicktoumpelis/clocwork/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/nicktoumpelis/clocwork/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/nicktoumpelis/clocwork/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/nicktoumpelis/clocwork/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/nicktoumpelis/clocwork/compare/v0.1.1...v0.2.0
