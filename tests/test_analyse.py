@@ -454,7 +454,7 @@ class TestInputs(unittest.TestCase):
                                                 f"measuring {total - merges:,} new commits with cloc, 1 at a time",
                                                 "blaming 4 files at main, 1 at a time"])
             blame = [v for k, v in rec.of("detail") if k == "blame"]
-            self.assertRegex(blame[0], r"^4 files, 4 blamed afresh, 0 from cache, \d+(\.\d)?s$")
+            self.assertRegex(blame[0], r"^4 files, 4 blamed afresh, 0 from cache, \d[\d.]*(s|m\d\ds|h\d\dm)$")
             # Every line at main credited: the Claude commit's, the merge's member's, the rest human.
             at_head = data["summary"]["lines_at_head"]
             self.assertEqual(set(at_head), {"total", "human", "by_agent", "unattributed"})
@@ -474,7 +474,7 @@ class TestInputs(unittest.TestCase):
             self.assertEqual(rec.of("done")[0][1], (f"0 measured, {total - merges:,} from cache",))
             self.assertEqual(rec.of("status"), ["reading the history of main"])
             blame = [v for k, v in rec.of("detail") if k == "blame"]
-            self.assertRegex(blame[0], r"^4 files, 0 blamed afresh, 4 from cache, \d+(\.\d)?s$")
+            self.assertRegex(blame[0], r"^4 files, 0 blamed afresh, 4 from cache, \d[\d.]*(s|m\d\ds|h\d\dm)$")
             self.assertFalse([w for w in rec.of("warn") if "drift" in w], rec.of("warn"))
 
     def test_run_summary_reports_the_test_share_at_head(self):
